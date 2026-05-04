@@ -1,0 +1,8 @@
+envScreener/
+__pycache__/
+*.db
+*.pth
+*.pkl
+*.zip
+*.dll
+*.exe
