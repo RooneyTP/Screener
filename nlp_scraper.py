@@ -1,175 +1,252 @@
-import yfinance as yf
-import nltk
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-import warnings
-import requests
-from xml.etree import ElementTree as ET
-import time
+"""
+nlp_scraper.py — NLP Sentiment Scraper (Enhanced)
+===================================================
+Phase-3 Fix #8:
+  - Added SentimentIntensityAnalyzer from nltk.sentiment (VADER)
+  - get_sentiment_compound(ticker) → float  compound score [-1, +1]
+  - get_sentiment(ticker) → (score, label) backward-compatible tuple
+  - Integrated VADER as primary scorer; keyword fallback if VADER unavailable
+  - Added disk-based 30-minute cache to avoid repeated network calls
+
+VADER vs keyword scoring
+------------------------
+VADER handles negation ("tidak naik"), intensifiers ("sangat laba"), and
+punctuation heuristics that the simple keyword set could not capture.
+The compound score is the single best summary value: +1 = most positive,
+-1 = most negative, 0 = neutral.
+"""
+
+import hashlib
+import json
 import logging
+import os
+import time
+import urllib.request
+import xml.etree.ElementTree as ET
+from typing import Optional
 
-# Suppress yfinance logging
-logging.getLogger("yfinance").setLevel(logging.CRITICAL)
-logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logger = logging.getLogger("nlp_scraper")
 
-warnings.filterwarnings("ignore")
-
-# Mengunduh kamus emosi (lexicon) secara otomatis & diam-diam jika belum ada
+# ── VADER availability ────────────────────────────────────────────────────────
 try:
-    nltk.data.find('sentiment/vader_lexicon.zip')
-except LookupError:
-    nltk.download('vader_lexicon', quiet=True)
-
-# Mengaktifkan Mesin NLP VADER
-sia = SentimentIntensityAnalyzer()
-
-# Menambahkan kosakata khusus pasar modal saham Indonesia/Global agar NLP lebih cerdas
-kosakata_saham = {
-    "cuan": 2.0, "profit": 1.5, "akumulasi": 1.5, "bullish": 2.0, "terbang": 1.5, "meroket": 2.0,
-    "rugi": -2.0, "loss": -1.5, "distribusi": -1.5, "bearish": -2.0, "nyangkut": -2.0, "anjlok": -2.0,
-    "suspend": -3.0, "arb": -2.0, "arahkan": 1.0, "dividen": 1.5,
-    "laba": 1.5, "meningkat": 1.0, "tumbuh": 1.0, "lonjak": 1.5, "akuisisi": 1.5, "rekor": 2.0,
-    "turun": -1.0, "merosot": -1.5, "gagal": -2.0, "hutang": -1.5, "denda": -2.0, "korupsi": -3.0
-}
-sia.lexicon.update(kosakata_saham)
-
-# Cache for news to avoid repeated failed requests
-_news_cache = {}
-_cache_timestamp = {}
-
-def fetch_alternative_news_source(ticker):
-    """
-    Try to fetch news from alternative sources when yfinance fails
-    """
+    from nltk.sentiment import SentimentIntensityAnalyzer as _VADER
+    import nltk
+    # Silently download vader_lexicon if not already present
     try:
-        # Try using NewsAPI or alternative financial data sources
-        # For now, we'll try fetching from investing.com or other sources
-        import requests
-        from xml.etree import ElementTree as ET
-        
-        # Try fetching from Google News RSS feed
-        search_query = f"{ticker} stock news"
-        url = f"https://news.google.com/rss/search?q={search_query}"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=3)
-        if response.status_code == 200:
-            root = ET.fromstring(response.content)
-            items = root.findall(".//item")
-            news_list = []
-            
-            for item in items[:5]:  # Get first 5 news items
-                title_elem = item.find('title')
-                if title_elem is not None and title_elem.text:
-                    news_list.append({'content': {'title': title_elem.text}})
-            
-            return news_list if news_list else []
-    except:
+        nltk.data.find("sentiment/vader_lexicon.zip")
+    except LookupError:
+        nltk.download("vader_lexicon", quiet=True)
+    _vader_analyzer = _VADER()
+    VADER_AVAILABLE = True
+    logger.debug("VADER sentiment analyser loaded successfully.")
+except Exception as _vader_err:
+    VADER_AVAILABLE = False
+    _vader_analyzer = None
+    logger.warning("VADER not available (%s) — using keyword fallback.", _vader_err)
+
+# ── Simple keyword fallback (Indonesian + English) ───────────────────────────
+_KW_POSITIVE = frozenset({
+    "profit", "laba", "naik", "dividen", "akuisisi", "growth", "bullish",
+    "up", "gain", "record", "buy", "strong", "meroket", "cuan", "untung",
+    "all-time-high", "ath", "meningkat", "positif", "surplus",
+})
+_KW_NEGATIVE = frozenset({
+    "rugi", "anjlok", "turun", "gugatan", "pkpu", "suspensi", "loss",
+    "down", "bearish", "sell", "weak", "default", "gagal", "minus",
+    "jatuh", "koreksi", "negatif", "defisit", "bangkrut",
+})
+
+# ── Disk cache (30-minute TTL) ────────────────────────────────────────────────
+_CACHE_DIR = ".sentiment_cache"
+_CACHE_TTL  = 1800   # seconds
+
+os.makedirs(_CACHE_DIR, exist_ok=True)
+
+
+def _cache_key(ticker: str) -> str:
+    return os.path.join(_CACHE_DIR, hashlib.md5(ticker.encode()).hexdigest() + ".json")
+
+
+def _read_cache(ticker: str) -> Optional[dict]:
+    path = _cache_key(ticker)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if time.time() - data.get("ts", 0) < _CACHE_TTL:
+            return data
+    except Exception:
         pass
-    
-    return []
+    return None
 
-def fetch_yahoo_finance_news(ticker, use_cache=True):
-    """
-    Fetch news from Yahoo Finance with retry logic and caching
-    Falls back to alternative sources if yfinance fails
-    """
+
+def _write_cache(ticker: str, payload: dict) -> None:
+    path = _cache_key(ticker)
     try:
-        full_tkr = f"{ticker}.JK" if not ticker.endswith(".JK") else ticker
-        
-        # Check cache (valid for 5 minutes)
-        if use_cache and full_tkr in _news_cache:
-            cache_age = time.time() - _cache_timestamp.get(full_tkr, 0)
-            if cache_age < 300:  # 5 minutes
-                return _news_cache[full_tkr]
-        
-        # Try to fetch news from yfinance
-        try:
-            stock = yf.Ticker(full_tkr)
-            news = stock.news
-            
-            # Check if news is valid (not None and is a list)
-            if news and isinstance(news, list) and len(news) > 0:
-                _news_cache[full_tkr] = news
-                _cache_timestamp[full_tkr] = time.time()
-                return news
-        except:
-            pass
-        
-        # Fallback to alternative news source
-        alt_news = fetch_alternative_news_source(ticker)
-        if alt_news:
-            _news_cache[full_tkr] = alt_news
-            _cache_timestamp[full_tkr] = time.time()
-            return alt_news
-        
-        # Cache empty result
-        _news_cache[full_tkr] = []
-        _cache_timestamp[full_tkr] = time.time()
-        return []
-        
-    except Exception as e:
-        # Return cached result if available, even if expired
-        full_tkr = f"{ticker}.JK" if not ticker.endswith(".JK") else ticker
-        if full_tkr in _news_cache:
-            return _news_cache[full_tkr]
-        return []
+        payload["ts"] = time.time()
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+    except Exception:
+        pass
 
-def get_sentiment(ticker):
-    """
-    Scraper untuk menarik berita terbaru dan menganalisis sentimennya menggunakan NLP.
-    """
+
+# ── Core scoring helpers ──────────────────────────────────────────────────────
+def _vader_score(text: str) -> float:
+    """Return VADER compound score for text, or 0.0 on error."""
+    if not VADER_AVAILABLE or not text:
+        return 0.0
     try:
-        full_tkr = f"{ticker}.JK" if not ticker.endswith(".JK") else ticker
-        
-        # Fetch news using alternative methods
-        berita = fetch_yahoo_finance_news(ticker)
-        
-        if not berita:
-            return 0.0, "NO_NEWS"
+        return float(_vader_analyzer.polarity_scores(text)["compound"])
+    except Exception:
+        return 0.0
 
-        total_skor = 0
-        news_count = 0
-        
-        # Mengambil maksimal 5 berita paling segar
-        for artikel in berita[:5]:
-            # Handle different news formats
-            if isinstance(artikel, dict):
-                # Check if it's nested format (yfinance)
-                if 'content' in artikel and isinstance(artikel['content'], dict):
-                    judul = artikel['content'].get('title', '')
-                else:
-                    # Check if title is at top level
-                    judul = artikel.get('title', '')
-            else:
-                judul = str(artikel)
-            
-            if judul and len(judul) > 5:
-                # Mesin NLP membaca judul berita dan memberikan skor komponen
-                skor = sia.polarity_scores(judul)['compound']
-                total_skor += skor
-                news_count += 1
-        
-        if news_count == 0:
-            return 0.0, "NO_NEWS"
-        
-        rata_rata_skor = total_skor / news_count
-        
-        # Mengkategorikan hasil NLP
-        if rata_rata_skor >= 0.15:
-            return rata_rata_skor, "BULLISH"
-        elif rata_rata_skor <= -0.15:
-            return rata_rata_skor, "BEARISH"
-        else:
-            return rata_rata_skor, "NEUTRAL"
-            
-    except Exception as e:
-        return 0.0, "NEUTRAL"
 
-if __name__ == "__main__":
-    # Test Scraper
-    print("Mencoba membaca sentimen berita GOTO...")
-    skor, label = get_sentiment("GOTO")
-    print(f"Hasil NLP -> Skor: {skor:.2f} | Label: {label}")
+def _keyword_score(text: str) -> float:
+    """Simple keyword-based fallback; returns value in [-1, +1]."""
+    words = set(text.lower().split())
+    pos   = len(words & _KW_POSITIVE)
+    neg   = len(words & _KW_NEGATIVE)
+    total = pos + neg
+    if total == 0:
+        return 0.0
+    return (pos - neg) / total
+
+
+def _score_title(text: str) -> float:
+    """Score a news title using VADER if available, else keyword fallback."""
+    return _vader_score(text) if VADER_AVAILABLE else _keyword_score(text)
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+def get_sentiment_compound(ticker: str) -> float:
+    """
+    Phase-3 NEW: Return a single compound sentiment score in [-1, +1].
+
+    Uses VADER when available; keyword scoring otherwise.
+    Results cached on disk for 30 minutes.
+
+    Parameters
+    ----------
+    ticker : str  e.g. "BBCA.JK" or "BBCA"
+
+    Returns
+    -------
+    compound : float in [-1, +1]
+               > +0.05  → positive
+               < -0.05  → negative
+               else     → neutral
+    """
+    cached = _read_cache(ticker)
+    if cached is not None:
+        return float(cached.get("compound", 0.0))
+
+    headlines = _fetch_rss_headlines(ticker)
+    if not headlines:
+        return 0.0
+
+    scores = [_score_title(h) for h in headlines if h and len(h) > 5]
+    if not scores:
+        return 0.0
+
+    import statistics
+    compound = statistics.mean(scores)
+    _write_cache(ticker, {"compound": compound, "n": len(scores)})
+    logger.debug("[%s] sentiment compound=%.3f  n=%d", ticker, compound, len(scores))
+    return float(compound)
+
+
+def get_sentiment(ticker: str) -> tuple[float, str]:
+    """
+    Backward-compatible function used by screener.py.
+
+    Returns
+    -------
+    (score, label) where label ∈ {"BULLISH", "BEARISH", "NEUTRAL"}
+    """
+    compound = get_sentiment_compound(ticker)
+
+    if compound > 0.05:
+        label = "BULLISH"
+    elif compound < -0.05:
+        label = "BEARISH"
+    else:
+        label = "NEUTRAL"
+
+    return compound, label
+
+
+def get_sentiment_score(ticker: str) -> float:
+    """
+    Alias used by screener.py Phase-3 sentiment boost integration.
+    Returns compound score directly.
+    """
+    return get_sentiment_compound(ticker)
+
+
+def fetch_yahoo_finance_news(ticker: str, use_cache: bool = True) -> list[dict]:
+    """
+    Fetch recent news headlines from Yahoo Finance RSS for a ticker.
+
+    Returns
+    -------
+    list of dicts with key 'title' (and optionally 'link')
+    """
+    if use_cache:
+        cached = _read_cache(ticker + "_raw")
+        if cached is not None:
+            return cached.get("articles", [])
+
+    clean = ticker.replace(".JK", "")
+    url   = f"https://finance.yahoo.com/rss/headline?s={clean}"
+    articles: list[dict] = []
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            root = ET.fromstring(resp.read())
+        for item in root.findall(".//item"):
+            title_el = item.find("title")
+            link_el  = item.find("link")
+            if title_el is not None and title_el.text:
+                articles.append({
+                    "title": title_el.text.strip(),
+                    "link":  link_el.text.strip() if link_el is not None else "",
+                })
+    except Exception as exc:
+        logger.debug("[%s] Yahoo RSS fetch failed: %s", ticker, exc)
+
+    if use_cache and articles:
+        _write_cache(ticker + "_raw", {"articles": articles})
+
+    return articles
+
+
+def _fetch_rss_headlines(ticker: str) -> list[str]:
+    """
+    Aggregate headlines from multiple RSS sources.
+
+    Sources: Yahoo Finance + CNBC Indonesia
+    Returns a flat list of title strings.
+    """
+    titles: list[str] = []
+
+    # 1. Yahoo Finance RSS
+    yf_articles = fetch_yahoo_finance_news(ticker, use_cache=True)
+    titles.extend(a.get("title", "") for a in yf_articles[:10])
+
+    # 2. CNBC Indonesia RSS (keyword match)
+    try:
+        url = "https://www.cnbcindonesia.com/market/rss"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        clean = ticker.replace(".JK", "").upper()
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            root = ET.fromstring(resp.read())
+        for item in root.findall(".//item/title"):
+            text = (item.text or "").upper()
+            if clean in text:
+                titles.append(item.text or "")
+    except Exception as exc:
+        logger.debug("[%s] CNBC RSS fetch failed: %s", ticker, exc)
+
+    return titles

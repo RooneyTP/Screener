@@ -18,7 +18,7 @@ SCALER_PATH = "kacamata_ai.pkl"
 FITUR_AI = [
     "RSI", "ADX", "Volume", "BB_Width%", "RRR", 
     "MM_Confidence", "MM_vs_Retail_Ratio", "IHSG_Change", "USD_Change", 
-    "RSI_Kemarin", "MACD_Kemarin" # <- Disesuaikan
+    "RSI_Kemarin", "MACD_Kemarin" # <- Created dynamically at line 40-41 via shift()
 ]
 
 def train_v9_logic():

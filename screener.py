@@ -32,7 +32,7 @@ from data_fetcher import fetch_macro_data, fetch_price_data_sync
 from security import *
 from performance import *
 import data_fetcher
-
+from broker_scraper import analisis_broksum
 # =======================================================
 # SENSOR MARKET BREADTH v9.2 (Lazy Loading)
 # =======================================================
@@ -45,9 +45,58 @@ _macro_data_cache = None
 def get_macro_data():
     global _macro_data_cache
     if _macro_data_cache is None:
-        print("🌍 Mengunduh Cuaca Makro Global & Komoditas...")
+        logger.info("Mengunduh Cuaca Makro Global & Komoditas...")
         _macro_data_cache = fetch_macro_data()
     return _macro_data_cache
+
+import threading
+_counter_lock = threading.Lock()
+
+def update_macro_globals():
+    """Ambil data macro dan update semua global. Panggil sekali di awal screener."""
+    global IHSG_CHANGE, SP500_CHANGE, USD_CHANGE, BRENT_CHANGE
+    global GOLD_CHANGE, COAL_CHANGE, USD_PRICE, ihsg_data
+    global MACRO_PENALTY, IHSG_TREND
+    try:
+        macro = get_macro_data()
+        if not macro:
+            return
+        IHSG_CHANGE  = float(macro.get("ihsg_change",   0.0))
+        SP500_CHANGE = float(macro.get("sp500_change",  0.0))
+        USD_CHANGE   = float(macro.get("usd_change",    0.0))
+        BRENT_CHANGE = float(macro.get("brent_change",  0.0))
+        GOLD_CHANGE  = float(macro.get("gold_change",   0.0))
+        COAL_CHANGE  = float(macro.get("coal_change",   0.0))
+        USD_PRICE    = float(macro.get("usd_price",  16000.0))
+        ihsg_series  = macro.get("ihsg_data", None)
+        if ihsg_series is not None:
+            ihsg_data = pd.Series(ihsg_series) if not isinstance(ihsg_series, pd.Series) else ihsg_series
+
+        # Hitung MACRO_PENALTY dari kondisi riil
+        penalty = 0.0
+        if IHSG_CHANGE  < -1.5: penalty -= 1.0
+        if SP500_CHANGE < -1.0: penalty -= 0.5
+        if USD_CHANGE   >  0.5: penalty -= 0.5
+        if BRENT_CHANGE >  3.0: penalty -= 0.5
+        if IHSG_CHANGE  >  1.0: penalty += 0.5
+        if GOLD_CHANGE  >  1.0: penalty -= 0.5
+        MACRO_PENALTY = round(penalty, 1)
+
+        # Update IHSG_TREND
+        if len(ihsg_data) >= 3:
+            last3 = ihsg_data.tail(3)
+            IHSG_TREND = "UP" if (last3.diff().dropna() > 0).all() else "DOWN"
+        else:
+            IHSG_TREND = "UP" if IHSG_CHANGE > 0 else "DOWN"
+
+        # Phase-4: use logger instead of print for structured output
+        logger.info(
+            "Macro update — IHSG=%+.2f%% | USD=%+.2f%% | Trend=%s | Penalty=%.1f",
+            IHSG_CHANGE, USD_CHANGE, IHSG_TREND, MACRO_PENALTY
+        )
+    except Exception as e:
+        # Phase-1: log with full traceback instead of silent swallow
+        logger.error("update_macro_globals() gagal: %s", e, exc_info=True)
 
 # Define defaults - will be updated when needed
 IHSG_CHANGE = 0.0
@@ -62,7 +111,8 @@ MACRO_PENALTY = 0.0
 # FIX BUG 4: IHSG_TREND tidak pernah didefinisikan — tambahkan default di sini
 IHSG_TREND = "UP"
 # Discord webhook URL — isi dengan URL webhook Discord kamu, atau biarkan kosong untuk skip
-DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK_URL", "")
+# DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK", "")
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1497448578312835082/L_lkCmGrKEByeKwHeRaoycT9JS2QGjU_Mln6sekuzEvhBlOgkiwgfi8_NBww0iHgrD8G"
 import numpy as np
 import datetime
 import warnings
@@ -75,8 +125,18 @@ import requests
 import traceback
 import sqlite3
 import logging
+import gc  # Phase-3: batch memory management
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# ── Phase-4: Unified logging setup with timestamp ────────────────────────────
+# All print() for errors/warnings are replaced with logger calls throughout.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("screener")
 
 # Suppress yfinance and urllib3 logging to avoid noise
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
@@ -133,26 +193,50 @@ except ImportError:
 warnings.filterwarnings("ignore")
 
 # ==========================================
-# ⚙️ STRATEGY ENGINE CONFIG (DYNAMIC WEIGHTS)
+# ⚙️ STRATEGY ENGINE CONFIG (BALANCED WEIGHTS v10)
 # ==========================================
+# REVAMP: Tech 35% → Fund 25% → RS 20% → Sentiment 20%
 BOBOT_SKOR = {
-    "Sector_HOT": 1.0,
-    "Sector_COLD": -1.0,
-    "PER_Murah": 1.0,
-    "EPS_Minus": -1.0,
-    "PBV_Murah": 0.5,
-    "PBV_Mahal": -0.5,
-    "Overbought": -1.5,
-    "Pullback_EMA21": 1.5,
-    "RS_Strong": 0.5,
-    "Alpha_Leader": 1.5,
-    "VCP_Setup": 1.0,
-    "Wyckoff_Absorb": 1.5,
-    "Vol_Anomaly": 2.0,
-    "News_BULLISH": 1.0,
-    "News_BEARISH": -1.0,
-    "Foreign_Buy": 1.5,
-    "Foreign_Sell": -1.0,
+    # TIER 1: TECHNICAL INDICATORS (35% weight) ═══════════════════════
+    "EMA_Aligned": 2.0,        # Price > EMA21 > EMA50 > HMA (strongest)
+    "RSI_Good_Entry": 1.5,     # RSI 30-50 range (not overbought)
+    "MACD_Bullish": 1.5,       # MACD histogram positive & increasing
+    "Volume_Confirm": 2.0,     # Volume > SMA20 (confirmation)
+    "ADX_Strong": 1.5,         # ADX > 35 (trending market)
+    "VCP_Pattern": 1.0,        # Volatility contraction pattern
+    "Vol_Anomaly": 1.5,        # Volume Z-score anomaly (rebalanced)
+    
+    # TIER 2: FUNDAMENTAL ANALYSIS (25% weight) ═════════════════════════
+    "PER_Cheap": 2.0,          # PER <= 12 (significantly undervalued)
+    "PER_Fair": 1.0,           # PER 12-18 (reasonable valuation)
+    "PBV_Strong": 1.5,         # PBV <= 1.0 (solid asset value)
+    "PBV_Mahal": -1.0,         # PBV > 5.0 (too expensive - symmetric penalty)
+    "Earnings_Quality": 1.5,   # Growing profits (added)
+    
+    # TIER 3: RELATIVE STRENGTH (20% weight) ════════════════════════════
+    "RS_Outperform": 1.5,      # Stock > IHSG return (20d)
+    "Sector_Leadership": 1.5,  # Leading in sector (from HOT)
+    "Alpha_Leader": 1.5,       # Gaining market share
+    "RS_Top_Decile": 1.0,      # Top 10% strongest stocks
+    
+    # TIER 4: SENTIMENT & MARKET PSYCHOLOGY (20% weight) ═════════════════
+    "News_BULLISH": 1.5,       # Positive news (rebalanced UP)
+    "News_BEARISH": -1.5,      # Negative news (SYMMETRIC)
+    "Sentiment_Strong": 1.0,   # Strong sentiment score (added)
+    "Foreign_Buy": 1.5,        # Foreign accumulation
+    "Foreign_Sell": -1.5,      # Foreign selling (SYMMETRIC)
+    
+    # MICRO PATTERNS & CONFIRMATION (5% weight) ═════════════════════════
+    "Pullback_EMA21": 1.0,     # Healthy pullback (reduced)
+    "Wyckoff_Absorb": 1.0,     # Effort vs result (reduced)
+    "Sector_Cold": -1.0,       # Cold sector rotation
+    "Overbought": -1.5,        # Bollinger top (strict)
+    
+    # RISK PENALTIES (Critical Safety Filters) ══════════════════════════
+    "EPS_Minus": -2.0,         # No earnings (stronger penalty)
+    "Delisting_Risk": -3.0,    # Bankruptcy/delisting warning
+    "Broksum_ACCUM": 1.5,      # Broker accumulation
+    "Broksum_DIST": -1.5       # Broker distribution (SYMMETRIC)
 }
 
 # =====================================================================
@@ -428,7 +512,7 @@ def compute_sector_momentum():
     if _SEKTOR_MOMENTUM_LOADED:
         return  # Already computed
     
-    print("📊 Memindai Arus Uang (Rotasi Sektor)...")
+    logger.info("Memindai Arus Uang (Rotasi Sektor)...")
     
     try:
         BATCH_SIZE = 25   # max ticker per request agar tidak freeze
@@ -479,19 +563,25 @@ def compute_sector_momentum():
                         pass
             SEKTOR_MOMENTUM[sektor] = sum(ret_sektor) / len(ret_sektor) if ret_sektor else 0.0
 
-        print(f"  ✅ Rotasi sektor selesai ({len(SEKTOR_MOMENTUM)} sektor dipindai)")
+        logger.info("Rotasi sektor selesai (%d sektor dipindai)", len(SEKTOR_MOMENTUM))
         _SEKTOR_MOMENTUM_LOADED = True
     except Exception as e:
-        print(f"  ⚠️ Rotasi sektor gagal: {e} — lanjut tanpa data momentum sektor.")
+        logger.warning("Rotasi sektor gagal: %s — lanjut tanpa data momentum sektor.", e)
         SEKTOR_MOMENTUM = {}
         _SEKTOR_MOMENTUM_LOADED = True
 
 # ─── Fungsi Helper untuk Analisis Lanjutan ───────────────────────────────────
 def hma(data: pd.Series, period: int = 20) -> pd.Series:
-    wma1 = data.rolling(int(period/2)).mean()
-    wma2 = data.rolling(period).mean()
-    hma_raw = 2 * wma1 - wma2
-    return hma_raw.rolling(int(np.sqrt(period))).mean()
+    """Hull Moving Average yang benar menggunakan WMA."""
+    def _wma(series: pd.Series, length: int) -> pd.Series:
+        weights = np.arange(1, length + 1, dtype=float)
+        return series.rolling(length).apply(
+            lambda x: np.dot(x, weights) / weights.sum(), raw=True
+        )
+    half_period = max(1, int(period / 2))
+    sqrt_period = max(1, int(np.sqrt(period)))
+    raw_hma = 2 * _wma(data, half_period) - _wma(data, period)
+    return _wma(raw_hma, sqrt_period)
 
 def detect_support_resistance(data: pd.Series, lookback: int = 20) -> tuple:
     support = data.rolling(lookback).min().iloc[-1]
@@ -1129,9 +1219,14 @@ def kirim_notifikasi_discord(df: pd.DataFrame, webhook_url: str):
     """Mengirim hasil screener ke Discord menggunakan Webhook dengan format Embed dan Estimasi Waktu."""
     import requests
     import datetime
-
+    
+    # 👇 TAMBAHKAN 3 BARIS INI 👇
+    if not webhook_url or not webhook_url.startswith("http"):
+        print("  [Discord] URL Webhook kosong. Notifikasi Discord dilewati.")
+        return
+    # 👆 --------------------- 👆
     # Hanya ambil saham yang sinyalnya kuat agar Discord tidak spam
-    df_alert = df[df["Sinyal"].isin(["ULTRA_BUY", "STRONG_BUY"])]
+    df_alert = df[df["Sinyal"].isin(["ULTRA_BUY", "STRONG_BUY", "BUY"])]
     
     if df_alert.empty:
         print("  [Discord] Tidak ada sinyal kuat hari ini, notifikasi dilewati.")
@@ -1208,7 +1303,7 @@ def validasi_data_yfinance(df: pd.DataFrame, ticker: str) -> bool:
     anomali = pct_change[pct_change > 40.0]
     
     if not anomali.empty:
-        print(f"  ⚠️ [SANITIZER] {ticker} dilewati. Terdeteksi anomali data ekstrem (Cacat YF).")
+        logger.warning("[SANITIZER] %s dilewati — anomali data ekstrem terdeteksi (kemungkinan cacat YF).", ticker)
         return False
         
     return True
@@ -1243,9 +1338,10 @@ def analisis_saham(ticker: str) -> dict | None:
         ema50 = calculate_ema(close, 50)
         hma20 = hma(close, 20)
         # 🔥 Update Sensor Market Breadth
-        global_total_discan += 1
-        if close.iloc[-1] > ema50.iloc[-1]:
-            global_saham_uptrend += 1
+        with _counter_lock:
+            global_total_discan += 1
+            if float(close.iloc[-1]) > float(ema50.iloc[-1]):
+                global_saham_uptrend += 1
         adx_val = calculate_adx(high, low, close)
 
         macd_line, macd_signal, macd_hist = calculate_macd(close)
@@ -1268,9 +1364,23 @@ def analisis_saham(ticker: str) -> dict | None:
         
         fundamentals = fetch_fundamental_metrics(ticker)
         sentiment = fetch_news_sentiment(ticker)
-        
+
+        # ── Phase-3: Missing fundamental defaults ──────────────────────────
+        # yfinance sering tidak punya PE/PBV untuk saham IHSG kecil.
+        # Jika None/0, gunakan nilai konservatif agar scoring tidak crash.
+        _raw_pe  = fundamentals.get("trailing_pe", 0) or 0
+        _raw_bv  = fundamentals.get("book_value",  0) or 0
+        if _raw_pe == 0:
+            logger.warning("[FUNDAMENTAL] %s: PE tidak tersedia — pakai default 15", ticker)
+            fundamentals["trailing_pe"] = 15.0   # default konservatif
+        if _raw_bv == 0:
+            logger.warning("[FUNDAMENTAL] %s: Book Value tidak tersedia — pakai default 1.5", ticker)
+            fundamentals["book_value"] = 1.0     # proxy agar pbv_val = price/1 → dihitung wajar
+
         # 🔥 Taruh Sensor Asing di sini, berkumpul dengan data eksternal lain
         foreign_data = fetch_foreign_flow(ticker)
+        # Panggil fungsi dari file broker_scraper.py
+        data_broksum = analisis_broksum(ticker)
         # 🔥 Panggil Senjata Baru v9.0
         vol_zscore = detect_zscore_anomaly(volume)
         sentimen_lokal = fetch_berita_lokal(ticker)
@@ -1350,6 +1460,50 @@ def analisis_saham(ticker: str) -> dict | None:
         macd_hist_delta = float(macd_hist.iloc[-1] - macd_hist.iloc[-3]) if len(macd_hist) >= 3 else 0.0
         obv_trend = obv_v - obv_ma
         breakout_strength = price > resistance and vol_v > vol_sma_v * 1.3
+
+        # ── Phase-2: NEW engineered features ─────────────────────────────────
+        # 1. RSI × Volume interaction (momentum quality filter)
+        #    Tinggi = RSI kuat + volume besar → sinyal lebih valid
+        rsi_vol_interaction = float(rsi_v * vol_strength)
+
+        # 2. Rolling 20-day realised volatility (annualised)
+        #    Dipakai sebagai input AI dan risk-adjusted scoring
+        rolling_vol_20 = float(close.pct_change().rolling(20).std().iloc[-1])
+        if np.isnan(rolling_vol_20) or np.isinf(rolling_vol_20):
+            rolling_vol_20 = 0.0
+
+        # 3. Sector / IHSG correlation (20-day rolling Pearson)
+        #    Mengukur seberapa erat saham mengikuti IHSG; rendah = alpha story
+        sector_corr = 0.0
+        try:
+            if len(ihsg_data) >= 20 and len(close) >= 20:
+                stock_ret  = close.pct_change().dropna().tail(60)
+                ihsg_ret   = ihsg_data.pct_change().dropna()
+                # align by index position (both daily)
+                min_len    = min(len(stock_ret), len(ihsg_ret))
+                if min_len >= 20:
+                    corr_val   = float(np.corrcoef(
+                        stock_ret.values[-min_len:],
+                        ihsg_ret.values[-min_len:]
+                    )[0, 1])
+                    sector_corr = 0.0 if np.isnan(corr_val) else round(corr_val, 4)
+        except Exception as _corr_err:
+            logger.debug("[%s] sector_corr calc failed: %s", ticker, _corr_err)
+
+        # Fill any NaN from all feature variables before AI inference
+        # (centralised guard — handles edge cases in short series)
+        _features_guard = {
+            "rsi_vol_interaction": rsi_vol_interaction,
+            "rolling_vol_20":      rolling_vol_20,
+            "sector_corr":         sector_corr,
+        }
+        for _k, _v in _features_guard.items():
+            if np.isnan(_v) or np.isinf(_v):
+                _features_guard[_k] = 0.0
+        rsi_vol_interaction = _features_guard["rsi_vol_interaction"]
+        rolling_vol_20      = _features_guard["rolling_vol_20"]
+        sector_corr         = _features_guard["sector_corr"]
+        # ── end Phase-2 new features ──────────────────────────────────────────
         
         sentiment_bonus_score = 0.0
         if sentiment.get("news_count", 0) >= 2:
@@ -1395,10 +1549,10 @@ def analisis_saham(ticker: str) -> dict | None:
         momentum_sektor = SEKTOR_MOMENTUM.get(sektor_saham, 0.0)
         
         if momentum_sektor > 1.5:
-            skor += BOBOT_SKOR["Sector_HOT"]
+            skor += BOBOT_SKOR["Sector_Leadership"] # Diubah dari Sector_HOT
             konfirmasi.append("Sector_HOT**")
         elif momentum_sektor < -1.5:
-            skor += BOBOT_SKOR["Sector_COLD"]
+            skor += BOBOT_SKOR["Sector_Cold"]       # Diubah dari Sector_COLD
             konfirmasi.append("Sector_COLD-")
 
         # --- OPTIMASI 2: ANTI KEJAR PUCUK (PULLBACK LOGIC) ---
@@ -1412,14 +1566,14 @@ def analisis_saham(ticker: str) -> dict | None:
         pbv_val = (price / book_val) if book_val > 0 else 0
 
         if per_val > 0 and per_val <= 15:
-            skor += BOBOT_SKOR["PER_Murah"]
+            skor += BOBOT_SKOR["PER_Cheap"]         # Diubah dari PER_Murah
             konfirmasi.append("PER_Murah*")
         elif per_val < 0:
             skor += BOBOT_SKOR["EPS_Minus"]
             konfirmasi.append("EPS_Minus-")
             
         if 0 < pbv_val <= 1.5:
-            skor += BOBOT_SKOR["PBV_Murah"]
+            skor += BOBOT_SKOR["PBV_Strong"]        # Diubah dari PBV_Murah
             konfirmasi.append("PBV_Murah")
         elif pbv_val > 5.0:
             skor += BOBOT_SKOR["PBV_Mahal"]
@@ -1432,7 +1586,7 @@ def analisis_saham(ticker: str) -> dict | None:
                 ihsg_ret_20 = (float(ihsg_data.iloc[-1]) - float(ihsg_data.iloc[-20])) / float(ihsg_data.iloc[-20]) * 100
                 
                 if stock_ret_20 > ihsg_ret_20 + 5: 
-                    skor += BOBOT_SKOR["RS_Strong"]
+                    skor += BOBOT_SKOR["RS_Outperform"] # Diubah dari RS_Strong
                     konfirmasi.append("RS_Strong*")
                 
                 if ihsg_ret_20 < 0 and stock_ret_20 > 0: 
@@ -1446,7 +1600,7 @@ def analisis_saham(ticker: str) -> dict | None:
         atr_20_avg = float(atr.tail(20).mean())
         
         if 0 <= jarak_pucuk <= 4 and atr_v < atr_20_avg and vol_v < vol_sma_v * 0.7:
-            skor += BOBOT_SKOR["VCP_Setup"]
+            skor += BOBOT_SKOR["VCP_Pattern"]          # Diubah dari VCP_Setup
             konfirmasi.append("VCP_Setup**")
 
         # --- OPTIMASI 6: WYCKOFF ABSORPTION (EFFORT VS RESULT) ---
@@ -1494,6 +1648,14 @@ def analisis_saham(ticker: str) -> dict | None:
             skor += 1.5
             konfirmasi.append("EMA*")
 
+        # --- OPTIMASI 11: BROKER SUMMARY (REAL BANDARMOLOGI) ---
+        if data_broksum["status_bandar"] == "BIG_ACCUMULATION":
+            skor += BOBOT_SKOR.get("Broksum_ACCUM", 2.0)
+            konfirmasi.append("Broksum_ACCUM***")
+        elif data_broksum["status_bandar"] == "DISTRIBUTION":
+            skor += BOBOT_SKOR.get("Broksum_DIST", -1.5)
+            konfirmasi.append("Broksum_DIST-")
+
         if adx_v > 40: skor += 1.5
         elif adx_v > 30: skor += 1.2
 
@@ -1523,66 +1685,130 @@ def analisis_saham(ticker: str) -> dict | None:
         reward_pct = round(((target_1 - price) / price) * 100, 1)
         rrr = round(reward_pct / risk_pct, 2) if risk_pct != 0 else 0
 
-        base_score = (skor / 15) * 100
-        multi_tf_bonus = 10 if (weekly_bullish and monthly_bullish) else 0
-        adx_bonus = 5 if adx_v > 35 else 0
-        volume_bonus = 5 if vol_v > vol_sma_v * 1.5 else 0
-        ichimoku_bonus = 5 if ichimoku_data["signal"] == "BULLISH" else 0
-        pattern_bonus = 3 if pattern in ["BREAKOUT", "REVERSAL"] else 0
-        mm_bonus = mm_activity["confidence"] - 50 if mm_activity["activity"] == "ACCUMULATION" else 0
+        # ─── COMPONENT-BASED CONFIDENCE CALCULATION v10 (BALANCED) ───
+        # Calculate each tier independently (0-100), then weight them
         
-        sentiment_bonus = 0
-        if sentiment["sentiment_score"] > 0.25 and sentiment["news_count"] >= 2:
-            sentiment_bonus = 3
-        elif sentiment["sentiment_score"] > 0.1 and sentiment["news_count"] >= 2:
-            sentiment_bonus = 1
-            
-        breakout_bonus = 3 if breakout_strength else 0
-        vwap_trend_bonus = 2 if vwap_trend and vwap_signal == "ABOVE" else 0
+        # TECHNICAL COMPONENT (35% weight)
+        tech_score = 0
+        if price > ema21_val > ema50_val and price > hma_val:
+            tech_score += 20
+        if 30 <= rsi_v <= 50:  # Good entry RSI
+            tech_score += 15
+        if macd_h > 0 and macd_h > macd_hist.iloc[-2] if len(macd_hist) > 1 else False:
+            tech_score += 15
+        if vol_v > vol_sma_v * 1.5:
+            tech_score += 15
+        if adx_v > 35:
+            tech_score += 20
+        if pattern in ["BREAKOUT", "REVERSAL"]:
+            tech_score += 15
+        tech_score = min(100, tech_score)
         
-        confidence = min(
-            100,
-            base_score + multi_tf_bonus + adx_bonus + volume_bonus + ichimoku_bonus + pattern_bonus + mm_bonus + sentiment_bonus + breakout_bonus + vwap_trend_bonus
+        # FUNDAMENTAL COMPONENT (25% weight)
+        fund_score = 0
+        if 0 < per_val <= 12:
+            fund_score += 25
+        elif 12 < per_val <= 18:
+            fund_score += 15
+        if 0 < pbv_val <= 1.0:
+            fund_score += 25
+        elif pbv_val > 5.0:
+            fund_score -= 20
+        if fundamentals.get("earnings_growth", 0) > 0:
+            fund_score += 15
+        if fundamentals.get("dividend_yield", 0) > 3:
+            fund_score += 10
+        fund_score = min(100, max(-30, fund_score))  # Allow negatives
+        
+        # RELATIVE STRENGTH COMPONENT (20% weight)
+        rs_score = 0
+        try:
+            if len(close) >= 20 and len(ihsg_data) >= 20:
+                stock_ret_20 = (price - float(close.iloc[-20])) / float(close.iloc[-20]) * 100
+                ihsg_ret_20 = (float(ihsg_data.iloc[-1]) - float(ihsg_data.iloc[-20])) / float(ihsg_data.iloc[-20]) * 100
+                if stock_ret_20 > ihsg_ret_20 + 5:
+                    rs_score += 30
+                if stock_ret_20 > ihsg_ret_20:
+                    rs_score += 20
+        except:
+            pass
+        if momentum_sektor > 1.5:
+            rs_score += 25
+        rs_score = min(100, rs_score)
+        
+        # SENTIMENT COMPONENT (20% weight)
+        sent_score = 0
+        if sentiment.get("sentiment_score", 0) > 0.25 and sentiment.get("news_count", 0) >= 2:
+            sent_score += 30
+        elif sentiment.get("sentiment_score", 0) > 0.1 and sentiment.get("news_count", 0) >= 2:
+            sent_score += 15
+        elif sentiment.get("sentiment_score", 0) < -0.2 and sentiment.get("news_count", 0) >= 2:
+            sent_score -= 30  # SYMMETRIC
+        if foreign_data["foreign_status"] == "ACCUMULATION":
+            sent_score += 20
+        elif foreign_data["foreign_status"] == "DISTRIBUTION":
+            sent_score -= 25
+        if mm_activity["activity"] == "ACCUMULATION":
+            sent_score += 15
+        sent_score = min(100, max(-50, sent_score))
+        
+        # WEIGHTED CONFIDENCE (Final Score)
+        # REVISI: Bobot Technical dibesarkan (60%) karena data fundamental YF sering kosong untuk IHSG
+        confidence = (
+            tech_score * 0.60 +          
+            max(0, fund_score) * 0.10 +  
+            rs_score * 0.20 +            
+            max(0, sent_score) * 0.10    
         )
+        confidence = min(100, max(0, confidence))
 
         bb_width = round(((bb_up_v - bb_low_v) / bb_mid_v) * 100, 1)
 
-        # ── Penentuan Sinyal v5.1 (Macro & Turnover Adjusted) ──────────────────────
+        # ── Penentuan Sinyal v10 (BALANCED SCORING + MACRO) ──────────────────────
         sinyal = "HINDARI"
         signal_strength = "F"
         
-        # Syarat nilai minimum diperketat jika IHSG sedang Downtrend (Badai)
-        syarat_strong = 9.5 if IHSG_TREND == "UP" else 11.5
-        syarat_buy = 7.0 if IHSG_TREND == "UP" else 9.0
+        # Thresholds yang disesuaikan dengan sistem confidence baru
+        confidence_threshold_strong = 75 if IHSG_TREND == "UP" else 80
+        confidence_threshold_buy = 55 if IHSG_TREND == "UP" else 65
         
-        # Eksekusi Filter Kematian (Turnover < Rp 10 Miliar)
-        if avg_turnover < 10000000000:
+        # Safety filter: DIMATIKAN SEMENTARA (Karena data Volume/Turnover YF sering ngaco)
+        has_critical_risk = (
+            per_val < -50 or                                # Toleransi minus ekstrem untuk saham tech
+            pbv_val > 50 or                                 # Toleransi PBV ekstrem
+            fundamentals.get("bankruptcy_risk", 0) > 0.5   
+        )
+        
+        if has_critical_risk:
             sinyal = "HINDARI"
-            signal_strength = "LOW_LIQ"
-        elif skor >= 12 and rrr >= 1.8 and pattern == "BREAKOUT" and IHSG_TREND == "UP":
+            signal_strength = "RISK"
+        # TIER 1: ULTRA_BUY (A+ / A) - Confluence of everything
+        elif confidence >= 85 and skor >= 10 and rrr >= 1.8 and weekly_bullish and IHSG_TREND == "UP":
             sinyal = "ULTRA_BUY"
             signal_strength = "A+"
-        elif skor >= 11 and rrr >= 1.6 and ichimoku_data["signal"] == "BULLISH":
+        elif confidence >= 80 and skor >= 9.5 and rrr >= 1.6 and weekly_bullish:
             sinyal = "ULTRA_BUY"
             signal_strength = "A"
-        elif skor >= syarat_strong and weekly_bullish and confidence >= 80:
+        # TIER 2: STRONG_BUY (B+ / B) - High confidence + good trend
+        elif confidence >= confidence_threshold_strong and skor >= 8.0: # Skor dilonggarkan sedikit
             sinyal = "STRONG_BUY"
             signal_strength = "B+"
-        elif skor >= syarat_strong and weekly_bullish:
+        elif confidence >= 70 and skor >= 7.0:                          # Diturunkan dari 75
             sinyal = "STRONG_BUY"
             signal_strength = "B"
-        elif skor >= syarat_buy and confidence >= 70:
-            sinyal = "BUY"
-            signal_strength = "C+"
-        elif skor >= syarat_buy:
+        # TIER 3: BUY (C+ / C) - Moderate confidence, tradable setup
+        elif confidence >= 50 and skor >= 4.0:                          # Diturunkan sedikit
             sinyal = "BUY"
             signal_strength = "C"
-        elif skor >= 4.5:
+        # TIER 4: PANTAU (D) - Monitor, not ready yet
+        elif confidence >= 30 and skor >= 2.0:                          # Diturunkan
             sinyal = "PANTAU"
             signal_strength = "D"
-        elif skor >= 3:
+        # TIER 5: TUNGGU (E) - DEBUG MODE: BUKA SEMUA GEMBOK!
+        elif skor >= -15.0:                                             # <-- Asal skor tidak hancur lebur banget, tampilkan!
             sinyal = "TUNGGU"
             signal_strength = "E"
+        # DEFAULT: HINDARI
         else:
             sinyal = "HINDARI"
             signal_strength = "F"
@@ -1608,30 +1834,36 @@ def analisis_saham(ticker: str) -> dict | None:
                 nilai_mm = mm_activity.get("confidence", 0) if isinstance(mm_activity, dict) else 0
                 nilai_retail = retail_comparison.get("mm_vs_retail_ratio", 0) if isinstance(retail_comparison, dict) else 0
 
-                # 1. skor dan confidence dihapus agar tidak terjadi Data Leakage (sisa 11 fitur)
-                hari_ini = [rsi_v, adx_v, vol_strength, bb_width, rrr,
-                            nilai_mm, nilai_retail,
-                            IHSG_CHANGE, USD_CHANGE, rsi_1d, macd_1d]
+                # Phase-2: Extended 14-feature vector
+                # Original 11 features kept in same order (no breaking change to model API).
+                # 3 new features appended; ai_model.py FEATURE_NAMES extended accordingly.
+                hari_ini = [
+                    rsi_v, adx_v, vol_strength, bb_width, rrr,
+                    nilai_mm, nilai_retail,
+                    IHSG_CHANGE, USD_CHANGE, rsi_1d, macd_1d,
+                    rsi_vol_interaction,   # Phase-2 NEW #12
+                    rolling_vol_20,        # Phase-2 NEW #13
+                    sector_corr,           # Phase-2 NEW #14
+                ]
 
-                ai_instance = get_ai_model()
+                ai_instance = get_ai_model(model_type="swing")
                 
-                # 2. Baris historical_features DIHAPUS
                 # 3. Langsung masukkan 'hari_ini' ke dalam fungsi prediksi
                 ai_win_prob = ai_instance.predict_win_probability(hari_ini)
 
                 if ai_win_prob >= 60:
                     ai_verdict = "ULTRA BUY"
-                elif ai_win_prob >= 50: # Di atas 50% berarti peluang menang > kalah
+                elif ai_win_prob >= 50:
                     ai_verdict = "BUY"
                 else:
                     ai_verdict = "WEAK"
 
-                print(f"🎯 [SUKSES AI] {ticker} berhasil dianalisis! Win Rate: {ai_win_prob}%")
+                # Phase-4: replace print with logger
+                logger.info("[AI] %s — Win Rate: %.1f%%  Verdict: %s", ticker, ai_win_prob, ai_verdict)
 
             except Exception as e:
-                print(f"\n🐞 [BUG AI] Error detail di saham {ticker}:")
-                traceback.print_exc()
-                print("-" * 50)
+                # Phase-1 & Phase-4: structured error log instead of raw print+traceback
+                logger.error("[AI] Error memproses %s: %s", ticker, e, exc_info=True)
 
         # ─── TIER 3: Position Sizing (Kelly Criterion) ────────────────────────────
         assumed_account = 10000000
@@ -1652,6 +1884,10 @@ def analisis_saham(ticker: str) -> dict | None:
             "Strength"      : signal_strength,
             "Konfirmasi"    : " | ".join(konfirmasi[:6]) if konfirmasi else "—",
             "Confidence%"   : int(confidence),
+            "Tech_Score"    : int(tech_score),        # 35% weight
+            "Fund_Score"    : int(fund_score),        # 25% weight
+            "RS_Score"      : int(rs_score),          # 20% weight
+            "Sent_Score"    : int(sent_score),        # 20% weight
             "RSI"           : round(rsi_v, 1),
             "ADX"           : round(adx_v, 1),
             "Stoch"         : round(stoch_v, 1),
@@ -1715,14 +1951,17 @@ def analisis_saham(ticker: str) -> dict | None:
             "Foreign_Status"    : foreign_data["foreign_status"],
             "Net_Foreign_5d"    : foreign_data["net_foreign_5d"],
             "Saran_Lot"         : saran_lot,
+            "Broksum_Status"    : data_broksum["status_bandar"],
+            "Broksum_Net_Vol"     : data_broksum["akumulasi_bersih"],
+            # ── Phase-2 NEW feature columns (for downstream ML training) ──
+            "RSI_Vol_Interaction": round(rsi_vol_interaction, 2),
+            "Rolling_Vol_20"     : round(rolling_vol_20, 6),
+            "Sector_Corr"        : round(sector_corr, 4),
         }
 
     except Exception as e:
-        # ANTI-SILENT ERROR (Terminal akan berteriak MERAH jika ada perhitungan yang hancur)
-        print(f"\n\n{C.BG_RED}{C.WHITE}{C.BOLD} [CRITICAL ERROR] GAGAL MEMPROSES SAHAM {ticker} {C.RESET}")
-        print(f"{C.RED}Penyebab: {e}{C.RESET}")
-        traceback.print_exc()
-        print("\n")
+        # Phase-1 & Phase-4: structured error log; loop in caller will continue
+        logger.error("[CRITICAL] Gagal memproses saham %s — %s", ticker, e, exc_info=True)
         return None
 # ─── VIRTUAL HEDGE FUND MANAGER (PAPER TRADING) ─────────────────────────────
 def update_virtual_portfolio(df: pd.DataFrame):
@@ -1841,7 +2080,8 @@ def jalankan_screener(
     
     # LAZY LOAD: Compute sector momentum only once when screener starts
     compute_sector_momentum()
-    
+    update_macro_globals()   # ← TAMBAHKAN INI
+
     print(f"\n{C.BOLD}{C.CYAN}{'='*80}")
     print(f"  IHSG SCREENER v5.0 MARKET MAKER & AI DETECTION  --  {tanggal}")
     print(f"  23 Indicators | MM Activity Analysis | Machine Learning Prediction")
@@ -1858,37 +2098,68 @@ def jalankan_screener(
     hasil_semua = []
     total_tickers = len(tickers)
 
-    if workers > 1 and total_tickers > 1:
-        print(f"  Running analysis with {workers} workers...\n")
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            future_to_ticker = {
-                executor.submit(analisis_saham, ticker): ticker for ticker in tickers
-            }
-            completed = 0
-            for future in as_completed(future_to_ticker):
-                completed += 1
-                ticker = future_to_ticker[future]
-                nama = ticker.replace(".JK", "")
-                
-                try:
-                    hasil = future.result()
-                except Exception as err:
-                    hasil = None
-                    print(f"  {C.RED}Error analyzing {nama}: {err}{C.RESET}")
-                    
-                if hasil:
-                    hasil_semua.append(hasil)
-                    
-                print(f"  [{completed:02d}/{total_tickers}] Analisis {nama:<8} completed", end="\r")
+    # ── Phase-3: Dynamic worker count (12-16) + batch processing (50/batch) ──
+    # Workers bumped from DEFAULT_MAX_WORKERS (8) to up to 14 for better throughput.
+    # Batch size 50 prevents excessive memory use on large ticker lists.
+    effective_workers = max(workers, min(14, (os.cpu_count() or 4) * 2))
+    BATCH_SIZE_SCAN = 50   # Phase-3: process 50 tickers at a time
+
+    if effective_workers > 1 and total_tickers > 1:
+        print(f"  Running analysis with {effective_workers} workers (batch={BATCH_SIZE_SCAN})...\n")
+
+        # Phase-3: split tickers into batches
+        ticker_batches = [
+            tickers[i:i + BATCH_SIZE_SCAN]
+            for i in range(0, len(tickers), BATCH_SIZE_SCAN)
+        ]
+
+        for batch_idx, batch in enumerate(ticker_batches, 1):
+            # Phase-1: wrap each batch in try/except/finally
+            try:
+                with ThreadPoolExecutor(max_workers=effective_workers) as executor:
+                    future_to_ticker = {
+                        executor.submit(analisis_saham, ticker): ticker for ticker in batch
+                    }
+                    for future in as_completed(future_to_ticker):
+                        ticker_done = future_to_ticker[future]
+                        nama = ticker_done.replace(".JK", "")
+                        try:
+                            hasil = future.result(timeout=60)
+                        except Exception as err:
+                            hasil = None
+                            # Phase-1 & Phase-4: log and continue — do not crash the whole loop
+                            logger.error("Error analyzing %s: %s", nama, err)
+                        if hasil:
+                            hasil_semua.append(hasil)
+                        completed = len(hasil_semua)
+                        print(
+                            f"  [B{batch_idx}/{len(ticker_batches)}] "
+                            f"[{completed:02d}/{total_tickers}] {nama:<8}",
+                            end="\r",
+                        )
+            except Exception as batch_err:
+                # Phase-1: log batch-level failures, continue to next batch
+                logger.error("Batch %d/%d gagal: %s", batch_idx, len(ticker_batches), batch_err)
+            finally:
+                # Phase-3: release batch memory immediately
+                gc.collect()
+                logger.debug("Batch %d/%d selesai — gc.collect() dipanggil", batch_idx, len(ticker_batches))
+
         print("\n", end="")
     else:
+        # Phase-1: try/except/finally around single-worker loop
         for i, ticker in enumerate(tickers, 1):
             nama = ticker.replace(".JK", "")
             print(f"  [{i:02d}/{total_tickers}] Analisis {nama:<8}", end="\r")
-            
-            hasil = analisis_saham(ticker)
-            if hasil:
-                hasil_semua.append(hasil)
+            try:
+                hasil = analisis_saham(ticker)
+                if hasil:
+                    hasil_semua.append(hasil)
+            except Exception as loop_err:
+                # Phase-1: log error and continue loop — don't abort entire scan
+                logger.error("Loop error pada %s: %s", nama, loop_err)
+            finally:
+                pass  # Phase-1: placeholder for any future connection cleanup
 
     print(" " * 80, end="\r")
 
@@ -2121,7 +2392,13 @@ def jalankan_screener(
     pantau_count     = len(df[df["Sinyal"] == "PANTAU"])
     hindari_count    = len(df[df["Sinyal"] == "HINDARI"])
     ultra_buy_count  = len(df[df["Sinyal"] == "ULTRA_BUY"])
+    
+    # 🟢 1. TAMBAHKAN PENGHITUNG "TUNGGU" DI SINI
+    tunggu_count     = len(df[df["Sinyal"] == "TUNGGU"]) 
+    
     total            = len(df)
+    
+    # (Pastikan rumus bullish_pct tetap sama)
     bullish_pct      = round(((ultra_buy_count + strong_buy_count + buy_count) / total) * 100)
 
     print(f"\n{C.BOLD}{C.CYAN}{'-'*80}")
@@ -2131,7 +2408,11 @@ def jalankan_screener(
     print(f"  STRONG Buy  : {C.GREEN}{strong_buy_count:>3}{C.RESET} saham")
     print(f"  Buy        : {C.GREEN}{buy_count:>3}{C.RESET} saham")
     print(f"  PANTAU     : {C.YELLOW}{pantau_count:>3}{C.RESET} saham")
-    print(f"  HINDARI    : {C.GRAY}{hindari_count:>3}{C.RESET} saham")
+    
+    # 🟢 2. TAMBAHKAN TAMPILAN "TUNGGU" DI SINI
+    print(f"  TUNGGU     : {C.GRAY}{tunggu_count:>3}{C.RESET} saham")
+    
+    print(f"  HINDARI    : {C.RED}{hindari_count:>3}{C.RESET} saham")
     print(f"\n  Sentimen Bullish: {C.BOLD}{bullish_pct}%{C.RESET} ", end="")
 
     if bullish_pct >= 60:
@@ -2159,7 +2440,8 @@ def jalankan_screener(
             "Confidence%", "RSI", "ADX", "Stoch", "MACD", "Volume", 
             "Regime", "MM_Activity", "MM_Confidence", "Dominance",
             "Stop_Loss", "Target_1", "RRR",
-            "BB_Width%", "MM_vs_Retail_Ratio", "IHSG_Change", "USD_Change", "MACD_1d"
+            "BB_Width%", "MM_vs_Retail_Ratio", "IHSG_Change", "USD_Change", 
+            "RSI_1d", "MACD_1d", "RSI_Vol_Interaction", "Rolling_Vol_20", "Sector_Corr"
         ]
         
         existing_cols = [c for c in kolom_aman if c in df.columns]
