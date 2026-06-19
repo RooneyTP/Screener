@@ -26,7 +26,9 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from telegram import Update, BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+
+from ai_agent import ask_ai
 
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(level=logging.INFO,
@@ -1460,7 +1462,27 @@ def main():
         await app.bot.set_my_commands(bot_commands)
         logger.info("Commands registered with Telegram API")
 
+    # ─── AI Chat Handler (Natural Language) ───────────────────────────
+    async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.message or not update.message.text:
+            return
+        text = update.message.text.strip()
+        if not text or text.startswith("/"):
+            return  # Skip commands
+        chat_id = update.effective_chat.id
+        # Show typing action
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        # Call AI agent (synchronous, runs in thread pool)
+        import asyncio
+        loop = asyncio.get_event_loop()
+        answer = await loop.run_in_executor(None, ask_ai, chat_id, update.message.text)
+        if answer:
+            await update.message.reply_text(answer, parse_mode="Markdown")
+
     app.post_init = _register_commands
+
+    # Register AI chat handler (text messages, non-commands)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ai_chat))
 
     print("="*50)
     print("  TELEGRAM BOT v6.1 — ALL FIXES APPLIED")
