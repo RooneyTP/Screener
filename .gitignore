@@ -1,8 +1,23 @@
 envScreener/
 __pycache__/
 *.db
+*.db-shm
+*.db-wal
 *.pth
 *.pkl
 *.zip
 *.dll
 *.exe
+# FIX: lindungi secrets dari commit (SKILL.md safety rule)
+.env
+.encryption_key
+.secure_*
+*.joblib
+models_ai/
+liquid_moe_brain.pth
+kacamata_ai.pkl
+ensemble_model.pkl
+.pytest_cache/
+.sentiment_cache/
+cache/
+ai_swing.joblib
