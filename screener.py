@@ -1422,11 +1422,7 @@ def jalankan_screener(
                 print(f"  Loaded {n_days} days of signal data ({len(history_frames)} files)")
                 
                 if n_days >= 6:
-                    import sys as _sys, os as _os
-                    _arch = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "archive")
-                    if _arch not in _sys.path:
-                        _sys.path.insert(0, _arch)
-                    from backtest import walk_forward_optimize
+                    from archive import walk_forward_optimize
                     wf_result = walk_forward_optimize(signals_by_date)
                     if "error" in wf_result:
                         print(f"  {C.YELLOW}Walk-forward skipped: {wf_result['error']}{C.RESET}")
