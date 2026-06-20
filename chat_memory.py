@@ -15,7 +15,7 @@ import os
 import sqlite3
 import time
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 
 logger = logging.getLogger("chat_memory")
 
@@ -207,6 +207,27 @@ def is_new_user(user_id: int, chat_id: int) -> bool:
     """Cek apakah user_id belum pernah chat di chat_id ini."""
     ctx = get_user_context(user_id, chat_id)
     return ctx["is_new_user"]
+
+
+def get_user_recent_context_stats(user_id: int, chat_id: int, limit: int = 10) -> Dict[str, Any]:
+    """Ambil statistik ticker & sektor terakhir dari riwayat user untuk analisis minat."""
+    _ensure_schema()
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT context_ticker, context_sector FROM messages "
+            "WHERE user_id=? AND chat_id=? AND role='user' "
+            "ORDER BY ts DESC LIMIT ?",
+            (user_id, chat_id, limit)
+        ).fetchall()
+        tickers = [r["context_ticker"] for r in rows if r["context_ticker"]]
+        sectors = [r["context_sector"] for r in rows if r["context_sector"]]
+        return {
+            "recent_tickers": tickers,
+            "recent_sectors": sectors
+        }
+    finally:
+        conn.close()
 
 
 def cleanup_old_messages(max_age_days: int = 7):

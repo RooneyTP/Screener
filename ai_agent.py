@@ -252,50 +252,56 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}}
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_preferences",
+            "description": "Simpan preferensi investasi/trading user: mode (swing/scalp/invest) atau level kedalaman penjelasan (light/normal/deep). "
+                           "Panggil ini kalau user bilang 'saya suka swing', 'tolong jelasin lebih detail', 'singkat aja', dsb.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {"type": "string", "enum": ["swing", "scalp", "invest"], "description": "Gaya trading"},
+                    "depth": {"type": "string", "enum": ["light", "normal", "deep"], "description": "Kedalaman analisis (deep = rinci & edukatif)"},
+                    "risk_tolerance": {"type": "string", "enum": ["conservative", "moderate", "aggressive"], "description": "Toleransi risiko user"}
+                }
+            }
+        }
+    },
 ]
 
-SYSTEM_PROMPT = """Kamu adalah QuantYan, asisten analis saham IHSG (Bursa Efek Indonesia) yang ramah, sabar, dan cerdas.
-Kamu ngobrol di Telegram dengan trader & investor ritel Indonesia, dari yang pemula sampai yang sudah jago.
-Karaktermu: teknis dan paham data, tapi pintar menyederhanakan istilah rumit supaya pemula pun ngerti.
-Bahasamu Indonesia yang natural, hangat, dan kasual (seperti sesama teman yang nemenin belajar saham), bukan kaku formal.
+SYSTEM_PROMPT = """Kamu adalah QuantYan, AI Chatbot Asli untuk Pasar Saham IHSG (Bursa Efek Indonesia).
+Karaktermu: Cerdas, punya kepribadian hidup, teknis tapi gampang dimengerti, dan proaktif. Kamu bukan sekadar bot penjawab pertanyaan satu arah, melainkan "teman diskusi" seputar saham.
+Bahasamu Indonesia kasual, hangat, natural (seperti ngobrol dengan teman trader), tidak kaku/robotik.
 
-Lewat tools, kamu punya akses ke data real-time dan hasil screening: analisis 1 emiten, fundamental, top picks,
-daftar sinyal, setup swing/scalp, rotasi sektor, kondisi pasar, screening custom, backtest, struktur pemegang saham,
-dan portofolio user. Kamu juga bisa menjawab pertanyaan edukatif umum dari pengetahuanmu sendiri.
+KEMAMPUAN UTAMA (VIA TOOLS):
+Analisis 1 emiten, fundamental, top picks, sinyal, swing/scalp, sektor, kondisi pasar, screening custom, backtest, KSEI/holders, dan portofolio virtual.
 
-ATURAN EKSEKUSI DATA:
-- Untuk pertanyaan yang butuh data (harga, sinyal, fundamental, top, perbandingan, screening, backtest, holders,
-  portofolio, kondisi pasar), SELALU panggil tool dulu. JANGAN PERNAH mengarang atau menebak angka.
-- Pahami maksud user walau bahasanya santai/tidak baku, lalu pilih tool yang paling tepat dengan parameter yang benar.
-  Contoh: "saham perbankan yang bagus?" -> get_sector_stocks(sector="bank") atau screen_stocks(sector="bank").
-  "BBCA gimana?" -> get_stock_data(ticker="BBCA"). "bandingin BBCA sama BBRI" -> compare_stocks(["BBCA","BBRI"]).
-  "backtest BBCA 90 hari" -> backtest_stock(ticker="BBCA", days=90). "cari saham swing RRR > 3" -> screen_stocks(min_rrr=3).
-- Boleh memanggil beberapa tool kalau perlu (mis. cek 1 saham + kondisi pasar sekalian).
-- KALAU RAGU soal maksud user atau ticker yang dimaksud ambigu, JANGAN langsung asal pilih — tanya klarifikasi singkat dulu.
-- Kalau tool gagal / data kosong, katakan jujur dan beri saran (mis. cek ejaan ticker, atau ticker belum masuk screener).
-- Terjemahkan hasil tool ke bahasa natural yang enak dibaca. JANGAN nge-dump data mentah / JSON / list panjang apa adanya;
-  rangkum yang penting, beri interpretasi (bagus/jelek, kenapa), pandangan pro/kontra bila relevan.
+─── 1. KONVERSASI DUA ARAH & PROAKTIF ───
+- Beri saran / tawaran bantuan setelah menjawab. Misal: "BBCA lagi di area support nih, mau saya hitungin RRR-nya?" atau "Saya lihat PBV-nya mulai mahal, mau coba bandingin sama saham bank lain?"
+- JANGAN asyik sendiri; deteksi bila pengguna butuh klarifikasi. "Maksudnya 'yang murah' itu dari P/E atau harganya yang di bawah 1000 perak?"
+- Bisa menolak dengan sopan: "Waduh, data untuk ticker itu belum masuk ke radar screener saya nih."
+- Sesuaikan saran dengan preferensi pengguna yang ada di konteks. Jika dia suka swing, sarankan saham swing.
 
-EDUKASI:
-- Untuk pertanyaan umum/edukasi (apa itu RSI, cara baca MACD, beda saham vs reksadana, istilah trading), jawab langsung
-  dari pengetahuanmu TANPA tool — akurat, ringkas, dan dibuat mudah dipahami pemula dengan analogi sederhana bila perlu.
+─── 2. OPINI, ANALOGI, & REASONING (CHAIN OF THOUGHT) ───
+- Jelaskan *mengapa* suatu saham bagus/jelek berdasarkan data, jangan cuma dumping angka mentah.
+- "Saya lihat RSI-nya 28 (sudah oversold) dan volumenya naik 2x lipat. Secara teknikal ini ada indikasi *reversal* atau pantulan naik."
+- Gunakan analogi: "P/E 50x itu ibarat kamu beli warung yang baru balik modal 50 tahun lagi, agak kemahalan."
+- Bedakan opini dan fakta (beri disclaimer secara natural): "Secara data ini masih *downtrend*, tapi menurut saya ada peluang *rebound* pendek. Tetap DYOR dan atur porsi ya."
 
-GAYA & FORMAT JAWABAN (WAJIB DIPATUHI):
-- Ringkas dan to the point (user baca di layar HP kecil). Sertakan angka kunci yang relevan (harga, skor, sinyal,
-  SL/TP, RRR, RSI, PE, PBV, dll) saat membahas emiten.
-- Output HARUS plain text murni. DILARANG memakai:
-  * Bold/italic: tanda bintang ** * atau garis bawah _ untuk menebalkan/memiringkan.
-  * Heading: tanda pagar # atau ###.
-  * Backtick ` untuk membungkus kata/kode.
-  * Tabel Markdown (pipa |).
-- Untuk struktur, cukup pakai emoji secukupnya + tanda dash (-) untuk poin + baris baru. Jangan berlebihan emoji.
-- Format harga Rupiah pakai titik ribuan, mis: Rp6.225 atau Rp9.850.
+─── 3. DEEP DIVE ON DEMAND (KEDALAMAN PENJELASAN) ───
+- Jika pengguna minta "jelasin lebih detail", "kenapa gitu?", atau "buktikan", gali angka lebih dalam (misal bahas MACD, ADX, atau dominasi KSEI).
+- Jika pengguna minta "singkat aja", kasih poin-poin inti saja.
+- Panggil tool `update_preferences` jika pengguna secara eksplisit menyebut gaya trading mereka (swing/scalp/invest) atau meminta kedalaman tertentu.
 
-PERSONA & INTERAKSI:
-- Sesekali kasih saran balik atau pertanyaan lanjutan biar obrolan mengalir (mis: "Mau sekalian cek fundamentalnya?",
-  "Mau dibandingin sama BBRI?", "Enak buat swing apa scalp nih?") — tapi jangan dipaksakan di tiap jawaban.
-- Beri disclaimer wajar dan santai saat memberi rekomendasi/analisis beli-jual (mis: "DYOR ya", "tetap kelola risiko").
-  Ini alat bantu analisis, BUKAN ajakan jual/beli. Jangan tempel disclaimer panjang di tiap pesan — secukupnya saja.
+─── 4. GAYA FORMAT MUTLAK ───
+- OUTPUT HARUS PLAIN TEXT MURNI. (Telegram user interface)
+- DILARANG pakai bold/italic (** atau _).
+- DILARANG pakai heading markdown (# atau ###).
+- DILARANG pakai tabel markdown (pipe |).
+- DILARANG pakai backtick (`).
+- Gunakan emoji secukupnya dan bullet point (-) agar mudah dibaca.
+- Angka uang: Rp6.225 (pakai titik).
 """
 
 # --- Helper: Retry dengan Backoff ----------------------------------------
@@ -817,21 +823,34 @@ class AIAgent:
     def ask(self, chat_id: int, user_text: str, user_id: int = 0) -> str:
         u_id = user_id if user_id != 0 else chat_id
         
-        # 1. Onboarding Check & Get Context
+        # 1. Onboarding & Context
+        import user_prefs
         ctx = chat_memory.get_user_context(u_id, chat_id)
         is_new = ctx.get("is_new_user", False)
         last_ticker = ctx.get("last_ticker")
         last_sector = ctx.get("last_sector")
 
+        # Load & Inject User Preferences
+        prefs = user_prefs.get_ticker_prefs(u_id, chat_id)
+        
         # 2. Dynamic System Prompt
         dyn_prompt = SYSTEM_PROMPT
+        
+        # Suntikkan Profil User agar bot bisa personalisasi
+        dyn_prompt += "\n\n[PROFIL & PREFERENSI PENGGUNA]\n"
+        dyn_prompt += f"- Gaya Trading Favorit: {prefs.get('mode')}\n"
+        dyn_prompt += f"- Profil Risiko: {prefs.get('risk')}\n"
+        dyn_prompt += f"- Tingkat Kedalaman Penjelasan (Depth): {prefs.get('depth')}\n"
+        if prefs.get('fav_tickers'):
+            dyn_prompt += f"- Ticker yang sering ditanyakan: {', '.join(prefs.get('fav_tickers'))}\n"
+            
         if last_ticker or last_sector:
-            dyn_prompt += "\n\n[KONTEKS SAAT INI]\n"
+            dyn_prompt += "\n[KONTEKS OBROLAN SAAT INI]\n"
             if last_ticker:
-                dyn_prompt += f"- Ticker terakhir yang dibahas: {last_ticker}\n"
+                dyn_prompt += f"- Sedang membahas ticker: {last_ticker}\n"
             if last_sector:
-                dyn_prompt += f"- Sektor terakhir yang dibahas: {last_sector}\n"
-            dyn_prompt += "Gunakan konteks ini bila user menyebut 'dia', 'saham itu', 'sektor ini', dsb tanpa menyebutkan nama spesifik."
+                dyn_prompt += f"- Sedang membahas sektor: {last_sector}\n"
+            dyn_prompt += "Gunakan konteks ini bila user menyebut 'dia', 'saham itu', 'sektor ini', dsb tanpa menyebutkan nama spesifik.\n"
 
         # 3. Load DB History
         db_history = chat_memory.get_recent_messages(u_id, chat_id, limit=5)
@@ -868,28 +887,42 @@ class AIAgent:
 
             if resp["tool_calls"]:
                 for tc in resp["tool_calls"]:
-                    fn = TOOL_MAP.get(tc["name"])
-                    if fn:
+                    fn_name = tc["name"]
+                    
+                    try:
+                        args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                        
+                    if fn_name == "update_preferences":
+                        # Handle special tool manually
+                        if "mode" in args: user_prefs.update_pref(u_id, chat_id, "mode", args["mode"])
+                        if "depth" in args: user_prefs.update_pref(u_id, chat_id, "depth_mode", args["depth"])
+                        if "risk_tolerance" in args: user_prefs.update_pref(u_id, chat_id, "risk_tolerance", args["risk_tolerance"])
+                        result = {"success": True, "message": "Preferences updated successfully."}
+                        
+                    elif fn_name in TOOL_MAP:
+                        fn = TOOL_MAP[fn_name]
                         try:
-                            args = json.loads(tc["arguments"]) if tc["arguments"] else {}
-                            
                             # Deteksi dan simpan konteks dari tool arguments
                             t_val = args.get("ticker") or args.get("tickers")
                             if t_val:
                                 t_str = t_val[0].upper() if isinstance(t_val, list) and t_val else str(t_val).upper()
                                 last_ticker = t_str
                                 chat_memory.update_context(u_id, chat_id, ticker=last_ticker)
+                                user_prefs.track_ticker_interest(u_id, chat_id, last_ticker)
                                 
                             if args.get("sector"):
                                 last_sector = str(args.get("sector"))
                                 chat_memory.update_context(u_id, chat_id, sector=last_sector)
+                                user_prefs.track_ticker_interest(u_id, chat_id, "IHSG", sector=last_sector)
 
                             result = fn(**args)
                         except Exception as e:
-                            logger.exception("Tool %s gagal", tc["name"])
+                            logger.exception("Tool %s gagal", fn_name)
                             result = {"success": False, "error": str(e)}
                     else:
-                        result = {"success": False, "error": f"Unknown tool: {tc['name']}"}
+                        result = {"success": False, "error": f"Unknown tool: {fn_name}"}
                     
                     hist.append({
                         "role": "tool",
@@ -912,11 +945,12 @@ class AIAgent:
         if is_new:
             onboarding_msg = (
                 "\n\n---\n"
-                "👋 Hai! Aku QuantYan, asisten AI-mu. Coba tanya:\n"
-                "- 'Cek saham BBCA dong'\n"
-                "- 'Fundamental BBRI vs BMRI bagus mana?'\n"
-                "- 'Top 3 saham buat swing hari ini'\n"
-                "- 'Apa itu RSI?'"
+                "👋 Hai! Aku QuantYan, teman diskusi IHSG-mu.\n"
+                "Coba tanya:\n"
+                "- 'Cek teknikal BBCA dong'\n"
+                "- 'Bagusan BMRI atau BBNI buat invest?'\n"
+                "- 'Cariin saham swing RRR > 2 yang lagi di support'\n"
+                "- 'Porto saya gimana?'"
             )
             final_answer += onboarding_msg
 
