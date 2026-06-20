@@ -14,7 +14,7 @@
 #   - /health command for remote monitoring
 #   - Proper error logging (no more silent except:pass)
 
-import os, sys, logging, glob as _glob, time, asyncio, sqlite3, threading, html as _html
+import os, sys, logging, glob as _glob, time, asyncio, sqlite3, threading, html as _html, re
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 import numpy as np
@@ -144,6 +144,32 @@ def _escape_md(text) -> str:
 def _fmt_md(text) -> str:
     """Shortcut: escape then return for MarkdownV2 formatting."""
     return _escape_md(str(text))
+
+def _md_to_html(text: str) -> str:
+    """Convert common Markdown patterns to HTML for Telegram HTML parse mode."""
+    if not isinstance(text, str):
+        text = str(text)
+    # Bold: **text** or __text__ -> <b>text</b>
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'__(.+?)__', r'<b>\1</b>', text)
+    # Italic: *text* or _text_ -> <i>text</i> (but not if already bold)
+    text = re.sub(r'(?<!\*)\*([^*\n]+?)\*(?!\*)', r'<i>\1</i>', text)
+    text = re.sub(r'(?<!_)_([^_\n]+?)_(?!_)', r'<i>\1</i>', text)
+    # Code: `code` -> <code>code</code>
+    text = re.sub(r'`([^`\n]+)`', r'<code>\1</code>', text)
+    # Pre: ```code``` -> <pre><code>code</code></pre>
+    text = re.sub(r'```([\s\S]*?)```', r'<pre><code>\1</code></pre>', text)
+    # Links: [text](url) -> <a href="url">text</a>
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+    # Headers: ### Header -> <b>Header</b>
+    text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+    # Strikethrough: ~~text~~ -> <s>text</s>
+    text = re.sub(r'~~(.+?)~~', r'<s>\1</s>', text)
+    # Underline: ++text++ -> <u>text</u>
+    text = re.sub(r'\+\+(.+?)\+\+', r'<u>\1</u>', text)
+    # Spoiler: ||text|| -> <span class="tg-spoiler">text</span>
+    text = re.sub(r'\|\|(.+?)\|\|', r'<span class="tg-spoiler">\1</span>', text)
+    return text
 
 # ═══════════════════════════════════════════════════════════════════
 # P3: IHSG/USD CACHE (5 minutes TTL)
@@ -765,58 +791,58 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
     await update.message.reply_text(
-        "🤖 *Quant Trader Bot v6\\.1*\n\n"
-        "📈 `/swing` — SWING \\(hold 3\\-30 hari\\)\n"
-        "⚡ `/scalp` — SCALP \\(day trade\\)\n"
-        "🔍 `/cek TICKER` — Analisis live \\+ fundamental\n"
-        "⚡ `/cepat TICKER` — Ringkas\n\n"
-        "📊 `/sektor` \\| `/top 5` \\| `/compare A B`\n"
-        "📋 `/help` — semua perintah\n"
-        "🩺 `/health` — Health check",
-        parse_mode="MarkdownV2")
+        "🤖 Quant Trader Bot v6.1\n\n"
+        "📈 /swing — SWING (hold 3-30 hari)\n"
+        "⚡ /scalp — SCALP (day trade)\n"
+        "🔍 /cek TICKER — Analisis live + fundamental\n"
+        "⚡ /cepat TICKER — Ringkas\n\n"
+        "📊 /sektor | /top 5 | /compare A B\n"
+        "📋 /help — semua perintah\n"
+        "🩺 /health — Health check",
+        parse_mode=None)
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await _check_rate_limit(update.effective_user.id):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
     await update.message.reply_text(
-        "📋 *v6\\.1 — Semua Perintah*\n\n"
-        "📈 `/swing` — Sinyal SWING \\(hold\\)\n"
-        "⚡ `/scalp` — Sinyal SCALP \\(day trade\\)\n"
-        "🔍 `/cek TICKER` — Analisis lengkap\n"
-        "⚡ `/cepat TICKER` — Ringkas\n"
-        "📊 `/sinyal` — Semua sinyal\n"
-        "📊 `/sektor` — Per sektor\n"
-        "🔝 `/top N` — Top N saham\n"
-        "🔄 `/compare A B` — Bandingkan\n"
-        "📈 `/report` — Laporan \\+ Discord\n"
-        "🧪 `/bt TICKER 90` — Backtest 90 hari\n"
-        "💰 `/portfolio` — Portofolio\n"
-        "✏️ `/entry TICKER HARGA LOT` — Catat entry\n"
-        "✏️ `/exit TICKER HARGA` — Catat exit\n"
-        "🩺 `/status` — Data \\+ market breadth\n"
-        "🩺 `/health` — Health check bot\n"
-        "👥 `/holders TICKER` — Pemegang saham\n"
-        "🔪 `/scalp_pos` — Posisi scalp aktif\n"
-        "💰 `/scalp_pnl` — P\\&L scalp\n"
-        "📖 `/istilah` — Istilah\n"
-        "❓ `/help` — Pesan ini",
-        parse_mode="MarkdownV2")
+        "📋 v6.1 — Semua Perintah\n\n"
+        "📈 /swing — Sinyal SWING (hold)\n"
+        "⚡ /scalp — Sinyal SCALP (day trade)\n"
+        "🔍 /cek TICKER — Analisis lengkap\n"
+        "⚡ /cepat TICKER — Ringkas\n"
+        "📊 /sinyal — Semua sinyal\n"
+        "📊 /sektor — Per sektor\n"
+        "🔝 /top N — Top N saham\n"
+        "🔄 /compare A B — Bandingkan\n"
+        "📈 /report — Laporan + Discord\n"
+        "🧪 /bt TICKER 90 — Backtest 90 hari\n"
+        "💰 /portfolio — Portofolio\n"
+        "✏️ /entry TICKER HARGA LOT — Catat entry\n"
+        "✏️ /exit TICKER HARGA — Catat exit\n"
+        "🩺 /status — Data + market breadth\n"
+        "🩺 /health — Health check bot\n"
+        "👥 /holders TICKER — Pemegang saham\n"
+        "🔪 /scalp_pos — Posisi scalp aktif\n"
+        "💰 /scalp_pnl — P&L scalp\n"
+        "📖 /istilah — Istilah\n"
+        "❓ /help — Pesan ini",
+        parse_mode=None)
 
 async def cmd_istilah(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await _check_rate_limit(update.effective_user.id):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
     await update.message.reply_text(
-        "📖 *ISTILAH v6\\.1*\n\n"
-        "*MODE:*\n📈 SWING — Hold 3\\-30 hari\n⚡ SCALP — Day trade 1\\-8 jam\n\n"
-        "*SINYAL:*\n🟢ULTRA\\_BUY 🔵STRONG\\_BUY ⚪BUY 🟡PANTAU ⚫TUNGGU 🔴HINDARI\n\n"
-        "*ARB/ARA:*\n🔴 ARB — Auto Reject Bawah \\(\\-35%, ga bisa jual\\)\n"
-        "🔴 ARA — Auto Reject Atas \\(\\+35%, ga bisa beli\\)\n\n"
-        "*INDIKATOR:*\nRSI<30 oversold \\| RSI>70 overbought \\| ADX>25 trending\n"
-        "PE<12 murah \\| PBV<1 undervalued\n\n"
-        "*MARKET BREADTH:* % saham di atas EMA50 — <30% = bearish kuat",
-        parse_mode="MarkdownV2")
+        "📖 ISTILAH v6.1\n\n"
+        "MODE:\n📈 SWING — Hold 3-30 hari\n⚡ SCALP — Day trade 1-8 jam\n\n"
+        "SINYAL:\n🟢ULTRA_BUY 🔵STRONG_BUY ⚪BUY 🟡PANTAU ⚫TUNGGU 🔴HINDARI\n\n"
+        "ARB/ARA:\n🔴 ARB — Auto Reject Bawah (-35%, ga bisa jual)\n"
+        "🔴 ARA — Auto Reject Atas (+35%, ga bisa beli)\n\n"
+        "INDIKATOR:\nRSI<30 oversold | RSI>70 overbought | ADX>25 trending\n"
+        "PE<12 murah | PBV<1 undervalued\n\n"
+        "MARKET BREADTH: % saham di atas EMA50 — <30% = bearish kuat",
+        parse_mode=None)
 
 # ── /cek ────────────────────────────────────────────────────────
 async def _render_cek(update: Update, ticker: str, compact: bool = False):
@@ -828,7 +854,7 @@ async def _render_cek(update: Update, ticker: str, compact: bool = False):
     if not data:
         data = _search_ticker(ticker); source = "📁 Screener CSV"
     if not data:
-        await update.message.reply_text(f"❌ *{_fmt_md(ticker)}* tidak ditemukan.", parse_mode="MarkdownV2"); return
+        await update.message.reply_text(f"❌ {ticker} tidak ditemukan.", parse_mode=None); return
 
     def _e(t): return _html.escape(str(t)) if not isinstance(t,str) else _html.escape(t)
 
@@ -839,7 +865,7 @@ async def _render_cek(update: Update, ticker: str, compact: bool = False):
     else:
         change_str = ""
     arb_warn = data.get("ARB_Warning",""); arb_line = f"⚠️ <b>{_e(arb_warn)}</b>\n" if arb_warn else ""
-    hold = _e(data.get("Hold","")); hold_line = f"⏱️ <b>Hold:</b> {hold}\n" if hold else ""
+    hold = _e(data.get("Hold","")); hold_line = f"⏱️ Hold: {hold}\n" if hold else ""
     vol_line = f"Vol: {data.get('Vol_Ratio',0):.1f}x avg" if data.get("Vol_Ratio",0)>0.01 else "Vol: market tutup"
     vs = data.get("Vol_Spike","NO"); spike_str = f"\n🔥 <b>VOLUME SPIKE!</b> — {_e(data.get('Vol_Spike_Label',''))}" if vs in ("EXTREME","YES","60D_HIGH") else ""
     ihsg_c, ihsg_t = data.get("IHSG_Change",0), data.get("IHSG_Trend","?")
@@ -847,15 +873,15 @@ async def _render_cek(update: Update, ticker: str, compact: bool = False):
     strength = data.get("Strength",""); strength_str = f" [{strength}]" if strength else ""
 
     if compact:
-        msg = (f"{emoji} *{_fmt_md(data.get('Ticker','?'))}* — {_fmt_md(data.get('Sinyal','?'))}{_fmt_md(strength_str)} "
+        msg = (f"{emoji} {data.get('Ticker','?')} — {data.get('Sinyal','?')}{strength_str} "
                f"Rp{int(data.get('Harga',0)):,}{change_str}\n"
                f"⭐{data.get('Skor','?')}/15 | Conf {data.get('Confidence%','?')}% | RSI {data.get('RSI','?')}\n"
-               f"🛑SL Rp{int(data.get('Stop_Loss',0) or 0):,} | 🎯TP Rp{int(data.get('Target_1',0) or 0):,} | RRR {data.get('RRR','?')}\n"
+               f"🔻Rp{int(data.get('Support',0) or 0):,} | 🔺Rp{int(data.get('Resistance',0) or 0):,} | 🛑Rp{int(data.get('Stop_Loss',0) or 0):,} | 🎯Rp{int(data.get('Target_1',0) or 0):,} | RRR {data.get('RRR','?')}\n"
                f"⏱️{hold}\n"
                f"{arb_line}"
-               f"📅 {_fmt_md(data.get('Weekly_Trend','?'))}W | {_fmt_md(data.get('Monthly_Trend','?'))}M | {_fmt_md(data.get('Regime','?'))}\n"
-               f"_{_fmt_md(source)}_")
-        await update.message.reply_text(msg, parse_mode="MarkdownV2"); return
+               f"📅 {data.get('Weekly_Trend','?')}W | {data.get('Monthly_Trend','?')}M | {data.get('Regime','?')}\n"
+               f"{source}")
+        await update.message.reply_text(msg, parse_mode=None); return
 
     # P1: Fundamental line
     pe = data.get("PE",0); pbv = data.get("PBV",0)
@@ -867,12 +893,13 @@ async def _render_cek(update: Update, ticker: str, compact: bool = False):
         fund_line = " | " + " | ".join(parts)
 
     msg = (
-        f"{emoji} <b>{_e(str(data.get('Ticker','?')))}</b> — {_e(str(data.get('Sinyal','?')))}{strength_str}{change_str}\n"
+        f"{emoji} {_e(str(data.get('Ticker','?')))} — {_e(str(data.get('Sinyal','?')))}{strength_str}{change_str}\n"
         f"{hold_line}{arb_line}{spike_str}\n"
-        f"💰 Harga: <b>Rp {int(data.get('Harga',0)):,}</b>\n"
-        f"⭐ Skor: <b>{data.get('Skor','?')}</b>/15 | Conf: <b>{data.get('Confidence%','?')}%</b> | Tech:{data.get('Tech_Score','?')} Fund:{data.get('Fund_Score','?')}\n"
+        f"💰 Harga: Rp {int(data.get('Harga',0)):,}\n"
+        f"⭐ Skor: {data.get('Skor','?')}/15 | Conf: {data.get('Confidence%','?')}% | Tech:{data.get('Tech_Score','?')} Fund:{data.get('Fund_Score','?')}\n"
         f"📈 RSI:{data.get('RSI','?')} ADX:{data.get('ADX','?')} MACD:{_e(str(data.get('MACD','?')))} | {vol_line}{fund_line}\n"
         f"📐 BB:{data.get('BB_Width%','?')}% Pattern:{_e(str(data.get('Pattern','?')))}{market_str}\n\n"
+        f"🔻 Support: Rp{int(data.get('Support',0) or 0):,} | 🔺 Resistance: Rp{int(data.get('Resistance',0) or 0):,}\n"
         f"🛑 SL Rp{int(data.get('Stop_Loss',0) or 0):,} | 🎯 TP1 Rp{int(data.get('Target_1',0) or 0):,} | TP2 Rp{int(data.get('Target_2',0) or 0):,}\n"
         f"⚖️ RRR:{data.get('RRR','?')} | ATR:{data.get('ATR','?')}\n\n"
         f"🐋 MM:{_e(str(data.get('MM_Activity','?')))} ({data.get('MM_Confidence','?')}%) | AI:{_e(str(data.get('AI_Verdict','?')))} ({data.get('AI_Win_Prob%','?')}%)\n"
@@ -881,14 +908,14 @@ async def _render_cek(update: Update, ticker: str, compact: bool = False):
     await update.message.reply_text(msg, parse_mode="HTML")
 
 async def cmd_cek(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args: await update.message.reply_text("⚠️ `/cek TICKER`"); return
+    if not ctx.args: await update.message.reply_text("⚠️ /cek TICKER"); return
     if not await _check_rate_limit(update.effective_user.id):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
     await _render_cek(update, ctx.args[0], compact=False)
 
 async def cmd_cepat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args: await update.message.reply_text("⚠️ `/cepat TICKER`"); return
+    if not ctx.args: await update.message.reply_text("⚠️ /cepat TICKER"); return
     if not await _check_rate_limit(update.effective_user.id):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
@@ -913,19 +940,19 @@ async def _show_dual(update: Update, mode: str):
         title = "⚡ SCALP (Day Trade 1-8 Jam)"; subtitle = ""
     total = len(ultra)+len(strong)+len(buy)
     if total==0:
-        await update.message.reply_text(f"{'📈' if mode=='swing' else '⚡'} Tidak ada sinyal {'SWING' if mode=='swing' else 'SCALP'}.\nCoba `/{'scalp' if mode=='swing' else 'swing'}`"); return
-    lines = [f"*{_fmt_md(title)} — {total} saham*{subtitle}\n"]
+        await update.message.reply_text(f"{'📈' if mode=='swing' else '⚡'} Tidak ada sinyal {'SWING' if mode=='swing' else 'SCALP'}.\nCoba /{'scalp' if mode=='swing' else 'swing'}"); return
+    lines = [f"{'📈' if mode=='swing' else '⚡'} {title} — {total} saham{subtitle}\n"]
     if ultra:
-        lines.append("🟢 *ULTRA BUY*")
-        for r in ultra[:8]: lines.append(f"  {_fmt_md(r['Ticker'])} — Rp{int(r.get('Harga',0)):,} | RRR{r.get('RRR','?')} | {_fmt_md(r.get('AI_Verdict','?'))}")
+        lines.append("🟢 ULTRA BUY")
+        for r in ultra[:8]: lines.append(f"  {r['Ticker']} — Rp{int(r.get('Harga',0)):,} | RRR{r.get('RRR','?')} | {r.get('AI_Verdict','?')}")
     if strong:
-        lines.append("\n🔵 *STRONG BUY*")
-        for r in strong[:8]: lines.append(f"  {_fmt_md(r['Ticker'])} — Rp{int(r.get('Harga',0)):,} | Conf{r.get('Confidence%','?')}%")
+        lines.append("\n🔵 STRONG BUY")
+        for r in strong[:8]: lines.append(f"  {r['Ticker']} — Rp{int(r.get('Harga',0)):,} | Conf{r.get('Confidence%','?')}%")
     if buy:
-        lines.append("\n⚪ *BUY*")
-        for r in buy[:8]: lines.append(f"  {_fmt_md(r['Ticker'])} — Rp{int(r.get('Harga',0)):,} | RRR{r.get('RRR','?')}")
-    lines.append(f"\n🔍 `/cek TICKER` | {'⚡ `/scalp`' if mode=='swing' else '📈 `/swing`'}")
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+        lines.append("\n⚪ BUY")
+        for r in buy[:8]: lines.append(f"  {r['Ticker']} — Rp{int(r.get('Harga',0)):,} | RRR{r.get('RRR','?')}")
+    lines.append(f"\n🔍 /cek TICKER | {'⚡ /scalp' if mode=='swing' else '📈 /swing'}")
+    await update.message.reply_text("\n".join(lines), parse_mode=None)
 
 async def cmd_swing(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await _check_rate_limit(update.effective_user.id):
@@ -948,18 +975,18 @@ async def cmd_sinyal(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _run_screener_background()
     s = _get_signals()
     if s["total"]==0: await update.message.reply_text("📊 Tidak ada sinyal.\n🔄 Screener berjalan..."); return
-    lines = [f"📊 *Sinyal — {s['total']} saham*\n"]
+    lines = [f"📊 Sinyal — {s['total']} saham\n"]
     if s["ultra"]:
-        lines.append("🟢 *ULTRA BUY*")
-        for r in s["ultra"][:8]: lines.append(f"  {_fmt_md(r['Ticker'])} — Rp{int(r.get('Harga',0)):,} | RRR{r.get('RRR','?')} | {_fmt_md(r.get('AI_Verdict','?'))}")
+        lines.append("🟢 ULTRA BUY")
+        for r in s["ultra"][:8]: lines.append(f"  {r['Ticker']} — Rp{int(r.get('Harga',0)):,} | RRR{r.get('RRR','?')} | {r.get('AI_Verdict','?')}")
     if s["strong"]:
-        lines.append("\n🔵 *STRONG BUY*")
-        for r in s["strong"][:8]: lines.append(f"  {_fmt_md(r['Ticker'])} — Rp{int(r.get('Harga',0)):,} | Conf{r.get('Confidence%','?')}%")
+        lines.append("\n🔵 STRONG BUY")
+        for r in s["strong"][:8]: lines.append(f"  {r['Ticker']} — Rp{int(r.get('Harga',0)):,} | Conf{r.get('Confidence%','?')}%")
     if s["buy"]:
-        lines.append("\n⚪ *BUY*")
-        for r in s["buy"][:8]: lines.append(f"  {_fmt_md(r['Ticker'])} — Rp{int(r.get('Harga',0)):,} | RRR{r.get('RRR','?')}")
-    lines.append(f"\n📈 `/swing` | ⚡ `/scalp` | 🔍 `/cek TICKER`")
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+        lines.append("\n⚪ BUY")
+        for r in s["buy"][:8]: lines.append(f"  {r['Ticker']} — Rp{int(r.get('Harga',0)):,} | RRR{r.get('RRR','?')}")
+    lines.append(f"\n📈 /swing | ⚡ /scalp | 🔍 /cek TICKER")
+    await update.message.reply_text("\n".join(lines), parse_mode=None)
 
 # ── P2: /sektor ─────────────────────────────────────────────────
 async def cmd_sektor(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -976,10 +1003,10 @@ async def cmd_sektor(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         Buy=("Sinyal", lambda x: (x.isin(["ULTRA_BUY","STRONG_BUY","BUY"])).sum() if "Sinyal" in df.columns else 0),
         AvgSkor=("Skor","mean") if "Skor" in df.columns else pd.Series(),
     ).sort_values("Buy", ascending=False)
-    lines = ["📊 *Rotasi Sektor Hari Ini*\n"]
+    lines = ["📊 Rotasi Sektor Hari Ini\n"]
     for sektor, row in sector_stats.iterrows():
-        lines.append(f"  {_fmt_md(sektor)}: {int(row['Buy'])} BUY / {int(row['Count'])} saham | Avg Skor {row.get('AvgSkor',0):.1f}")
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+        lines.append(f"  {sektor}: {int(row['Buy'])} BUY / {int(row['Count'])} saham | Avg Skor {row.get('AvgSkor',0):.1f}")
+    await update.message.reply_text("\n".join(lines), parse_mode=None)
 
 # ── P2: /top ────────────────────────────────────────────────────
 async def cmd_top(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -993,11 +1020,11 @@ async def cmd_top(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if df is None: await update.message.reply_text("📊 Tidak ada data."); return
     if "Skor" not in df.columns: await update.message.reply_text("📊 Kolom skor tidak tersedia."); return
     top = df.nlargest(n, "Skor")[["Ticker","Sinyal","Harga","Skor","Confidence%","RRR","Sektor"]]
-    lines = [f"🔝 *Top {n} Saham Hari Ini*\n"]
+    lines = [f"🔝 Top {n} Saham Hari Ini\n"]
     for _, r in top.iterrows():
         emoji = {"ULTRA_BUY":"🟢","STRONG_BUY":"🔵","BUY":"⚪","PANTAU":"🟡","TUNGGU":"⚫"}.get(r.get("Sinyal",""),"⚫")
-        lines.append(f"{emoji} {_fmt_md(r['Ticker'])} — Rp{int(r['Harga']):,} | ⭐{r['Skor']} | {_fmt_md(r.get('Sektor','?'))}")
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+        lines.append(f"{emoji} {r['Ticker']} — Rp{int(r['Harga']):,} | ⭐{r['Skor']} | {r.get('Sektor','?')}")
+    await update.message.reply_text("\n".join(lines), parse_mode=None)
 
 # ── P2: /compare ────────────────────────────────────────────────
 async def cmd_compare(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1005,19 +1032,19 @@ async def cmd_compare(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
     if len(ctx.args) < 2:
-        await update.message.reply_text("⚠️ `/compare TICKER1 TICKER2`"); return
+        await update.message.reply_text("⚠️ /compare TICKER1 TICKER2"); return
     await update.message.chat.send_action("typing")
     results = []
     for tkr in ctx.args[:4]:
         d = await asyncio.to_thread(_lookup_ticker_live, tkr, compact=True)
         if d and d.get("_error"): d = _search_ticker(tkr)
         results.append((tkr, d))
-    lines = ["🔄 *Compare*\n"]
+    lines = ["🔄 Compare\n"]
     for tkr, d in results:
-        if not d: lines.append(f"❌ {_fmt_md(tkr.upper())}: tidak ditemukan"); continue
+        if not d: lines.append(f"❌ {tkr.upper()}: tidak ditemukan"); continue
         emoji = {"ULTRA_BUY":"🟢","STRONG_BUY":"🔵","BUY":"⚪","PANTAU":"🟡","TUNGGU":"⚫","HINDARI":"🔴"}.get(d.get("Sinyal",""),"❓")
-        lines.append(f"{emoji} *{_fmt_md(d.get('Ticker','?'))}* — {_fmt_md(d.get('Sinyal','?'))} | Rp{int(d.get('Harga',0)):,} | ⭐{d.get('Skor','?')}/15 | RRR{d.get('RRR','?')} | PE{d.get('PE','?')} | PBV{d.get('PBV','?')}")
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+        lines.append(f"{emoji} {d.get('Ticker','?')} — {d.get('Sinyal','?')} | Rp{int(d.get('Harga',0)):,} | ⭐{d.get('Skor','?')}/15 | RRR{d.get('RRR','?')} | PE{d.get('PE','?')} | PBV{d.get('PBV','?')}")
+    await update.message.reply_text("\n".join(lines), parse_mode=None)
 
 # ── /report ─────────────────────────────────────────────────────
 async def cmd_report(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1032,9 +1059,9 @@ async def cmd_report(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         from dashboard.alerts import AlertManager
         am = AlertManager()
         result = am.send_screener_report(s["ultra"], s["strong"], s["buy"])
-        await update.message.reply_text(f"📈 {result}\n📈 `/swing` | ⚡ `/scalp`")
+        await update.message.reply_text(f"📈 {result}\n📈 /swing | ⚡ /scalp")
     except ImportError:
-        await update.message.reply_text("📊 Dashboard module not available. Run screener.py first.\n📈 `/swing` | ⚡ `/scalp`")
+        await update.message.reply_text("📊 Dashboard module not available. Run screener.py first.\n📈 /swing | ⚡ /scalp")
 
 # ── /portfolio ──────────────────────────────────────────────────
 async def cmd_portfolio(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1049,21 +1076,21 @@ async def cmd_portfolio(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cash = cash_row[0] if cash_row else 0
         pos = conn.execute("SELECT ticker,harga_beli,shares,sl,tp FROM posisi").fetchall()
     pos_val = sum(p[1]*p[2] for p in pos); equity = cash+pos_val; pnl = equity-INITIAL_CASH
-    lines = [f"💰 *Portfolio*", f"Equity: *Rp{equity:,.0f}* | Cash: Rp{cash:,.0f}", f"P\\&L: Rp{pnl:+,.0f} ({pnl/INITIAL_CASH*100:+.2f}%)"]
+    lines = [f"💰 Portfolio", f"Equity: Rp{equity:,.0f} | Cash: Rp{cash:,.0f}", f"P&L: Rp{pnl:+,.0f} ({pnl/INITIAL_CASH*100:+.2f}%)"]
     if pos:
-        lines.append(f"\n*Open ({len(pos)})*")
-        for p in pos: lines.append(f"  {_fmt_md(p[0])} — {p[2]}s @ Rp{p[1]:,.0f}")
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+        lines.append(f"\nOpen ({len(pos)})")
+        for p in pos: lines.append(f"  {p[0]} — {p[2]}s @ Rp{p[1]:,.0f}")
+    await update.message.reply_text("\n".join(lines), parse_mode=None)
 
 # ── P4: /entry & /exit ──────────────────────────────────────────
 async def cmd_entry(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await _check_rate_limit(update.effective_user.id):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
-    if len(ctx.args)<3: await update.message.reply_text("⚠️ `/entry TICKER HARGA LOT`\nContoh: `/entry BBCA 10500 5`"); return
+    if len(ctx.args)<3: await update.message.reply_text("⚠️ /entry TICKER HARGA LOT\nContoh: /entry BBCA 10500 5"); return
     tkr = ctx.args[0].upper().replace(".JK","")
     try: harga = float(ctx.args[1]); lot = int(ctx.args[2])
-    except (ValueError, IndexError): await update.message.reply_text("⚠️ Format: `/entry BBCA 10500 5`"); return
+    except (ValueError, IndexError): await update.message.reply_text("⚠️ Format: /entry BBCA 10500 5"); return
     shares = lot*100
     with _get_db() as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS akun (saldo_cash REAL)")
@@ -1074,16 +1101,16 @@ async def cmd_entry(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if not cur.fetchone(): cur.execute("INSERT INTO akun VALUES (?)", (INITIAL_CASH,))
         cur.execute("INSERT INTO posisi (ticker,harga_beli,sl,tp,shares,tanggal) VALUES (?,?,?,?,?,?)",
             (tkr, harga, harga*DEFAULT_SL_PCT, harga*DEFAULT_TP_PCT, shares, datetime.now().strftime("%Y-%m-%d")))
-    await update.message.reply_text(f"✅ Entry: *{_fmt_md(tkr)}* — {shares} shares @ Rp{harga:,.0f}\nSL: Rp{harga*DEFAULT_SL_PCT:,.0f} | TP: Rp{harga*DEFAULT_TP_PCT:,.0f}", parse_mode="MarkdownV2")
+    await update.message.reply_text(f"✅ Entry: {tkr} — {shares} shares @ Rp{harga:,.0f}\nSL: Rp{harga*DEFAULT_SL_PCT:,.0f} | TP: Rp{harga*DEFAULT_TP_PCT:,.0f}", parse_mode=None)
 
 async def cmd_exit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await _check_rate_limit(update.effective_user.id):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
-    if len(ctx.args)<2: await update.message.reply_text("⚠️ `/exit TICKER HARGA`"); return
+    if len(ctx.args)<2: await update.message.reply_text("⚠️ /exit TICKER HARGA"); return
     tkr = ctx.args[0].upper().replace(".JK","")
     try: harga = float(ctx.args[1])
-    except (ValueError, IndexError): await update.message.reply_text("⚠️ Format: `/exit BBCA 10800`"); return
+    except (ValueError, IndexError): await update.message.reply_text("⚠️ Format: /exit BBCA 10800"); return
     if not os.path.exists(os.path.join(ROOT,"portofolio_virtual.db")): await update.message.reply_text("💰 Belum ada data."); return
     with _get_db() as conn:
         cur = conn.cursor()
@@ -1095,14 +1122,14 @@ async def cmd_exit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cur.execute("DELETE FROM posisi WHERE rowid=?",(rowid,))
         cur.execute("INSERT INTO histori_trade VALUES (?,?,?,?,?)",(tkr,pnl,"MANUAL_EXIT",datetime.now().strftime("%Y-%m-%d"),"manual"))
     emoji = "🟢" if pnl>0 else "🔴"
-    await update.message.reply_text(f"{emoji} Exit: *{_fmt_md(tkr)}* @ Rp{harga:,.0f}\nPnL: Rp{pnl:+,.0f} ({pnl_pct:+.2f}%)\nEntry Rp{entry:,.0f} → Exit Rp{harga:,.0f}", parse_mode="MarkdownV2")
+    await update.message.reply_text(f"{emoji} Exit: {tkr} @ Rp{harga:,.0f}\nPnL: Rp{pnl:+,.0f} ({pnl_pct:+.2f}%)\nEntry Rp{entry:,.0f} → Exit Rp{harga:,.0f}", parse_mode=None)
 
 # ── P4: /bt (on-demand backtest) ────────────────────────────────
 async def cmd_bt(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await _check_rate_limit(update.effective_user.id):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
-    if not ctx.args: await update.message.reply_text("⚠️ `/bt TICKER [HARI]`\nContoh: `/bt BBCA 90`"); return
+    if not ctx.args: await update.message.reply_text("⚠️ /bt TICKER [HARI]\nContoh: /bt BBCA 90"); return
     tkr = ctx.args[0].upper().replace(".JK","")
     days = 90
     if len(ctx.args)>1 and ctx.args[1].isdigit(): days = min(365, max(7, int(ctx.args[1])))
@@ -1121,15 +1148,15 @@ async def cmd_bt(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         sharpe = (pct.mean()-RISK_FREE_RATE/252)/pct.std()*np.sqrt(252) if pct.std()>0 else 0
         max_dd = ((1+pct).cumprod().cummax()-(1+pct).cumprod()).max()*100
         await update.message.reply_text(
-            f"🧪 *Backtest {_fmt_md(tkr)} — {days} hari ({len(pct)} trades)*\n\n"
-            f"📊 Win Rate: *{win_rate:.1f}%*\n"
-            f"💰 Total Return: *{total_ret:+.2f}%*\n"
+            f"🧪 Backtest {tkr} — {days} hari ({len(pct)} trades)\n\n"
+            f"📊 Win Rate: {win_rate:.1f}%\n"
+            f"💰 Total Return: {total_ret:+.2f}%\n"
             f"📈 Sharpe: {sharpe:.2f}\n"
             f"📉 Max DD: {max_dd:.1f}%\n"
             f"✅ Avg Win: {avg_win:+.2f}% | ❌ Avg Loss: {avg_loss:+.2f}%\n"
             f"⚖️ Avg Win/Loss: {abs(avg_win/max(0.001,abs(avg_loss))):.1f}x\n\n"
-            f"🤖 _Simulasi buy\\-and\\-hold, tanpa SL/TP._",
-            parse_mode="MarkdownV2")
+            f"🤖 Simulasi buy-and-hold, tanpa SL/TP.",
+            parse_mode=None)
     except Exception as e:
         logger.error("Backtest failed for %s: %s", tkr, e)
         await update.message.reply_text(f"❌ Error: {e}")
@@ -1175,11 +1202,11 @@ async def cmd_btall(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Gagal backtest semua ticker.")
         return
     
-    lines = ["🧪 *Backtest Multi-Ticker (3 bulan)*\n"]
+    lines = ["🧪 Backtest Multi-Ticker (3 bulan)\n"]
     for r in sorted(results, key=lambda x: x["Return%"], reverse=True):
         emoji = "🟢" if r["Return%"] > 0 else "🔴"
         lines.append(f"{emoji} {r['Ticker']}: Return {r['Return%']:+.2f}% | Sharpe {r['Sharpe']:.2f}")
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+    await update.message.reply_text("\n".join(lines), parse_mode=None)
 
 # ── /status (with P1 market breadth) ────────────────────────────
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1195,12 +1222,12 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ihsg_c, ihsg_t = _fetch_ihsg_change_cached()
     breadth_str = f"{'🟢' if mb['pct_above_ema50']>=50 else '🟡' if mb['pct_above_ema50']>=30 else '🔴'} {mb['pct_above_ema50']:.0f}% above EMA50" if mb['total']>0 else "N/A"
     await update.message.reply_text(
-        f"🩺 *Bot Status v6\\.1*\n✅ Online | 📁 `{_fmt_md(os.path.basename(path))}` ({age:.1f}h)\n"
+        f"🩺 Bot Status v6.1\n✅ Online | 📁 {os.path.basename(path)} ({age:.1f}h)\n"
         f"📊 Sinyal: {s['total']} (🟢{len(s['ultra'])}/🔵{len(s['strong'])}/⚪{len(s['buy'])})\n"
         f"📈 IHSG: {ihsg_c:+.2f}% ({ihsg_t})\n"
         f"📊 Breadth: {breadth_str}\n"
-        f"📈 `/swing` | ⚡ `/scalp` | 🔝 `/top 5`",
-        parse_mode="MarkdownV2")
+        f"📈 /swing | ⚡ /scalp | 🔝 /top 5",
+        parse_mode=None)
 
 # ── /health — Health check (v6.1) ───────────────────────────────
 async def cmd_health(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1237,14 +1264,14 @@ async def cmd_health(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     mem_mb = process.memory_info().rss / 1024 / 1024
 
     msg = (
-        f"{'✅' if services_ok else '⚠️'} *Bot Health v6\\.1*\n\n"
+        f"{'✅' if services_ok else '⚠️'} Bot Health v6.1\n\n"
         f"⏱️ Uptime: {uptime_str}\n"
         f"💾 Memory: {mem_mb:.1f} MB\n"
         f"🧵 Threads: {process.num_threads()}\n"
         f"---\n" +
         "\n".join(services_lines)
     )
-    await update.message.reply_text(msg, parse_mode="MarkdownV2")
+    await update.message.reply_text(msg, parse_mode=None)
 
 # ── Scalp commands ──────────────────────────────────────────────
 async def cmd_scalp_pos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1256,12 +1283,12 @@ async def cmd_scalp_pos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     with _get_db() as conn:
         rows = conn.execute("SELECT ticker,harga_beli,sl,tp,shares,highest_price FROM posisi WHERE strategy='scalp'").fetchall()
     if not rows: await update.message.reply_text("📋 Tidak ada posisi scalp."); return
-    lines = [f"📋 *Scalp Positions — {len(rows)}*\n"]
+    lines = [f"📋 Scalp Positions — {len(rows)}\n"]
     for r in rows:
         tkr,entry,sl,tp,shares,peak = r
         profit = (peak-entry)/entry*100 if entry>0 else 0
-        lines.append(f"{'🟢' if profit>0 else '🔴'} {_fmt_md(tkr)} {shares}s @ Rp{int(entry):,} | +{profit:.2f}% | SL Rp{int(sl):,}")
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+        lines.append(f"{'🟢' if profit>0 else '🔴'} {tkr} {shares}s @ Rp{int(entry):,} | +{profit:.2f}% | SL Rp{int(sl):,}")
+    await update.message.reply_text("\n".join(lines), parse_mode=None)
 
 async def cmd_scalp_pnl(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await _check_rate_limit(update.effective_user.id):
@@ -1272,9 +1299,9 @@ async def cmd_scalp_pnl(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not os.path.exists(os.path.join(ROOT,"portofolio_virtual.db")): await update.message.reply_text("📊 Belum ada"); return
     with _get_db() as conn:
         df = pd.read_sql("SELECT pnl,status FROM histori_trade WHERE strategy='scalp' AND tanggal=?",conn,params=[today])
-    if df.empty: await update.message.reply_text(f"📊 *Scalp PnL {_fmt_md(today)}*\nBelum ada trade.", parse_mode="MarkdownV2"); return
+    if df.empty: await update.message.reply_text(f"📊 Scalp PnL {today}\nBelum ada trade.", parse_mode=None); return
     total = int(df["pnl"].sum()); wins = int((df["pnl"]>0).sum()); wr = wins/max(1,len(df))*100
-    await update.message.reply_text(f"📊 *Scalp PnL {_fmt_md(today)}*\nTotal: *Rp{total:+,.0f}*\nTrades: {len(df)} | WR: {wr:.0f}%", parse_mode="MarkdownV2")
+    await update.message.reply_text(f"📊 Scalp PnL {today}\nTotal: Rp{total:+,.0f}\nTrades: {len(df)} | WR: {wr:.0f}%", parse_mode=None)
 
 # ── /holders — Informasi saham dari CSV Screener ─────────────
 async def cmd_holders(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1284,7 +1311,7 @@ async def cmd_holders(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await _check_rate_limit(update.effective_user.id):
         await update.message.reply_text(f"⏳ Mohon tunggu {RATE_LIMIT_WINDOW} detik sebelum mengirim perintah lagi.")
         return
-    if not ctx.args: await update.message.reply_text("⚠️ `/holders TICKER`\nContoh: `/holders BBCA`"); return
+    if not ctx.args: await update.message.reply_text("⚠️ /holders TICKER\nContoh: /holders BBCA"); return
     tkr = ctx.args[0].upper().replace(".JK", "")
     await update.message.chat.send_action("typing")
     try:
@@ -1296,7 +1323,7 @@ async def cmd_holders(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         df = pd.read_csv(path)
         match = df[df["Ticker"].astype(str).str.upper() == tkr]
         if match.empty:
-            await update.message.reply_text(f"❌ *{_fmt_md(tkr)}* tidak ditemukan di data screener.", parse_mode="MarkdownV2")
+            await update.message.reply_text(f"❌ {tkr} tidak ditemukan di data screener.", parse_mode=None)
             return
 
         row = match.iloc[0]
@@ -1331,17 +1358,17 @@ async def cmd_holders(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         # Header info
         msg = (
-            f"📋 Informasi Saham — {_fmt_md(tkr)}\n\n"
-            f"🏢 Sektor: {_fmt_md(sektor)}\n"
+            f"📋 Informasi Saham — {tkr}\n\n"
+            f"🏢 Sektor: {sektor}\n"
             f"💰 Harga: Rp{harga:,.0f}\n"
             f"📊 Market Cap: Rp{mcap:,.0f}\n"
             f"📦 Shares Outstanding: {ts:,} lbr\n"
             f"📊 Free Float: {ff_pct:.1f}% ({fs:,} lbr)\n"
             f"🏦 MM Float: {mm_float_pct:.1f}%\n"
-            f"👑 Dominance: {_fmt_md(dominance)}\n"
-            f"📈 Trend: {_fmt_md(weekly_trend)} | Regime: {_fmt_md(regime)}\n"
+            f"👑 Dominance: {dominance}\n"
+            f"📈 Trend: {weekly_trend} | Regime: {regime}\n"
             f"⭐ Skor: {skor}/15 | Confidence: {confidence}%\n"
-            f"🚦 Sinyal: {_fmt_md(sinyal)}\n\n"
+            f"🚦 Sinyal: {sinyal}\n\n"
         )
 
         # ── KSEI Shareholder Detail ──
@@ -1349,7 +1376,7 @@ async def cmd_holders(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             top = ksei.get("top_holders", [])
             holder_lines = []
             for h in top:
-                nm = _fmt_md(h.get("name", "?"))
+                nm = h.get("name", "?")
                 pct = h.get("pct", 0)
                 cls = h.get("classification", "")
                 emoji_cls = "🏦" if "MM" in cls else ("👤" if "INSIDER" in cls else "👥")
@@ -1361,14 +1388,13 @@ async def cmd_holders(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             if ksei.get("mm_trend") != "N/A":
                 trend_emoji = "📈" if "ACCUM" in str(ksei.get("mm_trend","")) else "📉"
                 msg += f"  {trend_emoji} MM Trend: {ksei.get('mm_trend','?')} ({ksei.get('mm_trend_pct',0):+.1f}%)\n"
-            msg += f"  👑 Dominance: {_fmt_md(str(ksei.get('dominance','?')))}\n"
-            msg += f"\n*Top {len(holder_lines)} Holders:*\n" + "\n".join(holder_lines)
+            msg += f"  👑 Dominance: {str(ksei.get('dominance','?'))}\n"
+            msg += f"\nTop {len(holder_lines)} Holders:\n" + "\n".join(holder_lines)
             msg += f"\n\n📁 Sumber: KSEI + CSV Screener"
         else:
             msg += f"📁 Sumber: CSV Screener\n"
-            # Fallback: tampilkan ticker saja
             if ksei.get("status") == "no_data":
-                msg += "_Tidak ada data pemegang saham dari KSEI untuk emiten ini._"
+                msg += "Tidak ada data pemegang saham dari KSEI untuk emiten ini."
 
         await update.message.reply_text(msg)
     except Exception as e:
@@ -1462,26 +1488,51 @@ def main():
         await app.bot.set_my_commands(bot_commands)
         logger.info("Commands registered with Telegram API")
 
-    # ─── AI Chat Handler (Natural Language) ───────────────────────────
+    # ─── AI Chat Handler (Natural Language, only when tagged) ───────────────────────────
     async def handle_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.message or not update.message.text:
             return
         text = update.message.text.strip()
+        logger.info(f"[AI_HANDLER] chat_id={update.effective_chat.id} text={text[:80]}")
         if not text or text.startswith("/"):
             return  # Skip commands
+        # Only respond if bot is mentioned (@botname) or replied to
+        bot_username = context.bot.username
+        if bot_username:
+            mentioned = f"@{bot_username}" in text
+        else:
+            mentioned = False
+        is_reply_to_bot = (
+            update.message.reply_to_message
+            and update.message.reply_to_message.from_user
+            and update.message.reply_to_message.from_user.id == context.bot.id
+        )
+        logger.info(f"[AI_HANDLER] mentioned={mentioned} reply_to_bot={is_reply_to_bot} bot_username={bot_username}")
+        if not mentioned and not is_reply_to_bot:
+            logger.info("[AI_HANDLER] Ignored (not mentioned/replied)")
+            return  # Ignore messages not addressing the bot
         chat_id = update.effective_chat.id
         # Show typing action
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         # Call AI agent (synchronous, runs in thread pool)
         import asyncio
         loop = asyncio.get_event_loop()
-        answer = await loop.run_in_executor(None, ask_ai, chat_id, update.message.text)
+        clean_text = update.message.text
+        if bot_username:
+            clean_text = clean_text.replace(f"@{bot_username}", "").strip()
+        if not clean_text:
+            clean_text = update.message.text
+        # Ambil user_id untuk conversation memory
+        from_user = update.message.from_user
+        user_id = from_user.id if from_user else chat_id
+        answer = await loop.run_in_executor(None, ask_ai, chat_id, clean_text, user_id)
         if answer:
-            await update.message.reply_text(answer, parse_mode="Markdown")
+            # Gunakan parse_mode=None — AI sudah dirancang untuk plain text murni
+            await update.message.reply_text(answer, parse_mode=None)
 
     app.post_init = _register_commands
 
-    # Register AI chat handler (text messages, non-commands)
+    # Register AI chat handler (text messages mentioning the bot)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ai_chat))
 
     print("="*50)
