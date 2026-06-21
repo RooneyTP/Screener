@@ -1,0 +1,38 @@
+[
+  {
+    "bucket": 90,
+    "n": 0,
+    "actual_wr": 0,
+    "sharpe": 0
+  },
+  {
+    "bucket": 80,
+    "n": 0,
+    "actual_wr": 0,
+    "sharpe": 0
+  },
+  {
+    "bucket": 70,
+    "n": 5,
+    "actual_wr": 0.0,
+    "sharpe": -98143250.28
+  },
+  {
+    "bucket": 60,
+    "n": 17,
+    "actual_wr": 0.0,
+    "sharpe": -98143250.28
+  },
+  {
+    "bucket": 50,
+    "n": 21,
+    "actual_wr": 9.5,
+    "sharpe": 3.55
+  },
+  {
+    "bucket": 40,
+    "n": 128,
+    "actual_wr": 53.1,
+    "sharpe": 8.97
+  }
+]

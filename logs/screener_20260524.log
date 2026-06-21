@@ -1,0 +1,741 @@
+2026-05-24 20:24:45 [INFO] screener: Memindai Arus Uang (Rotasi Sektor)...
+2026-05-24 20:24:55 [INFO] screener: Rotasi sektor selesai (11 sektor dipindai)
+2026-05-24 20:24:55 [INFO] screener: Mengunduh Cuaca Makro Global & Komoditas...
+2026-05-24 20:24:56 [INFO] screener: Macro update — IHSG=+1.10% | USD=+0.11% | Trend=DOWN | Penalty=0.5
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:02 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.731)
+2026-05-24 20:25:06 [INFO] screener: [AI] BTPS.JK — Win Rate: 29.6%  Verdict: WEAK
+2026-05-24 20:25:06 [INFO] screener: [AI] BBTN.JK — Win Rate: 20.1%  Verdict: WEAK
+2026-05-24 20:25:06 [INFO] screener: [AI] BNGA.JK — Win Rate: 75.7%  Verdict: ULTRA BUY
+2026-05-24 20:25:06 [INFO] screener: [AI] NISP.JK — Win Rate: 51.1%  Verdict: BUY
+2026-05-24 20:25:06 [INFO] screener: [AI] BBNI.JK — Win Rate: 37.0%  Verdict: WEAK
+2026-05-24 20:25:07 [INFO] screener: [AI] BMRI.JK — Win Rate: 61.9%  Verdict: ULTRA BUY
+2026-05-24 20:25:08 [INFO] screener: [AI] BBRI.JK — Win Rate: 31.0%  Verdict: WEAK
+2026-05-24 20:25:08 [INFO] screener: [AI] CFIN.JK — Win Rate: 77.9%  Verdict: ULTRA BUY
+2026-05-24 20:25:08 [INFO] screener: [AI] ARTO.JK — Win Rate: 48.7%  Verdict: WEAK
+2026-05-24 20:25:09 [INFO] screener: [AI] BVIC.JK — Win Rate: 34.6%  Verdict: WEAK
+2026-05-24 20:25:10 [INFO] screener: [AI] BBCA.JK — Win Rate: 48.7%  Verdict: WEAK
+2026-05-24 20:25:10 [INFO] screener: [AI] BRIS.JK — Win Rate: 73.2%  Verdict: ULTRA BUY
+2026-05-24 20:25:11 [INFO] screener: [AI] BDMN.JK — Win Rate: 14.3%  Verdict: WEAK
+2026-05-24 20:25:12 [INFO] screener: [AI] BBYB.JK — Win Rate: 9.0%  Verdict: WEAK
+2026-05-24 20:25:14 [WARNING] screener: [FUNDAMENTAL] MLPL.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:16 [INFO] screener: [AI] PNBN.JK — Win Rate: 13.6%  Verdict: WEAK
+2026-05-24 20:25:16 [INFO] screener: [AI] BJBR.JK — Win Rate: 61.8%  Verdict: ULTRA BUY
+2026-05-24 20:25:18 [WARNING] screener: [FUNDAMENTAL] MPPA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:19 [INFO] screener: [AI] BSIM.JK — Win Rate: 72.9%  Verdict: ULTRA BUY
+2026-05-24 20:25:19 [INFO] screener: [AI] BJTM.JK — Win Rate: 36.7%  Verdict: WEAK
+2026-05-24 20:25:21 [INFO] screener: [AI] BMTR.JK — Win Rate: 24.4%  Verdict: WEAK
+2026-05-24 20:25:21 [INFO] screener: [AI] LPKR.JK — Win Rate: 10.3%  Verdict: WEAK
+2026-05-24 20:25:21 [INFO] screener: [AI] SRTG.JK — Win Rate: 30.6%  Verdict: WEAK
+2026-05-24 20:25:21 [INFO] screener: [AI] MLPL.JK — Win Rate: 10.0%  Verdict: WEAK
+2026-05-24 20:25:21 [INFO] screener: [AI] ASII.JK — Win Rate: 10.1%  Verdict: WEAK
+2026-05-24 20:25:21 [INFO] screener: [AI] UNTR.JK — Win Rate: 83.2%  Verdict: ULTRA BUY
+2026-05-24 20:25:21 [INFO] screener: [AI] SMMA.JK — Win Rate: 27.0%  Verdict: WEAK
+2026-05-24 20:25:21 [INFO] screener: [AI] BHIT.JK — Win Rate: 5.8%  Verdict: WEAK
+2026-05-24 20:25:23 [WARNING] screener: [FUNDAMENTAL] GOTO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:23 [WARNING] screener: [FUNDAMENTAL] BELI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:23 [WARNING] screener: [FUNDAMENTAL] EXCL.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:23 [INFO] screener: [AI] BNLI.JK — Win Rate: 50.3%  Verdict: BUY
+2026-05-24 20:25:24 [INFO] screener: [AI] MPPA.JK — Win Rate: 5.8%  Verdict: WEAK
+2026-05-24 20:25:25 [INFO] screener: [AI] VIVA.JK — Win Rate: 11.0%  Verdict: WEAK
+2026-05-24 20:25:26 [INFO] screener: [AI] SCMA.JK — Win Rate: 11.9%  Verdict: WEAK
+2026-05-24 20:25:26 [WARNING] screener: [FUNDAMENTAL] KREN.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:27 [WARNING] screener: [FUNDAMENTAL] AXIO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:27 [INFO] screener: [AI] EXCL.JK — Win Rate: 26.4%  Verdict: WEAK
+2026-05-24 20:25:28 [INFO] screener: [AI] GOTO.JK — Win Rate: 8.8%  Verdict: WEAK
+2026-05-24 20:25:28 [INFO] screener: [AI] BELI.JK — Win Rate: 61.1%  Verdict: ULTRA BUY
+2026-05-24 20:25:28 [INFO] screener: [AI] EMTK.JK — Win Rate: 78.6%  Verdict: ULTRA BUY
+2026-05-24 20:25:29 [INFO] screener: [AI] BUKA.JK — Win Rate: 30.4%  Verdict: WEAK
+2026-05-24 20:25:29 [INFO] screener: [AI] WIFI.JK — Win Rate: 37.6%  Verdict: WEAK
+2026-05-24 20:25:31 [INFO] screener: [AI] ISAT.JK — Win Rate: 26.8%  Verdict: WEAK
+2026-05-24 20:25:31 [INFO] screener: [AI] TLKM.JK — Win Rate: 31.8%  Verdict: WEAK
+2026-05-24 20:25:31 [INFO] screener: [AI] MLPT.JK — Win Rate: 8.1%  Verdict: WEAK
+2026-05-24 20:25:31 [INFO] screener: [AI] MTDL.JK — Win Rate: 7.6%  Verdict: WEAK
+2026-05-24 20:25:32 [INFO] screener: [AI] DMMX.JK — Win Rate: 8.4%  Verdict: WEAK
+2026-05-24 20:25:32 [INFO] screener: [AI] KREN.JK — Win Rate: 36.3%  Verdict: WEAK
+2026-05-24 20:25:32 [INFO] screener: [AI] GLVA.JK — Win Rate: 87.3%  Verdict: ULTRA BUY
+2026-05-24 20:25:34 [INFO] screener: [AI] AXIO.JK — Win Rate: 10.4%  Verdict: WEAK
+2026-05-24 20:25:34 [INFO] screener: [AI] PTBA.JK — Win Rate: 40.7%  Verdict: WEAK
+2026-05-24 20:25:36 [WARNING] screener: [FUNDAMENTAL] INDY.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:39 [INFO] screener: [AI] DEWA.JK — Win Rate: 14.8%  Verdict: WEAK
+2026-05-24 20:25:39 [INFO] screener: [AI] ANTM.JK — Win Rate: 79.0%  Verdict: ULTRA BUY
+2026-05-24 20:25:39 [WARNING] screener: [FUNDAMENTAL] DOID.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:40 [INFO] screener: [AI] TINS.JK — Win Rate: 6.9%  Verdict: WEAK
+2026-05-24 20:25:41 [INFO] screener: [AI] AKRA.JK — Win Rate: 41.4%  Verdict: WEAK
+2026-05-24 20:25:42 [WARNING] screener: [FUNDAMENTAL] PTPP.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:42 [WARNING] screener: [FUNDAMENTAL] TOBA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:42 [WARNING] screener: [FUNDAMENTAL] ADHI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:42 [WARNING] screener: [FUNDAMENTAL] WEGE.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:42 [WARNING] screener: [FUNDAMENTAL] PPRE.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:42 [WARNING] screener: [FUNDAMENTAL] ACST.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:44 [INFO] screener: [AI] NCKL.JK — Win Rate: 36.2%  Verdict: WEAK
+2026-05-24 20:25:44 [INFO] screener: [AI] RMKE.JK — Win Rate: 8.2%  Verdict: WEAK
+2026-05-24 20:25:45 [INFO] screener: [AI] PTPP.JK — Win Rate: 38.4%  Verdict: WEAK
+2026-05-24 20:25:45 [WARNING] screener: [FUNDAMENTAL] LEAD.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:46 [INFO] screener: [AI] JSMR.JK — Win Rate: 64.9%  Verdict: ULTRA BUY
+2026-05-24 20:25:47 [INFO] screener: [AI] ADHI.JK — Win Rate: 8.2%  Verdict: WEAK
+2026-05-24 20:25:48 [INFO] screener: [AI] WEGE.JK — Win Rate: 14.4%  Verdict: WEAK
+2026-05-24 20:25:48 [INFO] screener: [AI] PPRE.JK — Win Rate: 10.2%  Verdict: WEAK
+2026-05-24 20:25:48 [INFO] screener: [AI] TOTL.JK — Win Rate: 57.2%  Verdict: BUY
+2026-05-24 20:25:48 [INFO] screener: [AI] ACST.JK — Win Rate: 10.1%  Verdict: WEAK
+2026-05-24 20:25:48 [INFO] screener: [AI] JKON.JK — Win Rate: 11.1%  Verdict: WEAK
+2026-05-24 20:25:50 [INFO] screener: [AI] CMNP.JK — Win Rate: 25.7%  Verdict: WEAK
+2026-05-24 20:25:52 [INFO] screener: [AI] BIRD.JK — Win Rate: 14.3%  Verdict: WEAK
+2026-05-24 20:25:52 [WARNING] screener: [FUNDAMENTAL] KAEF.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:25:52 [INFO] screener: [AI] UNVR.JK — Win Rate: 4.9%  Verdict: WEAK
+2026-05-24 20:25:53 [INFO] screener: [AI] ICBP.JK — Win Rate: 32.2%  Verdict: WEAK
+2026-05-24 20:25:54 [INFO] screener: [AI] INDF.JK — Win Rate: 58.6%  Verdict: BUY
+2026-05-24 20:25:56 [INFO] screener: [AI] MYOR.JK — Win Rate: 8.4%  Verdict: WEAK
+2026-05-24 20:25:56 [INFO] screener: [AI] GOOD.JK — Win Rate: 65.3%  Verdict: ULTRA BUY
+2026-05-24 20:25:57 [INFO] screener: [AI] ROTI.JK — Win Rate: 20.9%  Verdict: WEAK
+2026-05-24 20:25:58 [INFO] screener: [AI] CAMP.JK — Win Rate: 16.0%  Verdict: WEAK
+2026-05-24 20:25:58 [INFO] screener: [AI] CLEO.JK — Win Rate: 59.1%  Verdict: BUY
+2026-05-24 20:25:58 [INFO] screener: [AI] ADES.JK — Win Rate: 48.2%  Verdict: WEAK
+2026-05-24 20:26:01 [INFO] screener: [AI] STTP.JK — Win Rate: 65.1%  Verdict: ULTRA BUY
+2026-05-24 20:26:01 [INFO] screener: [AI] SIDO.JK — Win Rate: 49.1%  Verdict: WEAK
+2026-05-24 20:26:03 [INFO] screener: [AI] PEHA.JK — Win Rate: 9.1%  Verdict: WEAK
+2026-05-24 20:26:03 [INFO] screener: [AI] KAEF.JK — Win Rate: 9.9%  Verdict: WEAK
+2026-05-24 20:26:03 [WARNING] screener: [FUNDAMENTAL] MPPA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:26:04 [WARNING] screener: [FUNDAMENTAL] HOKI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:26:06 [INFO] screener: [AI] MPPA.JK — Win Rate: 5.8%  Verdict: WEAK
+2026-05-24 20:26:07 [INFO] screener: [AI] MAPA.JK — Win Rate: 28.5%  Verdict: WEAK
+2026-05-24 20:26:09 [INFO] screener: [AI] RALS.JK — Win Rate: 81.6%  Verdict: ULTRA BUY
+2026-05-24 20:26:12 [INFO] screener: [AI] ERAA.JK — Win Rate: 42.1%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] MAPI.JK — Win Rate: 16.3%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] LPPF.JK — Win Rate: 30.7%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] BSDE.JK — Win Rate: 21.5%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] AMRT.JK — Win Rate: 7.5%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] HOKI.JK — Win Rate: 6.9%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] ENZO.JK — Win Rate: 11.1%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] CPIN.JK — Win Rate: 9.4%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] ACES.JK — Win Rate: 28.7%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] JPFA.JK — Win Rate: 17.2%  Verdict: WEAK
+2026-05-24 20:26:12 [INFO] screener: [AI] MIDI.JK — Win Rate: 10.9%  Verdict: WEAK
+2026-05-24 20:26:14 [WARNING] screener: [FUNDAMENTAL] PPRO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:26:15 [INFO] screener: [AI] CTRA.JK — Win Rate: 41.9%  Verdict: WEAK
+2026-05-24 20:26:15 [INFO] screener: [AI] SMRA.JK — Win Rate: 5.4%  Verdict: WEAK
+2026-05-24 20:26:16 [INFO] screener: [AI] PWON.JK — Win Rate: 10.7%  Verdict: WEAK
+2026-05-24 20:26:16 [INFO] screener: [AI] ASRI.JK — Win Rate: 48.9%  Verdict: WEAK
+2026-05-24 20:26:18 [INFO] screener: [AI] DUTI.JK — Win Rate: 16.4%  Verdict: WEAK
+2026-05-24 20:26:19 [INFO] screener: [AI] DMAS.JK — Win Rate: 14.2%  Verdict: WEAK
+2026-05-24 20:26:19 [INFO] screener: [AI] DILD.JK — Win Rate: 11.7%  Verdict: WEAK
+2026-05-24 20:26:19 [INFO] screener: [AI] MKPI.JK — Win Rate: 18.4%  Verdict: WEAK
+2026-05-24 20:26:19 [INFO] screener: [AI] LPCK.JK — Win Rate: 34.2%  Verdict: WEAK
+2026-05-24 20:26:19 [INFO] screener: [AI] GWSA.JK — Win Rate: 54.7%  Verdict: BUY
+2026-05-24 20:26:19 [INFO] screener: [AI] BKSL.JK — Win Rate: 6.7%  Verdict: WEAK
+2026-05-24 20:26:20 [INFO] screener: [AI] PPRO.JK — Win Rate: 7.2%  Verdict: WEAK
+2026-05-24 20:26:21 [INFO] screener: [AI] SSIA.JK — Win Rate: 55.6%  Verdict: BUY
+2026-05-24 20:26:22 [INFO] screener: [AI] KIJA.JK — Win Rate: 7.7%  Verdict: WEAK
+2026-05-24 20:26:27 [INFO] screener: [AI] KLBF.JK — Win Rate: 40.0%  Verdict: WEAK
+2026-05-24 20:26:27 [INFO] screener: [AI] MIKA.JK — Win Rate: 84.7%  Verdict: ULTRA BUY
+2026-05-24 20:26:27 [INFO] screener: [AI] HEAL.JK — Win Rate: 70.0%  Verdict: ULTRA BUY
+2026-05-24 20:26:33 [INFO] screener: [AI] SILO.JK — Win Rate: 15.8%  Verdict: WEAK
+2026-05-24 20:26:34 [INFO] screener: [AI] PRDA.JK — Win Rate: 35.1%  Verdict: WEAK
+2026-05-24 20:26:35 [INFO] screener: [AI] DGNS.JK — Win Rate: 6.5%  Verdict: WEAK
+2026-05-24 20:26:35 [INFO] screener: [AI] TSPC.JK — Win Rate: 69.3%  Verdict: ULTRA BUY
+2026-05-24 20:26:35 [WARNING] screener: [FUNDAMENTAL] BAJA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:26:38 [INFO] screener: [AI] BMHS.JK — Win Rate: 7.9%  Verdict: WEAK
+2026-05-24 20:26:39 [INFO] screener: [AI] SMBR.JK — Win Rate: 53.9%  Verdict: BUY
+2026-05-24 20:26:39 [INFO] screener: [AI] SAME.JK — Win Rate: 7.8%  Verdict: WEAK
+2026-05-24 20:26:39 [INFO] screener: [AI] IRRA.JK — Win Rate: 9.4%  Verdict: WEAK
+2026-05-24 20:26:39 [INFO] screener: [AI] INTP.JK — Win Rate: 60.7%  Verdict: ULTRA BUY
+2026-05-24 20:26:41 [INFO] screener: [AI] SMGR.JK — Win Rate: 54.8%  Verdict: BUY
+2026-05-24 20:26:45 [INFO] screener: [AI] ISSP.JK — Win Rate: 15.6%  Verdict: WEAK
+2026-05-24 20:26:45 [INFO] screener: [AI] BAJA.JK — Win Rate: 28.1%  Verdict: WEAK
+2026-05-24 20:26:45 [INFO] screener: [AI] ALKA.JK — Win Rate: 18.9%  Verdict: WEAK
+2026-05-24 20:26:45 [INFO] screener: [AI] BRNA.JK — Win Rate: 8.2%  Verdict: WEAK
+2026-05-24 20:26:46 [INFO] screener: [AI] TOTO.JK — Win Rate: 47.3%  Verdict: WEAK
+2026-05-24 20:26:46 [INFO] screener: [AI] ASSA.JK — Win Rate: 79.6%  Verdict: ULTRA BUY
+2026-05-24 20:26:49 [INFO] screener: [AI] BIRD.JK — Win Rate: 14.3%  Verdict: WEAK
+2026-05-24 20:26:50 [WARNING] screener: [FUNDAMENTAL] GIAA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:26:50 [WARNING] screener: [FUNDAMENTAL] GIAA.JK: Book Value tidak tersedia — pakai default 1.5
+2026-05-24 20:26:56 [INFO] screener: [AI] BWPT.JK — Win Rate: 8.9%  Verdict: WEAK
+2026-05-24 20:26:56 [INFO] screener: [AI] PANI.JK — Win Rate: 63.1%  Verdict: ULTRA BUY
+2026-05-24 20:26:56 [INFO] screener: [AI] SIMP.JK — Win Rate: 23.9%  Verdict: WEAK
+2026-05-24 20:26:58 [INFO] screener: [AI] DSNG.JK — Win Rate: 80.6%  Verdict: ULTRA BUY
+2026-05-24 20:26:59 [INFO] screener: [AI] TBLA.JK — Win Rate: 9.6%  Verdict: WEAK
+2026-05-24 20:27:00 [INFO] screener: [AI] TAPG.JK — Win Rate: 27.2%  Verdict: WEAK
+2026-05-24 20:27:00 [INFO] screener: [AI] NELY.JK — Win Rate: 7.5%  Verdict: WEAK
+2026-05-24 20:27:00 [INFO] screener: [AI] HAIS.JK — Win Rate: 12.8%  Verdict: WEAK
+2026-05-24 20:27:00 [INFO] screener: [AI] BPTR.JK — Win Rate: 9.6%  Verdict: WEAK
+2026-05-24 20:27:00 [INFO] screener: [AI] TMAS.JK — Win Rate: 4.3%  Verdict: WEAK
+2026-05-24 20:27:01 [INFO] screener: [AI] AALI.JK — Win Rate: 74.6%  Verdict: ULTRA BUY
+2026-05-24 20:27:01 [INFO] screener: [AI] LSIP.JK — Win Rate: 77.8%  Verdict: ULTRA BUY
+2026-05-24 20:27:02 [INFO] screener: [AI] SSMS.JK — Win Rate: 28.9%  Verdict: WEAK
+2026-05-24 20:27:04 [WARNING] screener: [FUNDAMENTAL] PMUI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:27:05 [WARNING] screener: [FUNDAMENTAL] STRK.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:27:05 [WARNING] screener: [FUNDAMENTAL] AREA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:27:06 [WARNING] screener: [FUNDAMENTAL] WIDI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:27:06 [WARNING] screener: [FUNDAMENTAL] AWAN.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:27:06 [WARNING] screener: [FUNDAMENTAL] GTRA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 20:27:07 [INFO] screener: [AI] ALII.JK — Win Rate: 13.4%  Verdict: WEAK
+2026-05-24 20:27:07 [INFO] screener: [AI] STRK.JK — Win Rate: 5.4%  Verdict: WEAK
+2026-05-24 20:27:07 [INFO] screener: [AI] PMUI.JK — Win Rate: 7.8%  Verdict: WEAK
+2026-05-24 20:27:07 [INFO] screener: [AI] AREA.JK — Win Rate: 7.8%  Verdict: WEAK
+2026-05-24 20:27:09 [INFO] screener: [AI] WIDI.JK — Win Rate: 6.4%  Verdict: WEAK
+2026-05-24 20:27:09 [INFO] screener: [AI] AWAN.JK — Win Rate: 5.5%  Verdict: WEAK
+2026-05-24 20:27:09 [INFO] screener: [AI] GTRA.JK — Win Rate: 18.2%  Verdict: WEAK
+2026-05-24 21:03:45 [INFO] screener: Memindai Arus Uang (Rotasi Sektor)...
+2026-05-24 21:04:00 [INFO] screener: Rotasi sektor selesai (11 sektor dipindai)
+2026-05-24 21:04:00 [INFO] screener: Mengunduh Cuaca Makro Global & Komoditas...
+2026-05-24 21:04:01 [INFO] screener: Macro update — IHSG=+1.10% | USD=+0.11% | Trend=DOWN | Penalty=0.5
+2026-05-24 21:04:07 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:04:07 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:04:07 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:04:10 [INFO] screener: [AI] BDMN.JK — Win Rate: 18.3%  Verdict: WEAK
+2026-05-24 21:04:10 [INFO] screener: [AI] BBTN.JK — Win Rate: 21.7%  Verdict: WEAK
+2026-05-24 21:04:10 [INFO] screener: [AI] BRIS.JK — Win Rate: 72.7%  Verdict: ULTRA BUY
+2026-05-24 21:04:12 [INFO] screener: [AI] BBNI.JK — Win Rate: 39.4%  Verdict: WEAK
+2026-05-24 21:04:12 [INFO] screener: [AI] BBRI.JK — Win Rate: 40.5%  Verdict: WEAK
+2026-05-24 21:04:12 [INFO] screener: [AI] BBCA.JK — Win Rate: 45.9%  Verdict: WEAK
+2026-05-24 21:04:12 [INFO] screener: [AI] BMRI.JK — Win Rate: 73.8%  Verdict: ULTRA BUY
+2026-05-24 21:04:12 [INFO] screener: [AI] BTPS.JK — Win Rate: 22.3%  Verdict: WEAK
+2026-05-24 21:04:12 [INFO] screener: [AI] BVIC.JK — Win Rate: 39.8%  Verdict: WEAK
+2026-05-24 21:04:12 [INFO] screener: [AI] BNGA.JK — Win Rate: 70.5%  Verdict: ULTRA BUY
+2026-05-24 21:04:12 [INFO] screener: [AI] CFIN.JK — Win Rate: 57.2%  Verdict: BUY
+2026-05-24 21:04:12 [INFO] screener: [AI] BBYB.JK — Win Rate: 9.9%  Verdict: WEAK
+2026-05-24 21:04:13 [INFO] screener: [AI] NISP.JK — Win Rate: 45.9%  Verdict: WEAK
+2026-05-24 21:04:18 [INFO] screener: [AI] ARTO.JK — Win Rate: 56.7%  Verdict: BUY
+2026-05-24 21:04:20 [WARNING] screener: [FUNDAMENTAL] MLPL.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:22 [INFO] screener: [AI] BJTM.JK — Win Rate: 25.5%  Verdict: WEAK
+2026-05-24 21:04:23 [INFO] screener: [AI] BMTR.JK — Win Rate: 40.5%  Verdict: WEAK
+2026-05-24 21:04:23 [INFO] screener: [AI] BSIM.JK — Win Rate: 63.6%  Verdict: ULTRA BUY
+2026-05-24 21:04:23 [INFO] screener: [AI] ASII.JK — Win Rate: 9.8%  Verdict: WEAK
+2026-05-24 21:04:24 [INFO] screener: [AI] BHIT.JK — Win Rate: 9.1%  Verdict: WEAK
+2026-05-24 21:04:25 [INFO] screener: [AI] PNBN.JK — Win Rate: 28.0%  Verdict: WEAK
+2026-05-24 21:04:26 [INFO] screener: [AI] SRTG.JK — Win Rate: 56.6%  Verdict: BUY
+2026-05-24 21:04:26 [INFO] screener: [AI] MLPL.JK — Win Rate: 16.6%  Verdict: WEAK
+2026-05-24 21:04:26 [WARNING] screener: [FUNDAMENTAL] MPPA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:28 [INFO] screener: [AI] BJBR.JK — Win Rate: 55.5%  Verdict: BUY
+2026-05-24 21:04:30 [WARNING] screener: [FUNDAMENTAL] GOTO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:31 [INFO] screener: [AI] SMMA.JK — Win Rate: 19.4%  Verdict: WEAK
+2026-05-24 21:04:31 [INFO] screener: [AI] UNTR.JK — Win Rate: 89.8%  Verdict: ULTRA BUY
+2026-05-24 21:04:32 [WARNING] screener: [FUNDAMENTAL] EXCL.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:33 [INFO] screener: [AI] LPKR.JK — Win Rate: 13.4%  Verdict: WEAK
+2026-05-24 21:04:35 [WARNING] screener: [FUNDAMENTAL] BELI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:35 [INFO] screener: [AI] SCMA.JK — Win Rate: 14.3%  Verdict: WEAK
+2026-05-24 21:04:35 [INFO] screener: [AI] MPPA.JK — Win Rate: 4.2%  Verdict: WEAK
+2026-05-24 21:04:35 [INFO] screener: [AI] VIVA.JK — Win Rate: 23.3%  Verdict: WEAK
+2026-05-24 21:04:36 [INFO] screener: [AI] BNLI.JK — Win Rate: 60.1%  Verdict: ULTRA BUY
+2026-05-24 21:04:37 [INFO] screener: [AI] TLKM.JK — Win Rate: 47.8%  Verdict: WEAK
+2026-05-24 21:04:39 [WARNING] screener: [FUNDAMENTAL] KREN.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:39 [INFO] screener: [AI] ISAT.JK — Win Rate: 28.4%  Verdict: WEAK
+2026-05-24 21:04:39 [INFO] screener: [AI] EXCL.JK — Win Rate: 23.9%  Verdict: WEAK
+2026-05-24 21:04:39 [INFO] screener: [AI] GOTO.JK — Win Rate: 17.9%  Verdict: WEAK
+2026-05-24 21:04:39 [INFO] screener: [AI] BUKA.JK — Win Rate: 29.9%  Verdict: WEAK
+2026-05-24 21:04:40 [WARNING] screener: [FUNDAMENTAL] AXIO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:40 [INFO] screener: [AI] BELI.JK — Win Rate: 71.0%  Verdict: ULTRA BUY
+2026-05-24 21:04:43 [INFO] screener: [AI] MLPT.JK — Win Rate: 8.9%  Verdict: WEAK
+2026-05-24 21:04:43 [INFO] screener: [AI] WIFI.JK — Win Rate: 42.0%  Verdict: WEAK
+2026-05-24 21:04:43 [INFO] screener: [AI] EMTK.JK — Win Rate: 70.5%  Verdict: ULTRA BUY
+2026-05-24 21:04:45 [INFO] screener: [AI] MTDL.JK — Win Rate: 6.2%  Verdict: WEAK
+2026-05-24 21:04:46 [INFO] screener: [AI] KREN.JK — Win Rate: 23.5%  Verdict: WEAK
+2026-05-24 21:04:46 [INFO] screener: [AI] PTBA.JK — Win Rate: 46.4%  Verdict: WEAK
+2026-05-24 21:04:46 [INFO] screener: [AI] DMMX.JK — Win Rate: 8.5%  Verdict: WEAK
+2026-05-24 21:04:46 [INFO] screener: [AI] AXIO.JK — Win Rate: 11.3%  Verdict: WEAK
+2026-05-24 21:04:46 [INFO] screener: [AI] GLVA.JK — Win Rate: 87.9%  Verdict: ULTRA BUY
+2026-05-24 21:04:50 [WARNING] screener: [FUNDAMENTAL] INDY.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:52 [INFO] screener: [AI] DEWA.JK — Win Rate: 26.8%  Verdict: WEAK
+2026-05-24 21:04:54 [INFO] screener: [AI] ANTM.JK — Win Rate: 94.0%  Verdict: ULTRA BUY
+2026-05-24 21:04:54 [WARNING] screener: [FUNDAMENTAL] TOBA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:55 [WARNING] screener: [FUNDAMENTAL] DOID.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:55 [WARNING] screener: [FUNDAMENTAL] PTPP.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:55 [WARNING] screener: [FUNDAMENTAL] ADHI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:55 [WARNING] screener: [FUNDAMENTAL] WEGE.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:57 [INFO] screener: [AI] TINS.JK — Win Rate: 8.7%  Verdict: WEAK
+2026-05-24 21:04:57 [WARNING] screener: [FUNDAMENTAL] PPRE.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:04:57 [INFO] screener: [AI] AKRA.JK — Win Rate: 20.2%  Verdict: WEAK
+2026-05-24 21:04:58 [WARNING] screener: [FUNDAMENTAL] ACST.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:05:00 [INFO] screener: [AI] RMKE.JK — Win Rate: 7.3%  Verdict: WEAK
+2026-05-24 21:05:00 [WARNING] screener: [FUNDAMENTAL] LEAD.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:05:00 [INFO] screener: [AI] ADHI.JK — Win Rate: 17.7%  Verdict: WEAK
+2026-05-24 21:05:00 [INFO] screener: [AI] NCKL.JK — Win Rate: 42.6%  Verdict: WEAK
+2026-05-24 21:05:00 [INFO] screener: [AI] PTPP.JK — Win Rate: 29.1%  Verdict: WEAK
+2026-05-24 21:05:00 [INFO] screener: [AI] WEGE.JK — Win Rate: 34.7%  Verdict: WEAK
+2026-05-24 21:05:00 [INFO] screener: [AI] PPRE.JK — Win Rate: 15.0%  Verdict: WEAK
+2026-05-24 21:05:01 [INFO] screener: [AI] JSMR.JK — Win Rate: 41.6%  Verdict: WEAK
+2026-05-24 21:05:01 [INFO] screener: [AI] TOTL.JK — Win Rate: 50.4%  Verdict: BUY
+2026-05-24 21:05:03 [INFO] screener: [AI] ACST.JK — Win Rate: 10.8%  Verdict: WEAK
+2026-05-24 21:05:06 [INFO] screener: [AI] CMNP.JK — Win Rate: 48.6%  Verdict: WEAK
+2026-05-24 21:05:06 [INFO] screener: [AI] JKON.JK — Win Rate: 11.5%  Verdict: WEAK
+2026-05-24 21:05:06 [INFO] screener: [AI] UNVR.JK — Win Rate: 4.7%  Verdict: WEAK
+2026-05-24 21:05:06 [INFO] screener: [AI] BIRD.JK — Win Rate: 21.6%  Verdict: WEAK
+2026-05-24 21:05:06 [INFO] screener: [AI] GOOD.JK — Win Rate: 31.2%  Verdict: WEAK
+2026-05-24 21:05:06 [INFO] screener: [AI] INDF.JK — Win Rate: 65.8%  Verdict: ULTRA BUY
+2026-05-24 21:05:07 [WARNING] screener: [FUNDAMENTAL] KAEF.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:05:08 [INFO] screener: [AI] ICBP.JK — Win Rate: 24.1%  Verdict: WEAK
+2026-05-24 21:05:08 [INFO] screener: [AI] MYOR.JK — Win Rate: 14.9%  Verdict: WEAK
+2026-05-24 21:05:09 [INFO] screener: [AI] CLEO.JK — Win Rate: 37.0%  Verdict: WEAK
+2026-05-24 21:05:10 [INFO] screener: [AI] ROTI.JK — Win Rate: 31.2%  Verdict: WEAK
+2026-05-24 21:05:10 [INFO] screener: [AI] CAMP.JK — Win Rate: 12.2%  Verdict: WEAK
+2026-05-24 21:05:10 [INFO] screener: [AI] ADES.JK — Win Rate: 26.7%  Verdict: WEAK
+2026-05-24 21:05:10 [INFO] screener: [AI] PEHA.JK — Win Rate: 13.7%  Verdict: WEAK
+2026-05-24 21:05:10 [INFO] screener: [AI] STTP.JK — Win Rate: 65.9%  Verdict: ULTRA BUY
+2026-05-24 21:05:12 [INFO] screener: [AI] KAEF.JK — Win Rate: 12.7%  Verdict: WEAK
+2026-05-24 21:05:12 [INFO] screener: [AI] SIDO.JK — Win Rate: 43.1%  Verdict: WEAK
+2026-05-24 21:05:13 [WARNING] screener: [FUNDAMENTAL] HOKI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:05:14 [WARNING] screener: [FUNDAMENTAL] MPPA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:05:15 [INFO] screener: [AI] MPPA.JK — Win Rate: 4.2%  Verdict: WEAK
+2026-05-24 21:05:16 [INFO] screener: [AI] MIDI.JK — Win Rate: 8.3%  Verdict: WEAK
+2026-05-24 21:05:18 [INFO] screener: [AI] LPPF.JK — Win Rate: 17.0%  Verdict: WEAK
+2026-05-24 21:05:18 [INFO] screener: [AI] ERAA.JK — Win Rate: 21.8%  Verdict: WEAK
+2026-05-24 21:05:18 [INFO] screener: [AI] ACES.JK — Win Rate: 47.9%  Verdict: WEAK
+2026-05-24 21:05:18 [INFO] screener: [AI] JPFA.JK — Win Rate: 11.9%  Verdict: WEAK
+2026-05-24 21:05:18 [INFO] screener: [AI] AMRT.JK — Win Rate: 17.3%  Verdict: WEAK
+2026-05-24 21:05:18 [INFO] screener: [AI] RALS.JK — Win Rate: 72.1%  Verdict: ULTRA BUY
+2026-05-24 21:05:18 [INFO] screener: [AI] ENZO.JK — Win Rate: 17.7%  Verdict: WEAK
+2026-05-24 21:05:19 [INFO] screener: [AI] CPIN.JK — Win Rate: 7.8%  Verdict: WEAK
+2026-05-24 21:05:20 [INFO] screener: [AI] MAPI.JK — Win Rate: 23.5%  Verdict: WEAK
+2026-05-24 21:05:20 [INFO] screener: [AI] HOKI.JK — Win Rate: 11.8%  Verdict: WEAK
+2026-05-24 21:05:21 [INFO] screener: [AI] BSDE.JK — Win Rate: 16.8%  Verdict: WEAK
+2026-05-24 21:05:22 [INFO] screener: [AI] MAPA.JK — Win Rate: 16.1%  Verdict: WEAK
+2026-05-24 21:05:22 [WARNING] screener: [FUNDAMENTAL] PPRO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:05:23 [INFO] screener: [AI] CTRA.JK — Win Rate: 43.2%  Verdict: WEAK
+2026-05-24 21:05:24 [INFO] screener: [AI] PWON.JK — Win Rate: 18.6%  Verdict: WEAK
+2026-05-24 21:05:24 [INFO] screener: [AI] SMRA.JK — Win Rate: 8.3%  Verdict: WEAK
+2026-05-24 21:05:25 [INFO] screener: [AI] ASRI.JK — Win Rate: 40.1%  Verdict: WEAK
+2026-05-24 21:05:25 [INFO] screener: [AI] DMAS.JK — Win Rate: 34.5%  Verdict: WEAK
+2026-05-24 21:05:25 [INFO] screener: [AI] DUTI.JK — Win Rate: 15.3%  Verdict: WEAK
+2026-05-24 21:05:25 [INFO] screener: [AI] BKSL.JK — Win Rate: 8.3%  Verdict: WEAK
+2026-05-24 21:05:25 [INFO] screener: [AI] DILD.JK — Win Rate: 12.5%  Verdict: WEAK
+2026-05-24 21:05:25 [INFO] screener: [AI] PPRO.JK — Win Rate: 5.9%  Verdict: WEAK
+2026-05-24 21:05:26 [INFO] screener: [AI] LPCK.JK — Win Rate: 33.1%  Verdict: WEAK
+2026-05-24 21:05:27 [INFO] screener: [AI] GWSA.JK — Win Rate: 42.5%  Verdict: WEAK
+2026-05-24 21:05:27 [INFO] screener: [AI] KIJA.JK — Win Rate: 7.2%  Verdict: WEAK
+2026-05-24 21:05:27 [INFO] screener: [AI] MKPI.JK — Win Rate: 14.7%  Verdict: WEAK
+2026-05-24 21:05:28 [INFO] screener: [AI] SSIA.JK — Win Rate: 81.3%  Verdict: ULTRA BUY
+2026-05-24 21:05:32 [INFO] screener: [AI] KLBF.JK — Win Rate: 58.5%  Verdict: BUY
+2026-05-24 21:05:34 [INFO] screener: [AI] MIKA.JK — Win Rate: 84.9%  Verdict: ULTRA BUY
+2026-05-24 21:05:34 [INFO] screener: [AI] BMHS.JK — Win Rate: 11.2%  Verdict: WEAK
+2026-05-24 21:05:35 [INFO] screener: [AI] SAME.JK — Win Rate: 10.9%  Verdict: WEAK
+2026-05-24 21:05:35 [INFO] screener: [AI] TSPC.JK — Win Rate: 58.9%  Verdict: BUY
+2026-05-24 21:05:36 [INFO] screener: [AI] PRDA.JK — Win Rate: 24.0%  Verdict: WEAK
+2026-05-24 21:05:37 [INFO] screener: [AI] IRRA.JK — Win Rate: 20.2%  Verdict: WEAK
+2026-05-24 21:05:38 [INFO] screener: [AI] DGNS.JK — Win Rate: 8.0%  Verdict: WEAK
+2026-05-24 21:05:38 [INFO] screener: [AI] SILO.JK — Win Rate: 14.8%  Verdict: WEAK
+2026-05-24 21:05:38 [INFO] screener: [AI] HEAL.JK — Win Rate: 83.5%  Verdict: ULTRA BUY
+2026-05-24 21:05:39 [WARNING] screener: [FUNDAMENTAL] BAJA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:05:40 [INFO] screener: [AI] INTP.JK — Win Rate: 71.4%  Verdict: ULTRA BUY
+2026-05-24 21:05:40 [INFO] screener: [AI] SMGR.JK — Win Rate: 44.6%  Verdict: WEAK
+2026-05-24 21:05:43 [INFO] screener: [AI] SMBR.JK — Win Rate: 37.5%  Verdict: WEAK
+2026-05-24 21:05:44 [INFO] screener: [AI] BAJA.JK — Win Rate: 24.7%  Verdict: WEAK
+2026-05-24 21:05:44 [INFO] screener: [AI] ISSP.JK — Win Rate: 20.2%  Verdict: WEAK
+2026-05-24 21:05:44 [INFO] screener: [AI] ASSA.JK — Win Rate: 76.4%  Verdict: ULTRA BUY
+2026-05-24 21:05:46 [INFO] screener: [AI] ALKA.JK — Win Rate: 21.2%  Verdict: WEAK
+2026-05-24 21:05:46 [INFO] screener: [AI] TOTO.JK — Win Rate: 55.7%  Verdict: BUY
+2026-05-24 21:05:47 [INFO] screener: [AI] BRNA.JK — Win Rate: 19.1%  Verdict: WEAK
+2026-05-24 21:05:49 [WARNING] screener: [FUNDAMENTAL] GIAA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:05:49 [WARNING] screener: [FUNDAMENTAL] GIAA.JK: Book Value tidak tersedia — pakai default 1.5
+2026-05-24 21:05:50 [INFO] screener: [AI] BIRD.JK — Win Rate: 21.6%  Verdict: WEAK
+2026-05-24 21:05:53 [INFO] screener: [AI] HAIS.JK — Win Rate: 19.1%  Verdict: WEAK
+2026-05-24 21:05:53 [INFO] screener: [AI] SIMP.JK — Win Rate: 54.1%  Verdict: BUY
+2026-05-24 21:05:54 [INFO] screener: [AI] PANI.JK — Win Rate: 39.4%  Verdict: WEAK
+2026-05-24 21:05:55 [INFO] screener: [AI] BPTR.JK — Win Rate: 9.3%  Verdict: WEAK
+2026-05-24 21:05:55 [INFO] screener: [AI] BWPT.JK — Win Rate: 9.7%  Verdict: WEAK
+2026-05-24 21:05:56 [INFO] screener: [AI] DSNG.JK — Win Rate: 85.6%  Verdict: ULTRA BUY
+2026-05-24 21:05:56 [INFO] screener: [AI] AALI.JK — Win Rate: 91.1%  Verdict: ULTRA BUY
+2026-05-24 21:05:58 [INFO] screener: [AI] LSIP.JK — Win Rate: 85.9%  Verdict: ULTRA BUY
+2026-05-24 21:05:58 [WARNING] screener: [FUNDAMENTAL] PMUI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:05:59 [WARNING] screener: [FUNDAMENTAL] AREA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:06:01 [WARNING] screener: [FUNDAMENTAL] WIDI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:06:01 [WARNING] screener: [FUNDAMENTAL] STRK.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:06:02 [INFO] screener: [AI] NELY.JK — Win Rate: 11.9%  Verdict: WEAK
+2026-05-24 21:06:02 [INFO] screener: [AI] TMAS.JK — Win Rate: 6.8%  Verdict: WEAK
+2026-05-24 21:06:02 [INFO] screener: [AI] TAPG.JK — Win Rate: 32.7%  Verdict: WEAK
+2026-05-24 21:06:02 [INFO] screener: [AI] SSMS.JK — Win Rate: 23.9%  Verdict: WEAK
+2026-05-24 21:06:03 [INFO] screener: [AI] TBLA.JK — Win Rate: 25.2%  Verdict: WEAK
+2026-05-24 21:06:03 [WARNING] screener: [FUNDAMENTAL] AWAN.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:06:03 [WARNING] screener: [FUNDAMENTAL] GTRA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:06:03 [INFO] screener: [AI] ALII.JK — Win Rate: 32.0%  Verdict: WEAK
+2026-05-24 21:06:03 [INFO] screener: [AI] AREA.JK — Win Rate: 11.5%  Verdict: WEAK
+2026-05-24 21:06:03 [INFO] screener: [AI] PMUI.JK — Win Rate: 9.7%  Verdict: WEAK
+2026-05-24 21:06:03 [INFO] screener: [AI] STRK.JK — Win Rate: 8.6%  Verdict: WEAK
+2026-05-24 21:06:03 [INFO] screener: [AI] WIDI.JK — Win Rate: 8.3%  Verdict: WEAK
+2026-05-24 21:06:04 [INFO] screener: [AI] AWAN.JK — Win Rate: 7.3%  Verdict: WEAK
+2026-05-24 21:06:04 [INFO] screener: [AI] GTRA.JK — Win Rate: 15.3%  Verdict: WEAK
+2026-05-24 21:33:12 [INFO] screener: Memindai Arus Uang (Rotasi Sektor)...
+2026-05-24 21:33:23 [INFO] screener: Rotasi sektor selesai (11 sektor dipindai)
+2026-05-24 21:33:23 [INFO] screener: Mengunduh Cuaca Makro Global & Komoditas...
+2026-05-24 21:33:24 [INFO] screener: Macro update — IHSG=+1.10% | USD=+0.11% | Trend=DOWN | Penalty=0.5
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:27 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:33:30 [INFO] screener: [AI] BVIC.JK — Win Rate: 39.8%  Verdict: WEAK
+2026-05-24 21:33:30 [INFO] screener: [AI] BBRI.JK — Win Rate: 40.5%  Verdict: WEAK
+2026-05-24 21:33:30 [INFO] screener: [AI] CFIN.JK — Win Rate: 57.2%  Verdict: BUY
+2026-05-24 21:33:31 [INFO] screener: [AI] BBTN.JK — Win Rate: 21.7%  Verdict: WEAK
+2026-05-24 21:33:31 [INFO] screener: [AI] BBYB.JK — Win Rate: 9.9%  Verdict: WEAK
+2026-05-24 21:33:31 [INFO] screener: [AI] NISP.JK — Win Rate: 45.9%  Verdict: WEAK
+2026-05-24 21:33:31 [INFO] screener: [AI] ARTO.JK — Win Rate: 56.7%  Verdict: BUY
+2026-05-24 21:33:31 [INFO] screener: [AI] BDMN.JK — Win Rate: 18.3%  Verdict: WEAK
+2026-05-24 21:33:31 [INFO] screener: [AI] BRIS.JK — Win Rate: 72.7%  Verdict: ULTRA BUY
+2026-05-24 21:33:31 [INFO] screener: [AI] BBNI.JK — Win Rate: 39.4%  Verdict: WEAK
+2026-05-24 21:33:31 [INFO] screener: [AI] BMRI.JK — Win Rate: 73.8%  Verdict: ULTRA BUY
+2026-05-24 21:33:31 [INFO] screener: [AI] BNGA.JK — Win Rate: 70.5%  Verdict: ULTRA BUY
+2026-05-24 21:33:32 [INFO] screener: [AI] BTPS.JK — Win Rate: 22.3%  Verdict: WEAK
+2026-05-24 21:33:33 [INFO] screener: [AI] BBCA.JK — Win Rate: 45.9%  Verdict: WEAK
+2026-05-24 21:33:35 [INFO] screener: [AI] BJTM.JK — Win Rate: 25.5%  Verdict: WEAK
+2026-05-24 21:33:35 [INFO] screener: [AI] BJBR.JK — Win Rate: 55.5%  Verdict: BUY
+2026-05-24 21:33:35 [WARNING] screener: [FUNDAMENTAL] MLPL.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:36 [INFO] screener: [AI] SRTG.JK — Win Rate: 56.6%  Verdict: BUY
+2026-05-24 21:33:36 [WARNING] screener: [FUNDAMENTAL] MPPA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:37 [INFO] screener: [AI] BSIM.JK — Win Rate: 63.6%  Verdict: ULTRA BUY
+2026-05-24 21:33:38 [INFO] screener: [AI] SMMA.JK — Win Rate: 19.4%  Verdict: WEAK
+2026-05-24 21:33:38 [INFO] screener: [AI] UNTR.JK — Win Rate: 89.8%  Verdict: ULTRA BUY
+2026-05-24 21:33:39 [INFO] screener: [AI] PNBN.JK — Win Rate: 28.0%  Verdict: WEAK
+2026-05-24 21:33:40 [INFO] screener: [AI] BHIT.JK — Win Rate: 9.1%  Verdict: WEAK
+2026-05-24 21:33:40 [INFO] screener: [AI] ASII.JK — Win Rate: 9.8%  Verdict: WEAK
+2026-05-24 21:33:40 [INFO] screener: [AI] BMTR.JK — Win Rate: 40.5%  Verdict: WEAK
+2026-05-24 21:33:40 [WARNING] screener: [FUNDAMENTAL] EXCL.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:40 [INFO] screener: [AI] MLPL.JK — Win Rate: 16.6%  Verdict: WEAK
+2026-05-24 21:33:40 [INFO] screener: [AI] LPKR.JK — Win Rate: 13.4%  Verdict: WEAK
+2026-05-24 21:33:40 [INFO] screener: [AI] VIVA.JK — Win Rate: 23.3%  Verdict: WEAK
+2026-05-24 21:33:40 [INFO] screener: [AI] MPPA.JK — Win Rate: 4.2%  Verdict: WEAK
+2026-05-24 21:33:41 [INFO] screener: [AI] BNLI.JK — Win Rate: 60.1%  Verdict: ULTRA BUY
+2026-05-24 21:33:41 [WARNING] screener: [FUNDAMENTAL] GOTO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:41 [WARNING] screener: [FUNDAMENTAL] BELI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:42 [INFO] screener: [AI] EXCL.JK — Win Rate: 23.9%  Verdict: WEAK
+2026-05-24 21:33:42 [INFO] screener: [AI] SCMA.JK — Win Rate: 14.3%  Verdict: WEAK
+2026-05-24 21:33:42 [INFO] screener: [AI] BUKA.JK — Win Rate: 29.9%  Verdict: WEAK
+2026-05-24 21:33:42 [INFO] screener: [AI] BELI.JK — Win Rate: 71.0%  Verdict: ULTRA BUY
+2026-05-24 21:33:43 [WARNING] screener: [FUNDAMENTAL] KREN.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:43 [WARNING] screener: [FUNDAMENTAL] AXIO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:44 [INFO] screener: [AI] ISAT.JK — Win Rate: 28.4%  Verdict: WEAK
+2026-05-24 21:33:44 [INFO] screener: [AI] MTDL.JK — Win Rate: 6.2%  Verdict: WEAK
+2026-05-24 21:33:44 [INFO] screener: [AI] WIFI.JK — Win Rate: 42.0%  Verdict: WEAK
+2026-05-24 21:33:44 [INFO] screener: [AI] TLKM.JK — Win Rate: 47.8%  Verdict: WEAK
+2026-05-24 21:33:44 [INFO] screener: [AI] GOTO.JK — Win Rate: 17.9%  Verdict: WEAK
+2026-05-24 21:33:44 [INFO] screener: [AI] EMTK.JK — Win Rate: 70.5%  Verdict: ULTRA BUY
+2026-05-24 21:33:45 [INFO] screener: [AI] DMMX.JK — Win Rate: 8.5%  Verdict: WEAK
+2026-05-24 21:33:45 [INFO] screener: [AI] KREN.JK — Win Rate: 23.5%  Verdict: WEAK
+2026-05-24 21:33:45 [INFO] screener: [AI] GLVA.JK — Win Rate: 87.9%  Verdict: ULTRA BUY
+2026-05-24 21:33:46 [INFO] screener: [AI] AXIO.JK — Win Rate: 11.3%  Verdict: WEAK
+2026-05-24 21:33:46 [INFO] screener: [AI] MLPT.JK — Win Rate: 8.9%  Verdict: WEAK
+2026-05-24 21:33:47 [INFO] screener: [AI] PTBA.JK — Win Rate: 46.4%  Verdict: WEAK
+2026-05-24 21:33:49 [WARNING] screener: [FUNDAMENTAL] INDY.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:50 [INFO] screener: [AI] TINS.JK — Win Rate: 8.7%  Verdict: WEAK
+2026-05-24 21:33:51 [WARNING] screener: [FUNDAMENTAL] DOID.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:52 [INFO] screener: [AI] ANTM.JK — Win Rate: 94.0%  Verdict: ULTRA BUY
+2026-05-24 21:33:53 [WARNING] screener: [FUNDAMENTAL] ADHI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:53 [INFO] screener: [AI] AKRA.JK — Win Rate: 20.2%  Verdict: WEAK
+2026-05-24 21:33:53 [INFO] screener: [AI] DEWA.JK — Win Rate: 26.8%  Verdict: WEAK
+2026-05-24 21:33:53 [INFO] screener: [AI] NCKL.JK — Win Rate: 42.6%  Verdict: WEAK
+2026-05-24 21:33:53 [WARNING] screener: [FUNDAMENTAL] PTPP.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:54 [INFO] screener: [AI] ADHI.JK — Win Rate: 17.7%  Verdict: WEAK
+2026-05-24 21:33:54 [WARNING] screener: [FUNDAMENTAL] TOBA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:54 [WARNING] screener: [FUNDAMENTAL] LEAD.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:54 [WARNING] screener: [FUNDAMENTAL] WEGE.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:54 [WARNING] screener: [FUNDAMENTAL] PPRE.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:54 [WARNING] screener: [FUNDAMENTAL] ACST.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:33:55 [INFO] screener: [AI] RMKE.JK — Win Rate: 7.3%  Verdict: WEAK
+2026-05-24 21:33:55 [INFO] screener: [AI] JSMR.JK — Win Rate: 41.6%  Verdict: WEAK
+2026-05-24 21:33:56 [INFO] screener: [AI] PPRE.JK — Win Rate: 15.0%  Verdict: WEAK
+2026-05-24 21:33:56 [INFO] screener: [AI] ACST.JK — Win Rate: 10.8%  Verdict: WEAK
+2026-05-24 21:33:56 [INFO] screener: [AI] JKON.JK — Win Rate: 11.5%  Verdict: WEAK
+2026-05-24 21:33:56 [INFO] screener: [AI] WEGE.JK — Win Rate: 34.7%  Verdict: WEAK
+2026-05-24 21:33:56 [INFO] screener: [AI] CMNP.JK — Win Rate: 48.6%  Verdict: WEAK
+2026-05-24 21:33:56 [INFO] screener: [AI] TOTL.JK — Win Rate: 50.4%  Verdict: BUY
+2026-05-24 21:33:57 [INFO] screener: [AI] PTPP.JK — Win Rate: 29.1%  Verdict: WEAK
+2026-05-24 21:33:57 [INFO] screener: [AI] BIRD.JK — Win Rate: 21.6%  Verdict: WEAK
+2026-05-24 21:33:58 [INFO] screener: [AI] INDF.JK — Win Rate: 65.8%  Verdict: ULTRA BUY
+2026-05-24 21:33:59 [INFO] screener: [AI] GOOD.JK — Win Rate: 31.2%  Verdict: WEAK
+2026-05-24 21:33:59 [INFO] screener: [AI] CAMP.JK — Win Rate: 12.2%  Verdict: WEAK
+2026-05-24 21:33:59 [INFO] screener: [AI] ICBP.JK — Win Rate: 24.1%  Verdict: WEAK
+2026-05-24 21:33:59 [INFO] screener: [AI] UNVR.JK — Win Rate: 4.7%  Verdict: WEAK
+2026-05-24 21:33:59 [WARNING] screener: [FUNDAMENTAL] KAEF.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:00 [INFO] screener: [AI] MYOR.JK — Win Rate: 14.9%  Verdict: WEAK
+2026-05-24 21:34:01 [INFO] screener: [AI] SIDO.JK — Win Rate: 43.1%  Verdict: WEAK
+2026-05-24 21:34:01 [INFO] screener: [AI] ROTI.JK — Win Rate: 31.2%  Verdict: WEAK
+2026-05-24 21:34:01 [INFO] screener: [AI] STTP.JK — Win Rate: 65.9%  Verdict: ULTRA BUY
+2026-05-24 21:34:02 [INFO] screener: [AI] ADES.JK — Win Rate: 26.7%  Verdict: WEAK
+2026-05-24 21:34:02 [INFO] screener: [AI] CLEO.JK — Win Rate: 37.0%  Verdict: WEAK
+2026-05-24 21:34:02 [INFO] screener: [AI] KAEF.JK — Win Rate: 12.7%  Verdict: WEAK
+2026-05-24 21:34:03 [INFO] screener: [AI] PEHA.JK — Win Rate: 13.7%  Verdict: WEAK
+2026-05-24 21:34:05 [WARNING] screener: [FUNDAMENTAL] HOKI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:05 [INFO] screener: [AI] ACES.JK — Win Rate: 47.9%  Verdict: WEAK
+2026-05-24 21:34:05 [WARNING] screener: [FUNDAMENTAL] MPPA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:06 [INFO] screener: [AI] MPPA.JK — Win Rate: 4.2%  Verdict: WEAK
+2026-05-24 21:34:06 [INFO] screener: [AI] CPIN.JK — Win Rate: 7.8%  Verdict: WEAK
+2026-05-24 21:34:07 [INFO] screener: [AI] CTRA.JK — Win Rate: 43.2%  Verdict: WEAK
+2026-05-24 21:34:07 [INFO] screener: [AI] ERAA.JK — Win Rate: 21.8%  Verdict: WEAK
+2026-05-24 21:34:07 [INFO] screener: [AI] LPPF.JK — Win Rate: 17.0%  Verdict: WEAK
+2026-05-24 21:34:07 [INFO] screener: [AI] HOKI.JK — Win Rate: 11.8%  Verdict: WEAK
+2026-05-24 21:34:07 [INFO] screener: [AI] RALS.JK — Win Rate: 72.1%  Verdict: ULTRA BUY
+2026-05-24 21:34:09 [INFO] screener: [AI] AMRT.JK — Win Rate: 17.3%  Verdict: WEAK
+2026-05-24 21:34:09 [INFO] screener: [AI] ENZO.JK — Win Rate: 17.7%  Verdict: WEAK
+2026-05-24 21:34:09 [INFO] screener: [AI] MAPA.JK — Win Rate: 16.1%  Verdict: WEAK
+2026-05-24 21:34:09 [INFO] screener: [AI] MAPI.JK — Win Rate: 23.5%  Verdict: WEAK
+2026-05-24 21:34:09 [INFO] screener: [AI] JPFA.JK — Win Rate: 11.9%  Verdict: WEAK
+2026-05-24 21:34:09 [INFO] screener: [AI] MIDI.JK — Win Rate: 8.3%  Verdict: WEAK
+2026-05-24 21:34:09 [INFO] screener: [AI] BSDE.JK — Win Rate: 16.8%  Verdict: WEAK
+2026-05-24 21:34:10 [WARNING] screener: [FUNDAMENTAL] PPRO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:10 [INFO] screener: [AI] PWON.JK — Win Rate: 18.6%  Verdict: WEAK
+2026-05-24 21:34:10 [INFO] screener: [AI] SMRA.JK — Win Rate: 8.3%  Verdict: WEAK
+2026-05-24 21:34:11 [INFO] screener: [AI] ASRI.JK — Win Rate: 40.1%  Verdict: WEAK
+2026-05-24 21:34:11 [INFO] screener: [AI] DMAS.JK — Win Rate: 34.5%  Verdict: WEAK
+2026-05-24 21:34:12 [INFO] screener: [AI] DUTI.JK — Win Rate: 15.3%  Verdict: WEAK
+2026-05-24 21:34:12 [INFO] screener: [AI] DILD.JK — Win Rate: 12.5%  Verdict: WEAK
+2026-05-24 21:34:12 [INFO] screener: [AI] PPRO.JK — Win Rate: 5.9%  Verdict: WEAK
+2026-05-24 21:34:12 [INFO] screener: [AI] KLBF.JK — Win Rate: 58.5%  Verdict: BUY
+2026-05-24 21:34:14 [INFO] screener: [AI] MKPI.JK — Win Rate: 14.7%  Verdict: WEAK
+2026-05-24 21:34:14 [INFO] screener: [AI] SILO.JK — Win Rate: 14.8%  Verdict: WEAK
+2026-05-24 21:34:14 [INFO] screener: [AI] KIJA.JK — Win Rate: 7.2%  Verdict: WEAK
+2026-05-24 21:34:14 [INFO] screener: [AI] GWSA.JK — Win Rate: 42.5%  Verdict: WEAK
+2026-05-24 21:34:14 [INFO] screener: [AI] LPCK.JK — Win Rate: 33.1%  Verdict: WEAK
+2026-05-24 21:34:14 [INFO] screener: [AI] SSIA.JK — Win Rate: 81.3%  Verdict: ULTRA BUY
+2026-05-24 21:34:14 [INFO] screener: [AI] BKSL.JK — Win Rate: 8.3%  Verdict: WEAK
+2026-05-24 21:34:16 [INFO] screener: [AI] HEAL.JK — Win Rate: 83.5%  Verdict: ULTRA BUY
+2026-05-24 21:34:16 [WARNING] screener: [FUNDAMENTAL] BAJA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:18 [INFO] screener: [AI] MIKA.JK — Win Rate: 84.9%  Verdict: ULTRA BUY
+2026-05-24 21:34:18 [INFO] screener: [AI] BMHS.JK — Win Rate: 11.2%  Verdict: WEAK
+2026-05-24 21:34:19 [INFO] screener: [AI] IRRA.JK — Win Rate: 20.2%  Verdict: WEAK
+2026-05-24 21:34:19 [INFO] screener: [AI] PRDA.JK — Win Rate: 24.0%  Verdict: WEAK
+2026-05-24 21:34:19 [INFO] screener: [AI] DGNS.JK — Win Rate: 8.0%  Verdict: WEAK
+2026-05-24 21:34:19 [INFO] screener: [AI] SMGR.JK — Win Rate: 44.6%  Verdict: WEAK
+2026-05-24 21:34:19 [INFO] screener: [AI] SAME.JK — Win Rate: 10.9%  Verdict: WEAK
+2026-05-24 21:34:19 [INFO] screener: [AI] TSPC.JK — Win Rate: 58.9%  Verdict: BUY
+2026-05-24 21:34:20 [INFO] screener: [AI] INTP.JK — Win Rate: 71.4%  Verdict: ULTRA BUY
+2026-05-24 21:34:21 [INFO] screener: [AI] SMBR.JK — Win Rate: 37.5%  Verdict: WEAK
+2026-05-24 21:34:21 [INFO] screener: [AI] ISSP.JK — Win Rate: 20.2%  Verdict: WEAK
+2026-05-24 21:34:21 [INFO] screener: [AI] BAJA.JK — Win Rate: 24.7%  Verdict: WEAK
+2026-05-24 21:34:23 [INFO] screener: [AI] BRNA.JK — Win Rate: 19.1%  Verdict: WEAK
+2026-05-24 21:34:23 [INFO] screener: [AI] ASSA.JK — Win Rate: 76.4%  Verdict: ULTRA BUY
+2026-05-24 21:34:24 [INFO] screener: [AI] ALKA.JK — Win Rate: 21.2%  Verdict: WEAK
+2026-05-24 21:34:24 [INFO] screener: [AI] TOTO.JK — Win Rate: 55.7%  Verdict: BUY
+2026-05-24 21:34:26 [INFO] screener: [AI] BIRD.JK — Win Rate: 21.6%  Verdict: WEAK
+2026-05-24 21:34:27 [WARNING] screener: [FUNDAMENTAL] GIAA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:27 [WARNING] screener: [FUNDAMENTAL] GIAA.JK: Book Value tidak tersedia — pakai default 1.5
+2026-05-24 21:34:28 [INFO] screener: [AI] TBLA.JK — Win Rate: 25.2%  Verdict: WEAK
+2026-05-24 21:34:29 [INFO] screener: [AI] HAIS.JK — Win Rate: 19.1%  Verdict: WEAK
+2026-05-24 21:34:29 [INFO] screener: [AI] PANI.JK — Win Rate: 39.4%  Verdict: WEAK
+2026-05-24 21:34:29 [INFO] screener: [AI] AALI.JK — Win Rate: 91.1%  Verdict: ULTRA BUY
+2026-05-24 21:34:30 [INFO] screener: [AI] DSNG.JK — Win Rate: 85.6%  Verdict: ULTRA BUY
+2026-05-24 21:34:31 [INFO] screener: [AI] SIMP.JK — Win Rate: 54.1%  Verdict: BUY
+2026-05-24 21:34:32 [WARNING] screener: [FUNDAMENTAL] PMUI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:32 [INFO] screener: [AI] TAPG.JK — Win Rate: 32.7%  Verdict: WEAK
+2026-05-24 21:34:32 [INFO] screener: [AI] BWPT.JK — Win Rate: 9.7%  Verdict: WEAK
+2026-05-24 21:34:32 [INFO] screener: [AI] LSIP.JK — Win Rate: 85.9%  Verdict: ULTRA BUY
+2026-05-24 21:34:33 [WARNING] screener: [FUNDAMENTAL] AREA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:33 [INFO] screener: [AI] NELY.JK — Win Rate: 11.9%  Verdict: WEAK
+2026-05-24 21:34:33 [INFO] screener: [AI] TMAS.JK — Win Rate: 6.8%  Verdict: WEAK
+2026-05-24 21:34:33 [WARNING] screener: [FUNDAMENTAL] STRK.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:34 [INFO] screener: [AI] BPTR.JK — Win Rate: 9.3%  Verdict: WEAK
+2026-05-24 21:34:34 [INFO] screener: [AI] SSMS.JK — Win Rate: 23.9%  Verdict: WEAK
+2026-05-24 21:34:34 [WARNING] screener: [FUNDAMENTAL] WIDI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:34 [WARNING] screener: [FUNDAMENTAL] GTRA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:34 [INFO] screener: [AI] PMUI.JK — Win Rate: 9.7%  Verdict: WEAK
+2026-05-24 21:34:34 [INFO] screener: [AI] ALII.JK — Win Rate: 32.0%  Verdict: WEAK
+2026-05-24 21:34:34 [WARNING] screener: [FUNDAMENTAL] AWAN.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:34:34 [INFO] screener: [AI] STRK.JK — Win Rate: 8.6%  Verdict: WEAK
+2026-05-24 21:34:34 [INFO] screener: [AI] AREA.JK — Win Rate: 11.5%  Verdict: WEAK
+2026-05-24 21:34:35 [INFO] screener: [AI] WIDI.JK — Win Rate: 8.3%  Verdict: WEAK
+2026-05-24 21:34:35 [INFO] screener: [AI] AWAN.JK — Win Rate: 7.3%  Verdict: WEAK
+2026-05-24 21:34:36 [INFO] screener: [AI] GTRA.JK — Win Rate: 15.3%  Verdict: WEAK
+2026-05-24 21:39:23 [INFO] screener: Memindai Arus Uang (Rotasi Sektor)...
+2026-05-24 21:39:33 [INFO] screener: Rotasi sektor selesai (11 sektor dipindai)
+2026-05-24 21:39:33 [INFO] screener: Mengunduh Cuaca Makro Global & Komoditas...
+2026-05-24 21:39:33 [INFO] screener: Macro update — IHSG=+1.10% | USD=+0.11% | Trend=DOWN | Penalty=0.5
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:39 [INFO] screener: [ENSEMBLE] Loaded v5.0 (threshold=0.671)
+2026-05-24 21:39:42 [INFO] screener: [AI] BMRI.JK — Win Rate: 72.9%  Verdict: ULTRA BUY
+2026-05-24 21:39:43 [INFO] screener: [AI] BVIC.JK — Win Rate: 36.2%  Verdict: WEAK
+2026-05-24 21:39:43 [INFO] screener: [AI] ARTO.JK — Win Rate: 35.6%  Verdict: WEAK
+2026-05-24 21:39:43 [INFO] screener: [AI] BBYB.JK — Win Rate: 9.1%  Verdict: WEAK
+2026-05-24 21:39:43 [INFO] screener: [AI] BRIS.JK — Win Rate: 65.8%  Verdict: ULTRA BUY
+2026-05-24 21:39:43 [INFO] screener: [AI] CFIN.JK — Win Rate: 55.1%  Verdict: BUY
+2026-05-24 21:39:43 [INFO] screener: [AI] BBTN.JK — Win Rate: 19.4%  Verdict: WEAK
+2026-05-24 21:39:44 [INFO] screener: [AI] NISP.JK — Win Rate: 40.1%  Verdict: WEAK
+2026-05-24 21:39:44 [INFO] screener: [AI] BBCA.JK — Win Rate: 39.5%  Verdict: WEAK
+2026-05-24 21:39:44 [INFO] screener: [AI] BBRI.JK — Win Rate: 36.3%  Verdict: WEAK
+2026-05-24 21:39:45 [INFO] screener: [AI] BBNI.JK — Win Rate: 34.3%  Verdict: WEAK
+2026-05-24 21:39:45 [INFO] screener: [AI] BDMN.JK — Win Rate: 18.0%  Verdict: WEAK
+2026-05-24 21:39:45 [INFO] screener: [AI] BTPS.JK — Win Rate: 19.4%  Verdict: WEAK
+2026-05-24 21:39:45 [INFO] screener: [AI] BNGA.JK — Win Rate: 64.9%  Verdict: ULTRA BUY
+2026-05-24 21:39:46 [WARNING] screener: [FUNDAMENTAL] MLPL.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:39:47 [INFO] screener: [AI] BJTM.JK — Win Rate: 23.3%  Verdict: WEAK
+2026-05-24 21:39:48 [INFO] screener: [AI] PNBN.JK — Win Rate: 23.3%  Verdict: WEAK
+2026-05-24 21:39:48 [WARNING] screener: [FUNDAMENTAL] MPPA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:39:48 [INFO] screener: [AI] BHIT.JK — Win Rate: 8.9%  Verdict: WEAK
+2026-05-24 21:39:49 [INFO] screener: [AI] BJBR.JK — Win Rate: 51.2%  Verdict: BUY
+2026-05-24 21:39:49 [INFO] screener: [AI] SRTG.JK — Win Rate: 46.0%  Verdict: WEAK
+2026-05-24 21:39:49 [INFO] screener: [AI] SMMA.JK — Win Rate: 19.7%  Verdict: WEAK
+2026-05-24 21:39:50 [INFO] screener: [AI] BSIM.JK — Win Rate: 57.1%  Verdict: BUY
+2026-05-24 21:39:50 [INFO] screener: [AI] MLPL.JK — Win Rate: 14.4%  Verdict: WEAK
+2026-05-24 21:39:51 [INFO] screener: [AI] ASII.JK — Win Rate: 8.9%  Verdict: WEAK
+2026-05-24 21:39:51 [INFO] screener: [AI] BMTR.JK — Win Rate: 35.5%  Verdict: WEAK
+2026-05-24 21:39:51 [INFO] screener: [AI] LPKR.JK — Win Rate: 11.4%  Verdict: WEAK
+2026-05-24 21:39:51 [INFO] screener: [AI] UNTR.JK — Win Rate: 83.4%  Verdict: ULTRA BUY
+2026-05-24 21:39:52 [WARNING] screener: [FUNDAMENTAL] EXCL.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:39:52 [WARNING] screener: [FUNDAMENTAL] GOTO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:39:52 [WARNING] screener: [FUNDAMENTAL] BELI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:39:53 [INFO] screener: [AI] MPPA.JK — Win Rate: 4.3%  Verdict: WEAK
+2026-05-24 21:39:53 [INFO] screener: [AI] BNLI.JK — Win Rate: 47.9%  Verdict: WEAK
+2026-05-24 21:39:53 [INFO] screener: [AI] VIVA.JK — Win Rate: 21.5%  Verdict: WEAK
+2026-05-24 21:39:54 [INFO] screener: [AI] SCMA.JK — Win Rate: 24.3%  Verdict: WEAK
+2026-05-24 21:39:54 [WARNING] screener: [FUNDAMENTAL] KREN.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:39:54 [INFO] screener: [AI] ISAT.JK — Win Rate: 25.9%  Verdict: WEAK
+2026-05-24 21:39:54 [INFO] screener: [AI] EXCL.JK — Win Rate: 22.1%  Verdict: WEAK
+2026-05-24 21:39:54 [INFO] screener: [AI] TLKM.JK — Win Rate: 47.4%  Verdict: WEAK
+2026-05-24 21:39:54 [WARNING] screener: [FUNDAMENTAL] AXIO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:39:54 [INFO] screener: [AI] GOTO.JK — Win Rate: 17.3%  Verdict: WEAK
+2026-05-24 21:39:55 [INFO] screener: [AI] BELI.JK — Win Rate: 66.5%  Verdict: ULTRA BUY
+2026-05-24 21:39:56 [INFO] screener: [AI] WIFI.JK — Win Rate: 35.1%  Verdict: WEAK
+2026-05-24 21:39:56 [INFO] screener: [AI] EMTK.JK — Win Rate: 70.5%  Verdict: ULTRA BUY
+2026-05-24 21:39:57 [INFO] screener: [AI] BUKA.JK — Win Rate: 26.3%  Verdict: WEAK
+2026-05-24 21:39:58 [INFO] screener: [AI] MTDL.JK — Win Rate: 5.5%  Verdict: WEAK
+2026-05-24 21:39:58 [INFO] screener: [AI] MLPT.JK — Win Rate: 10.1%  Verdict: WEAK
+2026-05-24 21:39:58 [INFO] screener: [AI] DMMX.JK — Win Rate: 8.5%  Verdict: WEAK
+2026-05-24 21:39:58 [INFO] screener: [AI] KREN.JK — Win Rate: 23.5%  Verdict: WEAK
+2026-05-24 21:39:58 [INFO] screener: [AI] GLVA.JK — Win Rate: 84.8%  Verdict: ULTRA BUY
+2026-05-24 21:39:59 [INFO] screener: [AI] AXIO.JK — Win Rate: 12.5%  Verdict: WEAK
+2026-05-24 21:39:59 [INFO] screener: [AI] PTBA.JK — Win Rate: 29.3%  Verdict: WEAK
+2026-05-24 21:39:59 [WARNING] screener: [FUNDAMENTAL] INDY.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:01 [WARNING] screener: [FUNDAMENTAL] DOID.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:01 [INFO] screener: [AI] DEWA.JK — Win Rate: 24.5%  Verdict: WEAK
+2026-05-24 21:40:02 [WARNING] screener: [FUNDAMENTAL] PTPP.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:02 [INFO] screener: [AI] ANTM.JK — Win Rate: 91.5%  Verdict: ULTRA BUY
+2026-05-24 21:40:02 [WARNING] screener: [FUNDAMENTAL] TOBA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:02 [WARNING] screener: [FUNDAMENTAL] WEGE.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:03 [WARNING] screener: [FUNDAMENTAL] ADHI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:03 [INFO] screener: [AI] AKRA.JK — Win Rate: 18.1%  Verdict: WEAK
+2026-05-24 21:40:03 [INFO] screener: [AI] TINS.JK — Win Rate: 9.9%  Verdict: WEAK
+2026-05-24 21:40:03 [WARNING] screener: [FUNDAMENTAL] PPRE.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:04 [WARNING] screener: [FUNDAMENTAL] ACST.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:05 [INFO] screener: [AI] NCKL.JK — Win Rate: 40.8%  Verdict: WEAK
+2026-05-24 21:40:05 [INFO] screener: [AI] PTPP.JK — Win Rate: 46.5%  Verdict: WEAK
+2026-05-24 21:40:05 [INFO] screener: [AI] WEGE.JK — Win Rate: 30.3%  Verdict: WEAK
+2026-05-24 21:40:05 [WARNING] screener: [FUNDAMENTAL] LEAD.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:05 [INFO] screener: [AI] ADHI.JK — Win Rate: 16.9%  Verdict: WEAK
+2026-05-24 21:40:05 [INFO] screener: [AI] JSMR.JK — Win Rate: 35.3%  Verdict: WEAK
+2026-05-24 21:40:05 [INFO] screener: [AI] RMKE.JK — Win Rate: 8.1%  Verdict: WEAK
+2026-05-24 21:40:05 [INFO] screener: [AI] PPRE.JK — Win Rate: 13.2%  Verdict: WEAK
+2026-05-24 21:40:06 [INFO] screener: [AI] TOTL.JK — Win Rate: 48.7%  Verdict: WEAK
+2026-05-24 21:40:06 [INFO] screener: [AI] JKON.JK — Win Rate: 10.8%  Verdict: WEAK
+2026-05-24 21:40:06 [INFO] screener: [AI] ACST.JK — Win Rate: 10.6%  Verdict: WEAK
+2026-05-24 21:40:06 [INFO] screener: [AI] CMNP.JK — Win Rate: 47.5%  Verdict: WEAK
+2026-05-24 21:40:07 [WARNING] screener: [FUNDAMENTAL] KAEF.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:07 [INFO] screener: [AI] BIRD.JK — Win Rate: 16.2%  Verdict: WEAK
+2026-05-24 21:40:07 [INFO] screener: [AI] ICBP.JK — Win Rate: 20.7%  Verdict: WEAK
+2026-05-24 21:40:07 [INFO] screener: [AI] UNVR.JK — Win Rate: 5.4%  Verdict: WEAK
+2026-05-24 21:40:07 [INFO] screener: [AI] GOOD.JK — Win Rate: 28.9%  Verdict: WEAK
+2026-05-24 21:40:07 [INFO] screener: [AI] INDF.JK — Win Rate: 64.6%  Verdict: ULTRA BUY
+2026-05-24 21:40:08 [INFO] screener: [AI] MYOR.JK — Win Rate: 15.1%  Verdict: WEAK
+2026-05-24 21:40:09 [INFO] screener: [AI] ROTI.JK — Win Rate: 23.2%  Verdict: WEAK
+2026-05-24 21:40:09 [INFO] screener: [AI] CLEO.JK — Win Rate: 36.2%  Verdict: WEAK
+2026-05-24 21:40:09 [INFO] screener: [AI] STTP.JK — Win Rate: 57.6%  Verdict: BUY
+2026-05-24 21:40:10 [INFO] screener: [AI] ADES.JK — Win Rate: 25.5%  Verdict: WEAK
+2026-05-24 21:40:10 [INFO] screener: [AI] CAMP.JK — Win Rate: 13.5%  Verdict: WEAK
+2026-05-24 21:40:10 [INFO] screener: [AI] SIDO.JK — Win Rate: 41.4%  Verdict: WEAK
+2026-05-24 21:40:10 [INFO] screener: [AI] KAEF.JK — Win Rate: 13.1%  Verdict: WEAK
+2026-05-24 21:40:10 [INFO] screener: [AI] PEHA.JK — Win Rate: 13.8%  Verdict: WEAK
+2026-05-24 21:40:11 [WARNING] screener: [FUNDAMENTAL] MPPA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:11 [WARNING] screener: [FUNDAMENTAL] HOKI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:12 [INFO] screener: [AI] MPPA.JK — Win Rate: 4.3%  Verdict: WEAK
+2026-05-24 21:40:13 [INFO] screener: [AI] ERAA.JK — Win Rate: 19.8%  Verdict: WEAK
+2026-05-24 21:40:14 [INFO] screener: [AI] AMRT.JK — Win Rate: 17.4%  Verdict: WEAK
+2026-05-24 21:40:14 [INFO] screener: [AI] JPFA.JK — Win Rate: 10.9%  Verdict: WEAK
+2026-05-24 21:40:14 [INFO] screener: [AI] MIDI.JK — Win Rate: 7.4%  Verdict: WEAK
+2026-05-24 21:40:14 [INFO] screener: [AI] MAPA.JK — Win Rate: 13.5%  Verdict: WEAK
+2026-05-24 21:40:14 [INFO] screener: [AI] ACES.JK — Win Rate: 41.1%  Verdict: WEAK
+2026-05-24 21:40:14 [INFO] screener: [AI] BSDE.JK — Win Rate: 15.2%  Verdict: WEAK
+2026-05-24 21:40:14 [INFO] screener: [AI] CPIN.JK — Win Rate: 7.0%  Verdict: WEAK
+2026-05-24 21:40:14 [INFO] screener: [AI] RALS.JK — Win Rate: 61.3%  Verdict: ULTRA BUY
+2026-05-24 21:40:14 [INFO] screener: [AI] ENZO.JK — Win Rate: 18.7%  Verdict: WEAK
+2026-05-24 21:40:16 [INFO] screener: [AI] LPPF.JK — Win Rate: 15.4%  Verdict: WEAK
+2026-05-24 21:40:16 [INFO] screener: [AI] MAPI.JK — Win Rate: 28.2%  Verdict: WEAK
+2026-05-24 21:40:16 [INFO] screener: [AI] HOKI.JK — Win Rate: 10.5%  Verdict: WEAK
+2026-05-24 21:40:16 [INFO] screener: [AI] CTRA.JK — Win Rate: 34.0%  Verdict: WEAK
+2026-05-24 21:40:16 [WARNING] screener: [FUNDAMENTAL] PPRO.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:17 [INFO] screener: [AI] SMRA.JK — Win Rate: 8.2%  Verdict: WEAK
+2026-05-24 21:40:19 [INFO] screener: [AI] PWON.JK — Win Rate: 15.9%  Verdict: WEAK
+2026-05-24 21:40:19 [INFO] screener: [AI] DMAS.JK — Win Rate: 33.0%  Verdict: WEAK
+2026-05-24 21:40:19 [INFO] screener: [AI] DUTI.JK — Win Rate: 12.9%  Verdict: WEAK
+2026-05-24 21:40:19 [INFO] screener: [AI] ASRI.JK — Win Rate: 34.8%  Verdict: WEAK
+2026-05-24 21:40:19 [INFO] screener: [AI] PPRO.JK — Win Rate: 5.2%  Verdict: WEAK
+2026-05-24 21:40:19 [INFO] screener: [AI] DILD.JK — Win Rate: 12.0%  Verdict: WEAK
+2026-05-24 21:40:19 [INFO] screener: [AI] BKSL.JK — Win Rate: 8.0%  Verdict: WEAK
+2026-05-24 21:40:20 [INFO] screener: [AI] GWSA.JK — Win Rate: 35.6%  Verdict: WEAK
+2026-05-24 21:40:20 [INFO] screener: [AI] MKPI.JK — Win Rate: 12.4%  Verdict: WEAK
+2026-05-24 21:40:20 [INFO] screener: [AI] KIJA.JK — Win Rate: 7.1%  Verdict: WEAK
+2026-05-24 21:40:20 [INFO] screener: [AI] LPCK.JK — Win Rate: 32.2%  Verdict: WEAK
+2026-05-24 21:40:20 [INFO] screener: [AI] SSIA.JK — Win Rate: 80.2%  Verdict: ULTRA BUY
+2026-05-24 21:40:21 [INFO] screener: [AI] KLBF.JK — Win Rate: 51.0%  Verdict: BUY
+2026-05-24 21:40:22 [INFO] screener: [AI] MIKA.JK — Win Rate: 82.1%  Verdict: ULTRA BUY
+2026-05-24 21:40:25 [WARNING] screener: [FUNDAMENTAL] BAJA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:26 [INFO] screener: [AI] SILO.JK — Win Rate: 14.5%  Verdict: WEAK
+2026-05-24 21:40:26 [INFO] screener: [AI] PRDA.JK — Win Rate: 23.4%  Verdict: WEAK
+2026-05-24 21:40:26 [INFO] screener: [AI] HEAL.JK — Win Rate: 75.5%  Verdict: ULTRA BUY
+2026-05-24 21:40:27 [INFO] screener: [AI] SAME.JK — Win Rate: 10.6%  Verdict: WEAK
+2026-05-24 21:40:27 [INFO] screener: [AI] IRRA.JK — Win Rate: 17.8%  Verdict: WEAK
+2026-05-24 21:40:27 [INFO] screener: [AI] TSPC.JK — Win Rate: 52.7%  Verdict: BUY
+2026-05-24 21:40:28 [INFO] screener: [AI] DGNS.JK — Win Rate: 7.0%  Verdict: WEAK
+2026-05-24 21:40:29 [INFO] screener: [AI] BMHS.JK — Win Rate: 9.6%  Verdict: WEAK
+2026-05-24 21:40:29 [INFO] screener: [AI] INTP.JK — Win Rate: 63.2%  Verdict: ULTRA BUY
+2026-05-24 21:40:30 [INFO] screener: [AI] SMGR.JK — Win Rate: 36.8%  Verdict: WEAK
+2026-05-24 21:40:31 [INFO] screener: [AI] SMBR.JK — Win Rate: 33.4%  Verdict: WEAK
+2026-05-24 21:40:31 [INFO] screener: [AI] ISSP.JK — Win Rate: 18.3%  Verdict: WEAK
+2026-05-24 21:40:31 [INFO] screener: [AI] BAJA.JK — Win Rate: 20.1%  Verdict: WEAK
+2026-05-24 21:40:31 [INFO] screener: [AI] ALKA.JK — Win Rate: 18.7%  Verdict: WEAK
+2026-05-24 21:40:31 [INFO] screener: [AI] BRNA.JK — Win Rate: 19.6%  Verdict: WEAK
+2026-05-24 21:40:32 [INFO] screener: [AI] TOTO.JK — Win Rate: 46.9%  Verdict: WEAK
+2026-05-24 21:40:32 [INFO] screener: [AI] ASSA.JK — Win Rate: 68.5%  Verdict: ULTRA BUY
+2026-05-24 21:40:33 [WARNING] screener: [FUNDAMENTAL] GIAA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:33 [WARNING] screener: [FUNDAMENTAL] GIAA.JK: Book Value tidak tersedia — pakai default 1.5
+2026-05-24 21:40:34 [INFO] screener: [AI] BIRD.JK — Win Rate: 16.2%  Verdict: WEAK
+2026-05-24 21:40:36 [INFO] screener: [AI] PANI.JK — Win Rate: 29.2%  Verdict: WEAK
+2026-05-24 21:40:36 [INFO] screener: [AI] NELY.JK — Win Rate: 10.7%  Verdict: WEAK
+2026-05-24 21:40:36 [INFO] screener: [AI] DSNG.JK — Win Rate: 84.9%  Verdict: ULTRA BUY
+2026-05-24 21:40:36 [INFO] screener: [AI] BPTR.JK — Win Rate: 9.4%  Verdict: WEAK
+2026-05-24 21:40:37 [INFO] screener: [AI] TMAS.JK — Win Rate: 6.9%  Verdict: WEAK
+2026-05-24 21:40:37 [INFO] screener: [AI] HAIS.JK — Win Rate: 17.2%  Verdict: WEAK
+2026-05-24 21:40:38 [INFO] screener: [AI] BWPT.JK — Win Rate: 8.9%  Verdict: WEAK
+2026-05-24 21:40:38 [INFO] screener: [AI] TAPG.JK — Win Rate: 27.8%  Verdict: WEAK
+2026-05-24 21:40:38 [INFO] screener: [AI] LSIP.JK — Win Rate: 79.0%  Verdict: ULTRA BUY
+2026-05-24 21:40:38 [INFO] screener: [AI] AALI.JK — Win Rate: 88.5%  Verdict: ULTRA BUY
+2026-05-24 21:40:39 [WARNING] screener: [FUNDAMENTAL] PMUI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:40 [INFO] screener: [AI] TBLA.JK — Win Rate: 20.9%  Verdict: WEAK
+2026-05-24 21:40:40 [INFO] screener: [AI] SIMP.JK — Win Rate: 46.6%  Verdict: WEAK
+2026-05-24 21:40:40 [WARNING] screener: [FUNDAMENTAL] WIDI.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:41 [WARNING] screener: [FUNDAMENTAL] AREA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:41 [WARNING] screener: [FUNDAMENTAL] AWAN.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:41 [WARNING] screener: [FUNDAMENTAL] STRK.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:41 [INFO] screener: [AI] SSMS.JK — Win Rate: 23.9%  Verdict: WEAK
+2026-05-24 21:40:41 [WARNING] screener: [FUNDAMENTAL] GTRA.JK: PE tidak tersedia — pakai default 15
+2026-05-24 21:40:41 [INFO] screener: [AI] ALII.JK — Win Rate: 31.6%  Verdict: WEAK
+2026-05-24 21:40:41 [INFO] screener: [AI] PMUI.JK — Win Rate: 9.8%  Verdict: WEAK
+2026-05-24 21:40:42 [INFO] screener: [AI] WIDI.JK — Win Rate: 8.3%  Verdict: WEAK
+2026-05-24 21:40:42 [INFO] screener: [AI] AWAN.JK — Win Rate: 7.3%  Verdict: WEAK
+2026-05-24 21:40:42 [INFO] screener: [AI] GTRA.JK — Win Rate: 13.6%  Verdict: WEAK
+2026-05-24 21:40:42 [INFO] screener: [AI] AREA.JK — Win Rate: 11.1%  Verdict: WEAK
+2026-05-24 21:40:43 [INFO] screener: [AI] STRK.JK — Win Rate: 8.6%  Verdict: WEAK

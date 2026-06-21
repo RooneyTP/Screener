@@ -1,0 +1,287 @@
+2026-05-19 06:22:56,564 [INFO] alerts: Telegram bot connected
+2026-05-19 06:22:56,564 [INFO] auto_alert: AlertManager initialized. Discord: YES, Telegram: YES
+2026-05-19 06:22:56,565 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-19 06:22:56,565 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-19 06:22:56,565 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-19 06:22:56,571 [INFO] apscheduler.scheduler: Added job "check_drawdown" to job store "default"
+2026-05-19 06:22:56,571 [INFO] apscheduler.scheduler: Added job "send_morning_report" to job store "default"
+2026-05-19 06:22:56,571 [INFO] apscheduler.scheduler: Added job "send_closing_report" to job store "default"
+2026-05-19 06:22:56,572 [INFO] apscheduler.scheduler: Scheduler started
+2026-05-19 06:22:56,572 [INFO] auto_alert: Auto-alert scheduler started. Jobs: drawdown (5min), morning (09:00), closing (15:00)
+2026-05-19 06:27:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:27:56 +07)" (scheduled at 2026-05-19 06:27:56.565952+07:00)
+2026-05-19 06:27:56,586 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:32:56 +07)" executed successfully
+2026-05-19 06:32:56,575 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:37:56 +07)" (scheduled at 2026-05-19 06:32:56.565952+07:00)
+2026-05-19 06:32:56,580 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:37:56 +07)" executed successfully
+2026-05-19 06:37:56,573 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:42:56 +07)" (scheduled at 2026-05-19 06:37:56.565952+07:00)
+2026-05-19 06:37:56,582 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:42:56 +07)" executed successfully
+2026-05-19 06:42:56,612 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:47:56 +07)" (scheduled at 2026-05-19 06:42:56.565952+07:00)
+2026-05-19 06:42:56,617 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:47:56 +07)" executed successfully
+2026-05-19 06:47:56,633 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:52:56 +07)" (scheduled at 2026-05-19 06:47:56.565952+07:00)
+2026-05-19 06:47:56,635 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:52:56 +07)" executed successfully
+2026-05-19 06:52:56,632 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:57:56 +07)" (scheduled at 2026-05-19 06:52:56.565952+07:00)
+2026-05-19 06:52:56,632 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 06:57:56 +07)" executed successfully
+2026-05-19 06:57:56,620 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:02:56 +07)" (scheduled at 2026-05-19 06:57:56.565952+07:00)
+2026-05-19 06:57:56,630 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:02:56 +07)" executed successfully
+2026-05-19 07:02:56,609 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:07:56 +07)" (scheduled at 2026-05-19 07:02:56.565952+07:00)
+2026-05-19 07:02:56,614 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:07:56 +07)" executed successfully
+2026-05-19 07:07:56,617 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:12:56 +07)" (scheduled at 2026-05-19 07:07:56.565952+07:00)
+2026-05-19 07:07:56,619 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:12:56 +07)" executed successfully
+2026-05-19 07:12:56,614 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:17:56 +07)" (scheduled at 2026-05-19 07:12:56.565952+07:00)
+2026-05-19 07:12:56,614 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:17:56 +07)" executed successfully
+2026-05-19 07:17:56,596 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:22:56 +07)" (scheduled at 2026-05-19 07:17:56.565952+07:00)
+2026-05-19 07:17:56,599 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:22:56 +07)" executed successfully
+2026-05-19 07:22:56,609 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:27:56 +07)" (scheduled at 2026-05-19 07:22:56.565952+07:00)
+2026-05-19 07:22:56,609 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:27:56 +07)" executed successfully
+2026-05-19 07:27:56,598 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:32:56 +07)" (scheduled at 2026-05-19 07:27:56.565952+07:00)
+2026-05-19 07:27:56,601 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:32:56 +07)" executed successfully
+2026-05-19 07:32:56,594 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:37:56 +07)" (scheduled at 2026-05-19 07:32:56.565952+07:00)
+2026-05-19 07:32:56,597 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:37:56 +07)" executed successfully
+2026-05-19 07:37:56,593 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:42:56 +07)" (scheduled at 2026-05-19 07:37:56.565952+07:00)
+2026-05-19 07:37:56,593 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:42:56 +07)" executed successfully
+2026-05-19 07:42:56,596 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:47:56 +07)" (scheduled at 2026-05-19 07:42:56.565952+07:00)
+2026-05-19 07:42:56,598 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:47:56 +07)" executed successfully
+2026-05-19 07:47:56,594 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:52:56 +07)" (scheduled at 2026-05-19 07:47:56.565952+07:00)
+2026-05-19 07:47:56,598 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:52:56 +07)" executed successfully
+2026-05-19 07:52:56,583 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:57:56 +07)" (scheduled at 2026-05-19 07:52:56.565952+07:00)
+2026-05-19 07:52:56,599 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 07:57:56 +07)" executed successfully
+2026-05-19 07:57:56,596 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:02:56 +07)" (scheduled at 2026-05-19 07:57:56.565952+07:00)
+2026-05-19 07:57:56,601 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:02:56 +07)" executed successfully
+2026-05-19 08:02:56,583 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:07:56 +07)" (scheduled at 2026-05-19 08:02:56.565952+07:00)
+2026-05-19 08:02:56,588 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:07:56 +07)" executed successfully
+2026-05-19 08:07:56,581 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:12:56 +07)" (scheduled at 2026-05-19 08:07:56.565952+07:00)
+2026-05-19 08:07:56,583 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:12:56 +07)" executed successfully
+2026-05-19 08:12:56,586 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:17:56 +07)" (scheduled at 2026-05-19 08:12:56.565952+07:00)
+2026-05-19 08:12:56,589 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:17:56 +07)" executed successfully
+2026-05-19 08:17:56,589 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:22:56 +07)" (scheduled at 2026-05-19 08:17:56.565952+07:00)
+2026-05-19 08:17:56,589 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:22:56 +07)" executed successfully
+2026-05-19 08:22:56,588 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:27:56 +07)" (scheduled at 2026-05-19 08:22:56.565952+07:00)
+2026-05-19 08:22:56,590 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:27:56 +07)" executed successfully
+2026-05-19 08:27:56,588 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:32:56 +07)" (scheduled at 2026-05-19 08:27:56.565952+07:00)
+2026-05-19 08:27:56,637 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:32:56 +07)" executed successfully
+2026-05-19 08:32:56,590 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:37:56 +07)" (scheduled at 2026-05-19 08:32:56.565952+07:00)
+2026-05-19 08:32:56,597 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:37:56 +07)" executed successfully
+2026-05-19 08:37:56,584 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:42:56 +07)" (scheduled at 2026-05-19 08:37:56.565952+07:00)
+2026-05-19 08:37:56,584 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:42:56 +07)" executed successfully
+2026-05-19 08:42:56,579 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:47:56 +07)" (scheduled at 2026-05-19 08:42:56.565952+07:00)
+2026-05-19 08:42:56,586 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:47:56 +07)" executed successfully
+2026-05-19 08:47:56,586 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:52:56 +07)" (scheduled at 2026-05-19 08:47:56.565952+07:00)
+2026-05-19 08:47:56,592 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:52:56 +07)" executed successfully
+2026-05-19 08:52:56,575 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:57:56 +07)" (scheduled at 2026-05-19 08:52:56.565952+07:00)
+2026-05-19 08:52:56,581 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 08:57:56 +07)" executed successfully
+2026-05-19 08:57:56,572 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:02:56 +07)" (scheduled at 2026-05-19 08:57:56.565952+07:00)
+2026-05-19 08:57:56,572 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:02:56 +07)" executed successfully
+2026-05-19 09:00:00,005 [INFO] apscheduler.executors.default: Running job "send_morning_report (trigger: cron[day_of_week='mon-fri', hour='9', minute='0'], next run at: 2026-05-20 09:00:00 +07)" (scheduled at 2026-05-19 09:00:00+07:00)
+2026-05-19 09:00:00,006 [INFO] auto_alert: Morning screener report triggered
+2026-05-19 09:00:01,332 [INFO] alerts: Discord screener report sent (2 signals)
+2026-05-19 09:00:02,217 [INFO] httpx: HTTP Request: POST https://api.telegram.org/bot8101714771:AAGWX1pCWuuRvfFsfQcO_uWrRCxkC5KK23I/sendMessage "HTTP/1.1 200 OK"
+2026-05-19 09:00:02,220 [INFO] alerts: Telegram screener report sent (2 signals)
+2026-05-19 09:00:02,220 [INFO] alerts: Screener report: 2 signals sent
+2026-05-19 09:00:02,220 [INFO] auto_alert: Morning report: OK — 2 signals sent to Discord + Telegram
+2026-05-19 09:00:02,220 [INFO] apscheduler.executors.default: Job "send_morning_report (trigger: cron[day_of_week='mon-fri', hour='9', minute='0'], next run at: 2026-05-20 09:00:00 +07)" executed successfully
+2026-05-19 09:02:56,576 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:07:56 +07)" (scheduled at 2026-05-19 09:02:56.565952+07:00)
+2026-05-19 09:02:56,582 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:07:56 +07)" executed successfully
+2026-05-19 09:07:56,578 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:12:56 +07)" (scheduled at 2026-05-19 09:07:56.565952+07:00)
+2026-05-19 09:07:56,583 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:12:56 +07)" executed successfully
+2026-05-19 09:12:56,583 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:17:56 +07)" (scheduled at 2026-05-19 09:12:56.565952+07:00)
+2026-05-19 09:12:56,591 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:17:56 +07)" executed successfully
+2026-05-19 09:17:56,584 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:22:56 +07)" (scheduled at 2026-05-19 09:17:56.565952+07:00)
+2026-05-19 09:17:56,591 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:22:56 +07)" executed successfully
+2026-05-19 09:22:56,579 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:27:56 +07)" (scheduled at 2026-05-19 09:22:56.565952+07:00)
+2026-05-19 09:22:56,583 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:27:56 +07)" executed successfully
+2026-05-19 09:27:56,580 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:32:56 +07)" (scheduled at 2026-05-19 09:27:56.565952+07:00)
+2026-05-19 09:27:56,580 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:32:56 +07)" executed successfully
+2026-05-19 09:32:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:37:56 +07)" (scheduled at 2026-05-19 09:32:56.565952+07:00)
+2026-05-19 09:32:56,574 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:37:56 +07)" executed successfully
+2026-05-19 09:37:56,582 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:42:56 +07)" (scheduled at 2026-05-19 09:37:56.565952+07:00)
+2026-05-19 09:37:56,588 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:42:56 +07)" executed successfully
+2026-05-19 09:42:56,572 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:47:56 +07)" (scheduled at 2026-05-19 09:42:56.565952+07:00)
+2026-05-19 09:42:56,572 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:47:56 +07)" executed successfully
+2026-05-19 09:47:56,573 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:52:56 +07)" (scheduled at 2026-05-19 09:47:56.565952+07:00)
+2026-05-19 09:47:56,573 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:52:56 +07)" executed successfully
+2026-05-19 09:52:56,582 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:57:56 +07)" (scheduled at 2026-05-19 09:52:56.565952+07:00)
+2026-05-19 09:52:56,582 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 09:57:56 +07)" executed successfully
+2026-05-19 09:57:56,569 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:02:56 +07)" (scheduled at 2026-05-19 09:57:56.565952+07:00)
+2026-05-19 09:57:56,569 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:02:56 +07)" executed successfully
+2026-05-19 10:02:56,571 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:07:56 +07)" (scheduled at 2026-05-19 10:02:56.565952+07:00)
+2026-05-19 10:02:56,573 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:07:56 +07)" executed successfully
+2026-05-19 10:07:56,576 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:12:56 +07)" (scheduled at 2026-05-19 10:07:56.565952+07:00)
+2026-05-19 10:07:56,583 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:12:56 +07)" executed successfully
+2026-05-19 10:12:56,571 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:17:56 +07)" (scheduled at 2026-05-19 10:12:56.565952+07:00)
+2026-05-19 10:12:56,571 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:17:56 +07)" executed successfully
+2026-05-19 10:17:56,577 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:22:56 +07)" (scheduled at 2026-05-19 10:17:56.565952+07:00)
+2026-05-19 10:17:56,579 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:22:56 +07)" executed successfully
+2026-05-19 10:22:56,581 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:27:56 +07)" (scheduled at 2026-05-19 10:22:56.565952+07:00)
+2026-05-19 10:22:56,585 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:27:56 +07)" executed successfully
+2026-05-19 10:27:56,570 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:32:56 +07)" (scheduled at 2026-05-19 10:27:56.565952+07:00)
+2026-05-19 10:27:56,573 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:32:56 +07)" executed successfully
+2026-05-19 10:32:56,568 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:37:56 +07)" (scheduled at 2026-05-19 10:32:56.565952+07:00)
+2026-05-19 10:32:56,568 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:37:56 +07)" executed successfully
+2026-05-19 10:37:56,584 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:42:56 +07)" (scheduled at 2026-05-19 10:37:56.565952+07:00)
+2026-05-19 10:37:56,586 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:42:56 +07)" executed successfully
+2026-05-19 10:42:56,583 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:47:56 +07)" (scheduled at 2026-05-19 10:42:56.565952+07:00)
+2026-05-19 10:42:56,588 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:47:56 +07)" executed successfully
+2026-05-19 10:47:56,568 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:52:56 +07)" (scheduled at 2026-05-19 10:47:56.565952+07:00)
+2026-05-19 10:47:56,592 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:52:56 +07)" executed successfully
+2026-05-19 10:52:56,578 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:57:56 +07)" (scheduled at 2026-05-19 10:52:56.565952+07:00)
+2026-05-19 10:52:56,585 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 10:57:56 +07)" executed successfully
+2026-05-19 10:57:56,584 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:02:56 +07)" (scheduled at 2026-05-19 10:57:56.565952+07:00)
+2026-05-19 10:57:56,584 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:02:56 +07)" executed successfully
+2026-05-19 11:02:56,584 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:07:56 +07)" (scheduled at 2026-05-19 11:02:56.565952+07:00)
+2026-05-19 11:02:56,590 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:07:56 +07)" executed successfully
+2026-05-19 11:07:56,587 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:12:56 +07)" (scheduled at 2026-05-19 11:07:56.565952+07:00)
+2026-05-19 11:07:56,594 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:12:56 +07)" executed successfully
+2026-05-19 11:12:56,593 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:17:56 +07)" (scheduled at 2026-05-19 11:12:56.565952+07:00)
+2026-05-19 11:12:56,593 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:17:56 +07)" executed successfully
+2026-05-19 11:17:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:22:56 +07)" (scheduled at 2026-05-19 11:17:56.565952+07:00)
+2026-05-19 11:17:56,580 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:22:56 +07)" executed successfully
+2026-05-19 11:22:56,572 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:27:56 +07)" (scheduled at 2026-05-19 11:22:56.565952+07:00)
+2026-05-19 11:22:56,578 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:27:56 +07)" executed successfully
+2026-05-19 11:27:56,571 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:32:56 +07)" (scheduled at 2026-05-19 11:27:56.565952+07:00)
+2026-05-19 11:27:56,594 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:32:56 +07)" executed successfully
+2026-05-19 11:32:56,580 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:37:56 +07)" (scheduled at 2026-05-19 11:32:56.565952+07:00)
+2026-05-19 11:32:56,584 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:37:56 +07)" executed successfully
+2026-05-19 11:37:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:42:56 +07)" (scheduled at 2026-05-19 11:37:56.565952+07:00)
+2026-05-19 11:37:56,576 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:42:56 +07)" executed successfully
+2026-05-19 11:42:56,579 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:47:56 +07)" (scheduled at 2026-05-19 11:42:56.565952+07:00)
+2026-05-19 11:42:56,582 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:47:56 +07)" executed successfully
+2026-05-19 11:47:56,573 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:52:56 +07)" (scheduled at 2026-05-19 11:47:56.565952+07:00)
+2026-05-19 11:47:56,573 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:52:56 +07)" executed successfully
+2026-05-19 11:52:56,580 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:57:56 +07)" (scheduled at 2026-05-19 11:52:56.565952+07:00)
+2026-05-19 11:52:56,582 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 11:57:56 +07)" executed successfully
+2026-05-19 11:57:56,587 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:02:56 +07)" (scheduled at 2026-05-19 11:57:56.565952+07:00)
+2026-05-19 11:57:56,589 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:02:56 +07)" executed successfully
+2026-05-19 12:02:56,573 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:07:56 +07)" (scheduled at 2026-05-19 12:02:56.565952+07:00)
+2026-05-19 12:02:56,582 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:07:56 +07)" executed successfully
+2026-05-19 12:07:56,577 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:12:56 +07)" (scheduled at 2026-05-19 12:07:56.565952+07:00)
+2026-05-19 12:07:56,580 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:12:56 +07)" executed successfully
+2026-05-19 12:12:56,578 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:17:56 +07)" (scheduled at 2026-05-19 12:12:56.565952+07:00)
+2026-05-19 12:12:56,578 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:17:56 +07)" executed successfully
+2026-05-19 12:17:56,580 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:22:56 +07)" (scheduled at 2026-05-19 12:17:56.565952+07:00)
+2026-05-19 12:17:56,586 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:22:56 +07)" executed successfully
+2026-05-19 12:22:56,577 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:27:56 +07)" (scheduled at 2026-05-19 12:22:56.565952+07:00)
+2026-05-19 12:22:56,582 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:27:56 +07)" executed successfully
+2026-05-19 12:27:56,582 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:32:56 +07)" (scheduled at 2026-05-19 12:27:56.565952+07:00)
+2026-05-19 12:27:56,585 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:32:56 +07)" executed successfully
+2026-05-19 12:32:56,572 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:37:56 +07)" (scheduled at 2026-05-19 12:32:56.565952+07:00)
+2026-05-19 12:32:56,572 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:37:56 +07)" executed successfully
+2026-05-19 12:37:56,583 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:42:56 +07)" (scheduled at 2026-05-19 12:37:56.565952+07:00)
+2026-05-19 12:37:56,591 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:42:56 +07)" executed successfully
+2026-05-19 12:42:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:47:56 +07)" (scheduled at 2026-05-19 12:42:56.565952+07:00)
+2026-05-19 12:42:56,581 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:47:56 +07)" executed successfully
+2026-05-19 12:47:56,581 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:52:56 +07)" (scheduled at 2026-05-19 12:47:56.565952+07:00)
+2026-05-19 12:47:56,584 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:52:56 +07)" executed successfully
+2026-05-19 12:52:56,582 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:57:56 +07)" (scheduled at 2026-05-19 12:52:56.565952+07:00)
+2026-05-19 12:52:56,597 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 12:57:56 +07)" executed successfully
+2026-05-19 12:57:56,573 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:02:56 +07)" (scheduled at 2026-05-19 12:57:56.565952+07:00)
+2026-05-19 12:57:56,580 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:02:56 +07)" executed successfully
+2026-05-19 13:02:56,583 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:07:56 +07)" (scheduled at 2026-05-19 13:02:56.565952+07:00)
+2026-05-19 13:02:56,583 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:07:56 +07)" executed successfully
+2026-05-19 13:07:56,579 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:12:56 +07)" (scheduled at 2026-05-19 13:07:56.565952+07:00)
+2026-05-19 13:07:56,590 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:12:56 +07)" executed successfully
+2026-05-19 13:12:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:17:56 +07)" (scheduled at 2026-05-19 13:12:56.565952+07:00)
+2026-05-19 13:12:56,577 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:17:56 +07)" executed successfully
+2026-05-19 13:17:56,568 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:22:56 +07)" (scheduled at 2026-05-19 13:17:56.565952+07:00)
+2026-05-19 13:17:56,568 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:22:56 +07)" executed successfully
+2026-05-19 13:22:56,571 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:27:56 +07)" (scheduled at 2026-05-19 13:22:56.565952+07:00)
+2026-05-19 13:22:56,571 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:27:56 +07)" executed successfully
+2026-05-19 13:27:56,569 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:32:56 +07)" (scheduled at 2026-05-19 13:27:56.565952+07:00)
+2026-05-19 13:27:56,573 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:32:56 +07)" executed successfully
+2026-05-19 13:32:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:37:56 +07)" (scheduled at 2026-05-19 13:32:56.565952+07:00)
+2026-05-19 13:32:56,576 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:37:56 +07)" executed successfully
+2026-05-19 13:37:56,575 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:42:56 +07)" (scheduled at 2026-05-19 13:37:56.565952+07:00)
+2026-05-19 13:37:56,577 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:42:56 +07)" executed successfully
+2026-05-19 13:42:56,583 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:47:56 +07)" (scheduled at 2026-05-19 13:42:56.565952+07:00)
+2026-05-19 13:42:56,589 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:47:56 +07)" executed successfully
+2026-05-19 13:47:56,585 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:52:56 +07)" (scheduled at 2026-05-19 13:47:56.565952+07:00)
+2026-05-19 13:47:56,596 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:52:56 +07)" executed successfully
+2026-05-19 13:52:56,569 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:57:56 +07)" (scheduled at 2026-05-19 13:52:56.565952+07:00)
+2026-05-19 13:52:56,577 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 13:57:56 +07)" executed successfully
+2026-05-19 13:57:56,573 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:02:56 +07)" (scheduled at 2026-05-19 13:57:56.565952+07:00)
+2026-05-19 13:57:56,576 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:02:56 +07)" executed successfully
+2026-05-19 14:02:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:07:56 +07)" (scheduled at 2026-05-19 14:02:56.565952+07:00)
+2026-05-19 14:02:56,574 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:07:56 +07)" executed successfully
+2026-05-19 14:07:56,573 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:12:56 +07)" (scheduled at 2026-05-19 14:07:56.565952+07:00)
+2026-05-19 14:07:56,575 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:12:56 +07)" executed successfully
+2026-05-19 14:12:56,571 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:17:56 +07)" (scheduled at 2026-05-19 14:12:56.565952+07:00)
+2026-05-19 14:12:56,571 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:17:56 +07)" executed successfully
+2026-05-19 14:17:56,580 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:22:56 +07)" (scheduled at 2026-05-19 14:17:56.565952+07:00)
+2026-05-19 14:17:56,580 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:22:56 +07)" executed successfully
+2026-05-19 14:22:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:27:56 +07)" (scheduled at 2026-05-19 14:22:56.565952+07:00)
+2026-05-19 14:22:56,580 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:27:56 +07)" executed successfully
+2026-05-19 14:27:56,574 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:32:56 +07)" (scheduled at 2026-05-19 14:27:56.565952+07:00)
+2026-05-19 14:27:56,577 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:32:56 +07)" executed successfully
+2026-05-19 14:32:56,577 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:37:56 +07)" (scheduled at 2026-05-19 14:32:56.565952+07:00)
+2026-05-19 14:32:56,577 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:37:56 +07)" executed successfully
+2026-05-19 14:37:56,579 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:42:56 +07)" (scheduled at 2026-05-19 14:37:56.565952+07:00)
+2026-05-19 14:37:56,595 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:42:56 +07)" executed successfully
+2026-05-19 14:42:56,581 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:47:56 +07)" (scheduled at 2026-05-19 14:42:56.565952+07:00)
+2026-05-19 14:42:56,588 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:47:56 +07)" executed successfully
+2026-05-19 14:47:56,571 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:52:56 +07)" (scheduled at 2026-05-19 14:47:56.565952+07:00)
+2026-05-19 14:47:56,571 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:52:56 +07)" executed successfully
+2026-05-19 14:52:56,576 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:57:56 +07)" (scheduled at 2026-05-19 14:52:56.565952+07:00)
+2026-05-19 14:52:56,603 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 14:57:56 +07)" executed successfully
+2026-05-19 14:57:56,575 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:02:56 +07)" (scheduled at 2026-05-19 14:57:56.565952+07:00)
+2026-05-19 14:57:56,577 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:02:56 +07)" executed successfully
+2026-05-19 15:00:00,003 [INFO] apscheduler.executors.default: Running job "send_closing_report (trigger: cron[day_of_week='mon-fri', hour='15', minute='0'], next run at: 2026-05-20 15:00:00 +07)" (scheduled at 2026-05-19 15:00:00+07:00)
+2026-05-19 15:00:00,003 [INFO] auto_alert: Closing report triggered
+2026-05-19 15:00:00,801 [INFO] alerts: Discord sent: Closing Summary
+2026-05-19 15:00:00,801 [WARNING] alerts: Telegram send failed: Unknown error in HTTP implementation: RuntimeError('Event loop is closed') — maybe bot not in chat? Send /start to your bot first, or add bot to group.
+2026-05-19 15:00:00,801 [INFO] alerts: [15:00:00] [INFO] Closing Summary
+📊 *Daily Closing Summary*
+Equity: Rp 99,326,039
+P&L: Rp +89,326,039 (+893.26%)
+
+Jalankan `/report` untuk lihat sinyal terbaru.
+2026-05-19 15:00:00,801 [INFO] apscheduler.executors.default: Job "send_closing_report (trigger: cron[day_of_week='mon-fri', hour='15', minute='0'], next run at: 2026-05-20 15:00:00 +07)" executed successfully
+2026-05-19 15:02:56,568 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:07:56 +07)" (scheduled at 2026-05-19 15:02:56.565952+07:00)
+2026-05-19 15:02:56,583 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:07:56 +07)" executed successfully
+2026-05-19 15:07:56,567 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:12:56 +07)" (scheduled at 2026-05-19 15:07:56.565952+07:00)
+2026-05-19 15:07:56,570 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:12:56 +07)" executed successfully
+2026-05-19 15:12:56,577 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:17:56 +07)" (scheduled at 2026-05-19 15:12:56.565952+07:00)
+2026-05-19 15:12:56,580 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:17:56 +07)" executed successfully
+2026-05-19 15:17:56,573 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:22:56 +07)" (scheduled at 2026-05-19 15:17:56.565952+07:00)
+2026-05-19 15:17:56,598 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:22:56 +07)" executed successfully
+2026-05-19 15:22:56,585 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:27:56 +07)" (scheduled at 2026-05-19 15:22:56.565952+07:00)
+2026-05-19 15:22:56,592 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:27:56 +07)" executed successfully
+2026-05-19 15:27:56,568 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:32:56 +07)" (scheduled at 2026-05-19 15:27:56.565952+07:00)
+2026-05-19 15:27:56,570 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:32:56 +07)" executed successfully
+2026-05-19 15:32:56,585 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:37:56 +07)" (scheduled at 2026-05-19 15:32:56.565952+07:00)
+2026-05-19 15:32:56,588 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:37:56 +07)" executed successfully
+2026-05-19 15:37:56,588 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:42:56 +07)" (scheduled at 2026-05-19 15:37:56.565952+07:00)
+2026-05-19 15:37:56,593 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:42:56 +07)" executed successfully
+2026-05-19 15:42:56,580 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:47:56 +07)" (scheduled at 2026-05-19 15:42:56.565952+07:00)
+2026-05-19 15:42:56,587 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:47:56 +07)" executed successfully
+2026-05-19 15:47:56,578 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:52:56 +07)" (scheduled at 2026-05-19 15:47:56.565952+07:00)
+2026-05-19 15:47:56,581 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:52:56 +07)" executed successfully
+2026-05-19 15:52:56,577 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:57:56 +07)" (scheduled at 2026-05-19 15:52:56.565952+07:00)
+2026-05-19 15:52:56,593 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 15:57:56 +07)" executed successfully
+2026-05-19 15:57:56,571 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:02:56 +07)" (scheduled at 2026-05-19 15:57:56.565952+07:00)
+2026-05-19 15:57:56,571 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:02:56 +07)" executed successfully
+2026-05-19 16:02:56,576 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:07:56 +07)" (scheduled at 2026-05-19 16:02:56.565952+07:00)
+2026-05-19 16:02:56,576 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:07:56 +07)" executed successfully
+2026-05-19 16:07:56,575 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:12:56 +07)" (scheduled at 2026-05-19 16:07:56.565952+07:00)
+2026-05-19 16:07:56,578 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:12:56 +07)" executed successfully
+2026-05-19 16:12:56,579 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:17:56 +07)" (scheduled at 2026-05-19 16:12:56.565952+07:00)
+2026-05-19 16:12:56,589 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:17:56 +07)" executed successfully
+2026-05-19 16:17:56,576 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:22:56 +07)" (scheduled at 2026-05-19 16:17:56.565952+07:00)
+2026-05-19 16:17:56,580 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:22:56 +07)" executed successfully
+2026-05-19 16:22:56,584 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:27:56 +07)" (scheduled at 2026-05-19 16:22:56.565952+07:00)
+2026-05-19 16:22:56,592 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:27:56 +07)" executed successfully
+2026-05-19 16:27:56,573 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:32:56 +07)" (scheduled at 2026-05-19 16:27:56.565952+07:00)
+2026-05-19 16:27:56,573 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:32:56 +07)" executed successfully
+2026-05-19 16:32:56,570 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:37:56 +07)" (scheduled at 2026-05-19 16:32:56.565952+07:00)
+2026-05-19 16:32:56,570 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:37:56 +07)" executed successfully
+2026-05-19 16:37:56,571 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:42:56 +07)" (scheduled at 2026-05-19 16:37:56.565952+07:00)
+2026-05-19 16:37:56,579 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:42:56 +07)" executed successfully
+2026-05-19 16:42:56,571 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:47:56 +07)" (scheduled at 2026-05-19 16:42:56.565952+07:00)
+2026-05-19 16:42:56,571 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:47:56 +07)" executed successfully
+2026-05-19 16:47:56,584 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:52:56 +07)" (scheduled at 2026-05-19 16:47:56.565952+07:00)
+2026-05-19 16:47:56,608 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:52:56 +07)" executed successfully
+2026-05-19 16:52:56,579 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:57:56 +07)" (scheduled at 2026-05-19 16:52:56.565952+07:00)
+2026-05-19 16:52:56,581 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 16:57:56 +07)" executed successfully
+2026-05-19 16:57:56,579 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 17:02:56 +07)" (scheduled at 2026-05-19 16:57:56.565952+07:00)
+2026-05-19 16:57:56,591 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 17:02:56 +07)" executed successfully
+2026-05-19 17:02:56,575 [INFO] apscheduler.executors.default: Running job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 17:07:56 +07)" (scheduled at 2026-05-19 17:02:56.565952+07:00)
+2026-05-19 17:02:56,582 [INFO] apscheduler.executors.default: Job "check_drawdown (trigger: interval[0:05:00], next run at: 2026-05-19 17:07:56 +07)" executed successfully
+2026-05-19 17:03:20,108 [INFO] apscheduler.scheduler: Scheduler has been shut down
+2026-05-19 17:03:20,108 [INFO] auto_alert: Auto-alert scheduler stopped.

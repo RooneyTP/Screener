@@ -1,0 +1,29 @@
+{
+  "55555:-9999": {
+    "mode": "invest",
+    "risk_tolerance": "moderate",
+    "depth_mode": "deep",
+    "favorite_tickers": [
+      "BBRI",
+      "BBCA"
+    ],
+    "preferred_sectors": [],
+    "total_conversations": 11,
+    "last_depth_mode": "normal",
+    "first_seen": 1781965819.8510199,
+    "last_seen": 1781965882.2377691
+  },
+  "7794835737:-5237365204": {
+    "mode": "swing",
+    "risk_tolerance": "moderate",
+    "depth_mode": "normal",
+    "favorite_tickers": [
+      "MPPA"
+    ],
+    "preferred_sectors": [],
+    "total_conversations": 5,
+    "last_depth_mode": "normal",
+    "first_seen": 1781967483.9785767,
+    "last_seen": 1781967990.934962
+  }
+}
