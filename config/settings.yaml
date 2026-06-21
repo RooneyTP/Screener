@@ -1,0 +1,418 @@
+# FIX: Centralised config — zero magic numbers in code (SKILL.md output standard §②)
+# All strategy parameters externalised. Sensible defaults with inline comments.
+
+# ── Strategy Mode ──────────────────────────────────────────────────────
+strategy:
+  mode: both                 # swing | scalping | both
+  asset_class: equities     # crypto_spot | perp_futures | equities | forex
+  exchange: ihsg            # Binance | IBKR | Alpaca | IHSG (via yfinance)
+
+# ── Data ───────────────────────────────────────────────────────────────
+data:
+  source: yfinance           # yfinance (research) | ccxt | polygon
+  period: 6mo
+  interval: 1d               # 1m | 3m | 5m | 15m | 1h | 4h | 1d
+  cache_enabled: true
+  cache_dir: cache
+  parquet_dir: data_lake
+  csv_cache_ttl: 30          # Seconds before re-reading CSV (telegram_bot.py)
+  sanity:
+    min_bars: 50             # minimum bars required for a ticker
+    max_daily_pct_change: 40 # skip tickers with >40% daily change (data error)
+
+# ── Portfolio (telegram_bot.py) ────────────────────────────────────────
+portfolio:
+  initial_cash: 10000000     # Virtual portfolio starting balance (IDR)
+  virtual_db: portofolio_virtual.db
+
+# ── Signal Scoring ─────────────────────────────────────────────────────
+scoring:
+  max_score: 15
+  weights:
+    technical: 0.35          # Technical indicators
+    fundamental: 0.25        # PE, PBV, earnings
+    relative_strength: 0.20  # vs IHSG, sector leadership
+    sentiment: 0.20          # News, foreign flow
+
+# ── Signal Thresholds ──────────────────────────────────────────────────
+signals:
+  ultra_buy:
+    confidence_min: 85
+    score_min: 10
+    rrr_min: 1.8
+    require_weekly_bullish: true
+  strong_buy:
+    confidence_min: 75       # 80 if IHSG_TREND == DOWN
+    score_min: 8
+  buy:
+    confidence_min: 50       # 55 if IHSG_TREND == DOWN
+    score_min: 4
+
+# ── Risk Management ────────────────────────────────────────────────────
+risk:
+  per_trade_risk_pct: 0.01   # 1% equity at risk per trade (Fixed Fractional)
+  default_sl_pct: 0.92       # Default stop-loss % (8% below entry) — telegram_bot.py
+  default_tp_pct: 1.05       # Default take-profit % (5% above entry) — telegram_bot.py
+  kill_switch:
+    max_daily_loss_pct: 0.05    # 5% daily loss → halt
+    max_weekly_loss_pct: 0.08   # 8% weekly drawdown → reduce size 50%
+    max_monthly_loss_pct: 0.15  # 15% monthly drawdown → full review
+    max_drawdown_pct: 0.20      # 20% from peak → kill all trading
+  position_sizing:
+    model: fixed_fractional   # fixed_fractional | atr_based | half_kelly
+    max_position_pct: 0.25    # never >25% account in one position
+  volatility_filter:
+    atr_percentile_max: 90    # if ATR > 90th percentile → widen stops or pause
+  correlation:
+    max_pairwise_corr: 0.75   # if 2+ positions correlated above this → treat as single
+
+# ── Execution ──────────────────────────────────────────────────────────
+execution:
+  slippage_pct: 0.001         # 0.10% per side (static; use ATR-based for scalping)
+  buy_fee_pct: 0.0015         # 0.15% broker + exchange
+  sell_fee_pct: 0.0025        # 0.25% broker + exchange
+  max_positions: 5
+  cooldown_minutes: 5
+  latency_buffer_ms: 50       # synthetic delay for backtest realism (scalping: 200ms)
+  order_types:
+    swing: limit              # limit for swing entries
+    scalping: market          # market for speed-critical entries
+
+# ── Backtest ───────────────────────────────────────────────────────────
+backtest:
+  engine: event_driven        # vectorized | event_driven
+  min_trades: 100             # minimum for statistical validity
+  risk_free_rate: 0.05        # Indonesian BI rate proxy for Sharpe calc (telegram_bot.py)
+  required_metrics:
+    - total_return_pct
+    - cagr_pct
+    - sharpe_ratio
+    - sortino_ratio
+    - calmar_ratio
+    - max_drawdown_pct
+    - win_rate_pct
+    - profit_factor
+    - expectancy_r
+    - oos_is_sharpe_ratio
+  overfitting_defenses:
+    walk_forward: true
+    monte_carlo_runs: 10000
+    parameter_sensitivity_pct: 30
+
+# ── Notifications ──────────────────────────────────────────────────────
+notifications:
+  discord:
+    enabled: false
+  telegram:
+    enabled: false
+
+# ── Logging ────────────────────────────────────────────────────────────
+logging:
+  level: INFO
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  persistent: true
+  log_dir: logs
+
+# ════════════════════════════════════════════════════════════════════════
+# ── Scalping Strategy ──────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════
+scalp:
+  enabled: true
+
+  # ── Data Source ──────────────────────────────────────────────────
+  data_source:
+    primary: yfinance           # yfinance | stockbit | rti | idx_api
+    interval: 1m
+    range: 1d
+    cycle_interval_secs: 30
+    max_concurrent: 5
+    timeout_secs: 5
+    max_retries: 2
+    retry_delay_secs: 1.0
+    skip_after_failures: 3
+
+  # ── Trading Hours (WIB / UTC+7) ──────────────────────────────────
+  trading_hours:
+    session_start: "09:00"
+    auction_end: "09:05"
+    morning_session_start: "09:05"
+    morning_session_end: "11:30"
+    lunch_start: "11:30"
+    lunch_end: "13:00"
+    afternoon_session_start: "13:00"
+    pre_close_start: "15:45"
+    session_end: "16:00"
+    morning_breakout_window:
+      start: "09:05"
+      end: "09:30"
+
+  # ── Time Filters ─────────────────────────────────────────────────
+  time_filters:
+    skip_auction: true          # 09:00-09:05
+    skip_lunch: true            # 11:30-13:00
+    skip_pre_close: true        # 15:45-16:00
+
+  # ── Indicators ───────────────────────────────────────────────────
+  indicators:
+    ema_fast: 9
+    ema_slow: 21
+    rsi_period: 14
+    adx_period: 14
+    adx_threshold: 25
+    vwap_period: 60             # bars for VWAP
+    volume_sma_period: 10
+
+  # ── Signal Thresholds ────────────────────────────────────────────
+  signals:
+    morning_breakout:
+      min_bars: 10
+      vol_spike_mult: 2.5
+      require_above_vwap: true
+      require_above_open: true
+
+    afternoon_momentum:
+      min_bars: 30
+      rsi_min: 40
+      rsi_max: 70
+      vol_spike_mult: 2.0
+      require_above_ema: true
+      require_above_vwap: true
+      require_adx_above: 20
+
+    liquidity:
+      min_transaction_value: 50000000   # Rp 50M
+      min_volume: 1000
+
+  # ── AI ───────────────────────────────────────────────────────────
+  ai:
+    model_path: ensemble_model.pkl
+    confidence_threshold: 55.0
+    features:                    # Intraday-specific features (no proxies)
+      - rsi_1m
+      - adx_1m
+      - vwap_distance_pct
+      - volume_ratio
+      - ema_distance_pct
+      - spread_pct
+      - orb_position_pct
+      - cumulative_delta
+
+  # ── Execution ────────────────────────────────────────────────────
+  execution:
+    tp_pct: 0.015                # 1.5% take profit
+    sl_pct: 0.01                 # 1.0% stop loss
+    spread_buffer_min_pct: 0.002 # 0.2% minimum spread buffer
+    breakeven_trigger_pct: 0.008 # 0.8% profit → SL to breakeven
+    trailing_distance_pct: 0.005 # Trail 0.5% below highest price
+    trailing_activation_pct: 0.015  # After 1.5% profit
+    max_daily_loss_pct: 0.03     # 3% daily loss → halt (tighter than swing 5%)
+    max_positions: 5
+    cooldown_minutes: 5
+    poll_fast_secs: 1.0
+    poll_idle_secs: 3.0
+    position_size_pct: 0.10      # 10% of equity per position
+    capital_initial: 100000000   # Rp 100M
+
+  # ── Database ─────────────────────────────────────────────────────
+  database:
+    histori_db: histori_ihsg.db
+    portfolio_db: portofolio_virtual.db
+
+  # ── Backtest ─────────────────────────────────────────────────────
+  backtest:
+    engine: event_driven_1m
+    time_bands:
+      - name: morning_breakout
+        start: "09:05"
+        end: "09:30"
+      - name: afternoon_momentum
+        start: "09:30"
+        end: "15:45"
+    required_metrics:
+      - total_trades
+      - win_rate_pct
+      - profit_factor
+      - sharpe_ratio
+      - sortino_ratio
+      - max_drawdown_pct
+      - expectancy_r
+      - win_rate_by_band
+      - avg_holding_minutes
+
+# ════════════════════════════════════════════════════════════════════════
+# ── IHSG Tickers (shared by swing + scalp) ─────────────────────────────
+# ════════════════════════════════════════════════════════════════════════
+tickers:
+  - BBCA.JK
+  - BBRI.JK
+  - BMRI.JK
+  - BBNI.JK
+  - BRIS.JK
+  - BBTN.JK
+  - BNGA.JK
+  - BDMN.JK
+  - NISP.JK
+  - BTPS.JK
+  - ARTO.JK
+  - CFIN.JK
+  - BBYB.JK
+  - BVIC.JK
+  - BJTM.JK
+  - BJBR.JK
+  - PNBN.JK
+  - BSIM.JK
+  - ASII.JK
+  - SRTG.JK
+  - BMTR.JK
+  - BHIT.JK
+  - MLPL.JK
+  - SMMA.JK
+  - ABMM.JK
+  - UNTR.JK
+  - TPIA.JK
+  - LPKR.JK
+  - MPPA.JK
+  - BNLI.JK
+  - SCMA.JK
+  - VIVA.JK
+  - ADMG.JK
+  - TLKM.JK
+  - ISAT.JK
+  - EXCL.JK
+  - GOTO.JK
+  - BUKA.JK
+  - BELI.JK
+  - WIFI.JK
+  - EMTK.JK
+  - MLPT.JK
+  - MTDL.JK
+  - DMMX.JK
+  - KREN.JK
+  - AXIO.JK
+  - GLVA.JK
+  - ADRO.JK
+  - ITMG.JK
+  - PTBA.JK
+  - INDY.JK
+  - HRUM.JK
+  - BUMI.JK
+  - BRMS.JK
+  - DEWA.JK
+  - ENRG.JK
+  - MEDC.JK
+  - PGAS.JK
+  - AKRA.JK
+  - ANTM.JK
+  - INCO.JK
+  - TINS.JK
+  - CUAN.JK
+  - MBMA.JK
+  - NCKL.JK
+  - KKGI.JK
+  - DOID.JK
+  - ADMR.JK
+  - RMKE.JK
+  - TOBA.JK
+  - JSMR.JK
+  - PTPP.JK
+  - ADHI.JK
+  - WIKA.JK
+  - WSKT.JK
+  - WEGE.JK
+  - PPRE.JK
+  - TOTL.JK
+  - ACST.JK
+  - JKON.JK
+  - META.JK
+  - CMNP.JK
+  - LEAD.JK
+  - RIGS.JK
+  - TPMA.JK
+  - SMDR.JK
+  - BIRD.JK
+  - UNVR.JK
+  - ICBP.JK
+  - INDF.JK
+  - MYOR.JK
+  - GOOD.JK
+  - ROTI.JK
+  - CAMP.JK
+  - CLEO.JK
+  - ADES.JK
+  - STTP.JK
+  - SIDO.JK
+  - KAEF.JK
+  - PEHA.JK
+  - AMRT.JK
+  - MIDI.JK
+  - MAPI.JK
+  - MAPA.JK
+  - ACES.JK
+  - ERAA.JK
+  - RALS.JK
+  - LPPF.JK
+  - HOKI.JK
+  - CPIN.JK
+  - JPFA.JK
+  - ENZO.JK
+  - BSDE.JK
+  - CTRA.JK
+  - SMRA.JK
+  - PWON.JK
+  - ASRI.JK
+  - DMAS.JK
+  - DUTI.JK
+  - DILD.JK
+  - PPRO.JK
+  - BKSL.JK
+  - GWSA.JK
+  - MKPI.JK
+  - LPCK.JK
+  - KIJA.JK
+  - SSIA.JK
+  - KLBF.JK
+  - MIKA.JK
+  - HEAL.JK
+  - SILO.JK
+  - PRDA.JK
+  - DGNS.JK
+  - BMHS.JK
+  - IRRA.JK
+  - TSPC.JK
+  - SAME.JK
+  - SMGR.JK
+  - INTP.JK
+  - SMBR.JK
+  - SMCB.JK
+  - KRAS.JK
+  - ISSP.JK
+  - BAJA.JK
+  - NIKL.JK
+  - ALKA.JK
+  - BRNA.JK
+  - TOTO.JK
+  - ASSA.JK
+  - GIAA.JK
+  - TMAS.JK
+  - NELY.JK
+  - HAIS.JK
+  - PANI.JK
+  - BPTR.JK
+  - AALI.JK
+  - LSIP.JK
+  - SIMP.JK
+  - BWPT.JK
+  - TAPG.JK
+  - DSNG.JK
+  - TBLA.JK
+  - SSMS.JK
+  - ANJT.JK
+  - ALII.JK
+  - PMUI.JK
+  - AREA.JK
+  - STRK.JK
+  - WIDI.JK
+  - AWAN.JK
+  - HUMI.JK
+  - GTRA.JK
+  - MENN.JK
