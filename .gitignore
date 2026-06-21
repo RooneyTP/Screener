@@ -1,23 +1,88 @@
-envScreener/
+# ── Virtual Environment ──
+envSCreener/
+venv/
+.venv/
+env/
+
+# ── Python Cache ──
 __pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── IDE & Editor ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Runtime Logs ──
+logs/
+*.log
+agent_logs.json
+
+# ── Sentiment Cache ──
+.sentiment_cache/
+
+# ── Screener Historical Data ──
+Data Screener/
+data_lake/
+pemegangSaham/
+
+# ── Runtime Data ──
+data/*.json
+data/*.db
+cache/
 *.db
 *.db-shm
 *.db-wal
-*.pth
+broker_lokal.db
+histori_ihsg.db
+portofolio_virtual.db
+screener_results.db
+trade_journal.db
+chat_memory.db
+
+# ── ML Artifacts ──
+models_ai/
+ml_models/
+*.joblib
 *.pkl
-*.zip
-*.dll
-*.exe
-# FIX: lindungi secrets dari commit (SKILL.md safety rule)
+*.pth
+ensemble_model.pkl
+ai_swing.joblib
+kacamata_ai.pkl
+liquid_moe_brain.pth
+otak_ai_saham.pth
+otak_screener_ai.pkl
+
+# ── Archive (scripts lama yang udah gak dipakai) ──
+archive/
+
+# ── Planning Docs ──
+plans/
+
+# ── Artifacts Json ──
+calibration_v11.json
+ml_training_evaluation.json
+
+# ── Backup Files ──
+*.bak
+*.bak.*
+
+# ── Env & Secrets ──
 .env
 .encryption_key
 .secure_*
-*.joblib
-models_ai/
-liquid_moe_brain.pth
-kacamata_ai.pkl
-ensemble_model.pkl
+
+# ── Parquet Data ──
+*.parquet
+
+# ── Miscellaneous ──
+__pycache__/
 .pytest_cache/
-.sentiment_cache/
-cache/
-ai_swing.joblib
