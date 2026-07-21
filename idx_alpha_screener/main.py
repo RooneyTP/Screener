@@ -39,6 +39,12 @@ import v4 as v4_engine
 import v4.conviction as v4_conviction
 import v4.confluence as v4_confluence
 
+# ── v5 Engine (toggleable) ──
+import v5 as v5_engine
+import v5.engine as v5_engine_run
+import v5.momentum_score as v5_ms
+import v5.dynamic_threshold as v5_dt
+
 # ── Telegram via existing Screener infrastructure (utils/telegram_sender) ──
 _SCREENER_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCREENER_ROOT not in sys.path:
@@ -139,8 +145,31 @@ def analisis_satu_saham(ticker: str, df: Optional[pd.DataFrame] = None,
         # 5. Deteksi regime
         regime, trend_score, adx_now = rg.detect_market_regime(df)
 
-        # 6. Scoring — v3 atau v4
-        if v4_engine.is_enabled():
+        # 6. Scoring — v3, v4, atau v5
+        if v5_engine.is_enabled():
+            # ── v5 Engine: 3 Profile Adaptive Scoring ──
+            # Reset momentum tracker per ticker
+            ticker_clean = ticker.replace('.JK', '')
+            v5_result = v5_engine_run.process_stock(ticker_clean, row, regime, df)
+            
+            total_score = v5_result["score"]
+            signal = v5_result["signal"]
+            v4_meta = {
+                "conviction": total_score,
+                "confluence": 0,
+                "conviction_raw": v5_result["base_score"],
+                "confluence_bonus": v5_result.get("conf_bonus", 0),
+                "positive_factors": 0,
+                "factor_breakdown": f"Profil: {v5_result['profile']} | Delta: {v5_result.get('momentum_delta', 'N/A')}",
+                "confluence_detail": v5_result.get("profile", "MOMENTUM"),
+            }
+            swing_result = {"trend_aligned": v5_result["signal"] in ("STRONG_BUY", "BUY"),
+                           "volume_breakout": v5_result["profile"] == "MOMENTUM"}
+            
+            logger.debug("%s: v5 %s profile score=%.1f signal=%s",
+                        ticker_clean, v5_result["profile"], total_score, signal)
+            
+        elif v4_engine.is_enabled():
             # ── v4 Engine: Confluence Gate + Dynamic Conviction ──
             # Confluence score (multi-source confirmation)
             conf_result = v4_confluence.score_confluence(row)
@@ -381,6 +410,11 @@ def analisis_satu_saham(ticker: str, df: Optional[pd.DataFrame] = None,
             "v4_conviction": v4_meta.get("conviction") if v4_meta else None,
             "v4_confluence": v4_meta.get("confluence") if v4_meta else None,
             "v4_positive_factors": v4_meta.get("positive_factors") if v4_meta else None,
+            # v5 metadata
+            "v5_score": v5_result.get("score") if v5_engine.is_enabled() and locals().get("v5_result") else None,
+            "v5_signal": v5_result.get("signal") if v5_engine.is_enabled() and locals().get("v5_result") else None,
+            "v5_profile": v5_result.get("profile") if v5_engine.is_enabled() and locals().get("v5_result") else None,
+            "v5_momentum_delta": v5_result.get("momentum_delta") if v5_engine.is_enabled() and locals().get("v5_result") else None,
             # Fundamental
             **result_fund,
         }
@@ -497,6 +531,8 @@ def simpan_csv(hasil: list, path: str = "screener_v2_result.csv"):
         "entry_ideal", "entry_good", "entry_max", "support", "resistance",
         # v4 Engine
         "v4_conviction", "v4_confluence", "v4_positive_factors",
+        # v5 Engine
+        "v5_score", "v5_signal", "v5_profile", "v5_momentum_delta",
         # Portfolio
         "portfolio_ok", "portfolio_reason",
         # Slippage
@@ -542,6 +578,8 @@ def main():
                        help="Skip IHSG market filter (paksa scan walaupun IHSG bearish)")
     parser.add_argument("--v4", action="store_true", default=False,
                        help="Gunakan v4 engine (Confluence Gate + Dynamic Conviction)")
+    parser.add_argument("--v5", action="store_true", default=False,
+                       help="Gunakan v5 engine (3 Profile Adaptive Scoring)")
     args = parser.parse_args()
 
     # ── Load config ────────────────────────────────────────────────────
@@ -562,6 +600,17 @@ def main():
     if v4_engine.is_enabled():
         logger.info("🧠 v4 Engine AKTIF (mode=%s) — Confluence Gate + Dynamic Conviction",
                    v4_engine.ab_test_mode)
+
+    # ── Configure v5 Engine ─────────────────────────────────────────────
+    v5_cfg_yaml = CONFIG.get("v5", {})
+    v5_engine.enabled = args.v5 or v5_cfg_yaml.get("enabled", False)
+    if v5_cfg_yaml:
+        v5_engine.configure(v5_cfg_yaml)
+    if v5_engine.is_enabled():
+        logger.info("🚀 v5 Engine AKTIF — 3 Profile Adaptive Scoring (Momentum/Reversal/Value)")
+        logger.info("   Dynamic percentile: %s, Momentum lookback: %d hari",
+                   v5_engine.config.get("dynamic_percentile", True),
+                   v5_engine.config.get("score_momentum_days", 5))
 
     # ── Init Cooldown Tracker ───────────────────────────────────────────
     cd_cfg = CONFIG.get("cooldown", {})
