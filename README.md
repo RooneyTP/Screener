@@ -182,22 +182,6 @@ Hasil otomatis dikirim ke Telegram @QuantYan_bot.
 
 - Python 3.11+
 - `yfinance`, `pandas`, `numpy`, `requests`, `pyyaml`
-- `matplotlib` (opsional, untuk chart backtest)
-- `python-dotenv` (untuk Telegram token)
-
----
-
-## 📈 Roadmap
-
-| Status | Fitur |
-|--------|-------|
-| ✅ | v3: Swing Gate + ADX Filter |
-| ✅ | v4: Confluence Gate + Dynamic Conviction |
-| ✅ | v5: 3 Profile Adaptive Scoring |
-| 🟡 | Backtest v5 full universe |
-| ⬜ | Trailing stop logic |
-| ⬜ | Real-time signal via Telegram bot |
-| ⬜ | Portfolio tracker + P&L report |
 
 ---
 
