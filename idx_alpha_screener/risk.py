@@ -378,3 +378,196 @@ def evaluate_exits_batch(positions: list, current_prices: dict,
         result["shares"] = pos["shares"]
         results.append(result)
     return results
+
+
+# ═══════════════════════════════════════════════════════════════
+#  V4/V5 — Dynamic Position Sizing & Aggressive Trailing Stop
+# ═══════════════════════════════════════════════════════════════
+# Optimalisasi asimetri risiko: posisi lebih besar saat conviction
+# tinggi & volatilitas rendah. Trailing stop gantikan TP fixed.
+
+
+def dynamic_position_size(capital: float, price: float, atr: float,
+                           conviction_score: float = 50.0,
+                           max_risk_pct: float = 0.02,
+                           base_allocation: float = 0.10) -> int:
+    """
+    Dynamic Position Sizing — bobot tidak equal weight.
+    
+    Logic:
+      1. Hitung base position (risk-based seperti position_size biasa)
+      2. Kalikan dengan conviction multiplier:
+         - Score >= 70:  2.0x (full conviction)
+         - Score >= 62:  1.5x (strong conviction)  
+         - Score >= 55:  1.0x (moderate)
+         - Score >= 48:  0.5x (low conviction)
+         - Score <  48:  0.0x (skip)
+      3. Kalikan dengan vol multiplier:
+         - ATR/price < 1.5%:  1.3x (low vol → lebih agresif)
+         - ATR/price 1.5-3%:   1.0x (normal)
+         - ATR/price > 3%:     0.7x (high vol → lebih hati-hati)
+      4. Batasi maksimal 15% dari modal di satu saham
+    
+    Returns
+    -------
+    int : jumlah saham dalam lot (kelipatan 100)
+    """
+    if price <= 0 or atr <= 0 or pd.isna(atr) or pd.isna(price):
+        return 0
+    
+    # Minimal volatilitas
+    atr_pct = atr / price
+    if atr_pct < 0.005:
+        return 0  # terlalu sepi
+    
+    # ── Base position (risk-based) ──
+    risk_per_share = atr * 2.0
+    position_risk = capital * max_risk_pct
+    base_shares = int(position_risk / risk_per_share) if risk_per_share > 0 else 0
+    
+    # ── Conviction multiplier ──
+    if conviction_score >= 70:
+        conv_mult = 2.0
+    elif conviction_score >= 62:
+        conv_mult = 1.5
+    elif conviction_score >= 55:
+        conv_mult = 1.0
+    elif conviction_score >= 48:
+        conv_mult = 0.5
+    else:
+        return 0  # skip low conviction
+    
+    # ── Volatility multiplier ──
+    if atr_pct < 0.015:
+        vol_mult = 1.3
+    elif atr_pct < 0.03:
+        vol_mult = 1.0
+    else:
+        vol_mult = 0.7
+    
+    # ── Final calculation ──
+    final_mult = conv_mult * vol_mult
+    final_shares = int(base_shares * final_mult)
+    
+    # Batasi maks 15% modal di satu saham
+    max_nominal = capital * 0.15
+    max_shares = int(max_nominal / price) if price > 0 else 0
+    
+    final_shares = min(final_shares, max_shares)
+    lot_size = max(0, (final_shares // 100) * 100)
+    
+    if lot_size < 100:
+        return 0
+    
+    logger.debug(
+        "dynamic_size: score=%.1f conv=%.1f vol=%.1f base=%d final=%d lot=%d",
+        conviction_score, conv_mult, vol_mult, base_shares, final_shares, lot_size
+    )
+    
+    return lot_size
+
+
+def aggressive_trailing_stop(entry_price: float, highest_price: float,
+                              current_price: float, atr: float,
+                              mode: str = "atr",
+                              trail_atr: float = 2.5,
+                              donchian_lower: float = 0.0) -> float:
+    """
+    Aggressive Trailing Stop — gantikan take profit fixed.
+    
+    Tidak ada batas profit maksimal. Biarkan sistem mengejar
+    fat-tail distribution dengan trailing stop yang naik terus.
+    
+    Dua mode:
+      1. "atr" (default) — trailing berbasis ATR
+         Stop = highest_price - (atr * trail_atr)
+         Trail_atr = 2.5 (sedikit lebih longgar dari biasanya)
+      
+      2. "donchian" — trailing berbasis Donchian Channel lower
+         Stop = donchian_lower (lower band 5-hari)
+         Lebih ketat, cocok untuk trending market
+    
+    Parameters
+    ----------
+    entry_price : float
+    highest_price : float — harga tertinggi sejak entry
+    current_price : float — harga saat ini
+    atr : float
+    mode : str — "atr" atau "donchian"
+    trail_atr : float — multiplier ATR untuk jarak trailing
+    donchian_lower : float — lower band Donchian 5-hari
+    
+    Returns
+    -------
+    float : harga stop loss saat ini. 0 jika tidak aktif.
+    """
+    if any(pd.isna(x) or x <= 0 for x in [entry_price, current_price]):
+        return 0.0
+    
+    gain_pct = (current_price - entry_price) / entry_price * 100
+    
+    # Trail hanya aktif setelah harga naik minimal (agar cut loss dulu
+    # pake hard stop, bukan trailing)
+    if gain_pct < 2.0:
+        return 0.0  # not yet activated
+    
+    if mode == "donchian" and donchian_lower > 0:
+        trailing_sl = donchian_lower
+    else:
+        # ATR mode
+        if pd.isna(atr) or atr <= 0:
+            return 0.0
+        trailing_sl = highest_price - (atr * trail_atr)
+    
+    # Floor: tidak pernah lebih rendah dari entry - 5%
+    floor = entry_price * 0.95
+    trailing_sl = max(trailing_sl, floor)
+    
+    # Tidak pernah lebih rendah dari trailing sebelumnya
+    # (ini di-handle oleh caller yang track highest_price)
+    
+    return round(trailing_sl, 0)
+
+
+def estimate_exit_price(entry_price: float, current_price: float,
+                         highest_price: float, atr: float,
+                         hold_days: int,
+                         conviction_score: float = 50.0,
+                         config: dict = None) -> dict:
+    """
+    Estimasi harga exit berdasarkan trailing stop saat ini.
+    
+    Untuk report: kasih tau user di harga berapa posisi akan
+    ke-trailing stop kalau harga balik sekarang.
+    
+    Returns
+    -------
+    dict: {exit_price, exit_type, return_pct, hold_days}
+    """
+    cfg = config or {}
+    mode = cfg.get("trailing_mode", "atr")
+    trail_atr = cfg.get("trail_atr", 2.5)
+    
+    trail_sl = aggressive_trailing_stop(
+        entry_price, highest_price, current_price, atr,
+        mode=mode, trail_atr=trail_atr
+    )
+    
+    if trail_sl > 0:
+        ret = (trail_sl - entry_price) / entry_price * 100
+        return {
+            "exit_price": trail_sl,
+            "exit_type": "TRAILING",
+            "return_pct": round(ret, 1),
+            "hold_days": hold_days,
+        }
+    else:
+        # Fallback: hard stop
+        hard_stop = entry_price * 0.85
+        ret = (hard_stop - entry_price) / entry_price * 100
+        return {
+            "exit_price": hard_stop,
+            "exit_type": "HARD_STOP",
+            "return_pct": round(ret, 1),
+            "hold_days": hold_days,
+        }

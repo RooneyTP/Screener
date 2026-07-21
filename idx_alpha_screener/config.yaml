@@ -139,6 +139,11 @@ exit_strategy:
   # (data earnings harus disediakan terpisah, default skip)
   earnings_blackout_days: 7
 
+  # ── Trailing Stop (gantikan take profit fixed) ──
+  trailing_mode: "atr"               # "atr" atau "donchian"
+  trail_atr: 2.5                     # Multiplier ATR untuk jarak trailing
+  trail_min_gain_pct: 2.0            # Minimal gain sebelum trailing aktif
+
 # ═══════════════════════════════════════════════════════════════
 # PORTFOLIO HEAT — Batasi risiko over-konsentrasi (P0)
 # ═══════════════════════════════════════════════════════════════
