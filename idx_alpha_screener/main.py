@@ -501,7 +501,13 @@ def simpan_csv(hasil: list, path: str = "screener_v2_result.csv"):
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         hasil_sorted = sorted(hasil, key=lambda x: x["score"], reverse=True)
-        writer.writerows(hasil_sorted)
+        # Bersihkan field internal sebelum simpan CSV
+        clean = []
+        for h in hasil_sorted:
+            h.pop("_cooldown_hit", None)
+            h.pop("_sector_capped", None)
+            clean.append(h)
+        writer.writerows(clean)
     logger.info("Hasil disimpan ke %s", os.path.abspath(path))
 
 
