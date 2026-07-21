@@ -1,88 +1,48 @@
-# ── Virtual Environment ──
-envSCreener/
-venv/
-.venv/
-env/
-
-# ── Python Cache ──
+# ── Python ──
 __pycache__/
 *.py[cod]
-*.pyo
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+*.egg-info/
+dist/
+build/
+*.so
+.venv/
+venv/
+env/
 
-# ── IDE & Editor ──
+# ── Data / Cache ──
+_sentiment_cache/
+**/cache/
+*.csv
+!**/requirements.txt
+*.json
+!_sentiment_cache/.gitkeep
+
+# ── IDE ──
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# ── OS ──
 .DS_Store
 Thumbs.db
-
-# ── Runtime Logs ──
-logs/
 *.log
-agent_logs.json
+logs/
 
-# ── Sentiment Cache ──
-.sentiment_cache/
+# ── Screener spesific ──
+output/
+**/data/*.csv
+**/data/*.json
+**/backtest_results_*.csv
+**/screener_v*_result*.csv
+**/WALKFORWARD_RESULT.md
+**/OOS_RESULT.json
 
-# ── Screener Historical Data ──
-Data Screener/
-data_lake/
-pemegangSaham/
-
-# ── Runtime Data ──
-data/*.json
-data/*.db
-cache/
-*.db
-*.db-shm
-*.db-wal
-broker_lokal.db
-histori_ihsg.db
-portofolio_virtual.db
-screener_results.db
-trade_journal.db
-chat_memory.db
-
-# ── ML Artifacts ──
-models_ai/
-ml_models/
-*.joblib
-*.pkl
-*.pth
-ensemble_model.pkl
-ai_swing.joblib
-kacamata_ai.pkl
-liquid_moe_brain.pth
-otak_ai_saham.pth
-otak_screener_ai.pkl
-
-# ── Archive (scripts lama yang udah gak dipakai) ──
-archive/
-
-# ── Planning Docs ──
-plans/
-
-# ── Artifacts Json ──
-calibration_v11.json
-ml_training_evaluation.json
-
-# ── Backup Files ──
-*.bak
-*.bak.*
-
-# ── Env & Secrets ──
+# ── Secrets ──
 .env
-.encryption_key
-.secure_*
+*.db
 
-# ── Parquet Data ──
-*.parquet
-
-# ── Miscellaneous ──
-__pycache__/
-.pytest_cache/
+# ── Temp ──
+temp/
+*.tmp

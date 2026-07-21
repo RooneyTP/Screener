@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """
 chat_memory.py — SQLite Conversation Memory untuk @QuantYan_bot
-Menyimpan riwayat chat per user_id + chat_id, inject sebagai context ke LLM.
+Menyimpan riwayat chat per user_id + chat_id, inject context ke LLM.
 
-Fitur:
-  - Simpan setiap pesan (user & assistant) dengan timestamp
-  - Track context_ticker & context_sector terakhir per user
-  - Ambil N pesan terakhir untuk di-inject ke LLM history
-  - Deteksi apakah user baru (belum pernah chat) untuk onboarding
-  - Auto-cleanup pesan lama (>7 hari) untuk hemat ruang
-  - Thread-safe (pakai connection per call, bukan singleton)
+v2 — Fix Memory Lupa:
+  - Inject 10 pesan terakhir (dari 5)
+  - Summarization otomatis tiap 12 turn — preserve inti obrolan
+  - Web search context: simpan hasil riset terakhir
+  - Conversation topics: track topik utama diskusi
+  - Thread-safe (connection per call)
 """
 import os
 import sqlite3
 import time
 import logging
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Any
 
 logger = logging.getLogger("chat_memory")
 
@@ -30,11 +29,10 @@ CREATE TABLE IF NOT EXISTS messages (
     chat_id INTEGER NOT NULL,
     role TEXT NOT NULL,          -- 'user' | 'assistant'
     content TEXT NOT NULL,
-    context_ticker TEXT,         -- ticker terakhir yang dibahas
-    context_sector TEXT,         -- sektor terakhir yang dibahas
-    ts REAL NOT NULL             -- Unix timestamp
+    context_ticker TEXT,
+    context_sector TEXT,
+    ts REAL NOT NULL
 );
-
 CREATE INDEX IF NOT EXISTS idx_messages_user_chat
     ON messages(user_id, chat_id, ts DESC);
 
@@ -43,10 +41,13 @@ CREATE TABLE IF NOT EXISTS user_context (
     chat_id INTEGER NOT NULL,
     last_ticker TEXT,
     last_sector TEXT,
-    last_mode TEXT,              -- 'swing' | 'scalp' | NULL
+    last_mode TEXT,
     first_seen REAL NOT NULL,
     last_seen REAL NOT NULL,
     message_count INTEGER DEFAULT 0,
+    conversation_summary TEXT DEFAULT '',
+    web_search_cache TEXT DEFAULT '',
+    topics TEXT DEFAULT '',
     PRIMARY KEY (user_id, chat_id)
 );
 """
@@ -55,7 +56,6 @@ _initialized = False
 
 
 def _get_conn() -> sqlite3.Connection:
-    """Buat koneksi baru setiap kali (thread-safe pattern untuk SQLite)."""
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
@@ -64,20 +64,31 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def _ensure_schema():
-    """Buat tabel kalau belum ada (dipanggil sekali)."""
     global _initialized
     if _initialized:
         return
     conn = _get_conn()
     try:
         conn.executescript(_SCHEMA)
+        # Cek kolom tambahan (v2 upgrade)
+        cursor = conn.execute("PRAGMA table_info(user_context)")
+        cols = {r["name"] for r in cursor.fetchall()}
+        upgrades = []
+        if "conversation_summary" not in cols:
+            upgrades.append("ALTER TABLE user_context ADD COLUMN conversation_summary TEXT DEFAULT ''")
+        if "web_search_cache" not in cols:
+            upgrades.append("ALTER TABLE user_context ADD COLUMN web_search_cache TEXT DEFAULT ''")
+        if "topics" not in cols:
+            upgrades.append("ALTER TABLE user_context ADD COLUMN topics TEXT DEFAULT ''")
+        for u in upgrades:
+            conn.execute(u)
         conn.commit()
         _initialized = True
     finally:
         conn.close()
 
 
-# ── Public API ────────────────────────────────────────────────────
+# ── Core API ───────────────────────────────────────────────────────
 
 def save_message(
     user_id: int,
@@ -97,9 +108,9 @@ def save_message(
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (user_id, chat_id, role, content[:4000], context_ticker, context_sector, now),
         )
-        # Upsert user_context
         conn.execute(
-            """INSERT INTO user_context (user_id, chat_id, last_ticker, last_sector, last_mode, first_seen, last_seen, message_count)
+            """INSERT INTO user_context (user_id, chat_id, last_ticker, last_sector, last_mode,
+               first_seen, last_seen, message_count)
                VALUES (?, ?, ?, ?, NULL, ?, ?, 1)
                ON CONFLICT(user_id, chat_id) DO UPDATE SET
                    last_ticker = COALESCE(excluded.last_ticker, user_context.last_ticker),
@@ -118,9 +129,9 @@ def save_message(
 def get_recent_messages(
     user_id: int,
     chat_id: int,
-    limit: int = 5,
+    limit: int = 10,
 ) -> List[Dict[str, str]]:
-    """Ambil N pesan terakhir (user+assistant) untuk inject ke LLM history."""
+    """Ambil N pesan terakhir (user+assistant) untuk inject ke LLM."""
     _ensure_schema()
     conn = _get_conn()
     try:
@@ -137,12 +148,13 @@ def get_recent_messages(
 
 
 def get_user_context(user_id: int, chat_id: int) -> Dict:
-    """Ambil last_ticker, last_sector, last_mode, message_count."""
+    """Ambil last_ticker, last_sector, last_mode, message_count, summary, topics."""
     _ensure_schema()
     conn = _get_conn()
     try:
         row = conn.execute(
-            "SELECT last_ticker, last_sector, last_mode, message_count, first_seen "
+            "SELECT last_ticker, last_sector, last_mode, message_count, first_seen, "
+            "conversation_summary, topics "
             "FROM user_context WHERE user_id=? AND chat_id=?",
             (user_id, chat_id),
         ).fetchone()
@@ -153,14 +165,14 @@ def get_user_context(user_id: int, chat_id: int) -> Dict:
                 "last_mode": row["last_mode"],
                 "message_count": row["message_count"],
                 "first_seen": row["first_seen"],
+                "conversation_summary": row["conversation_summary"] or "",
+                "topics": row["topics"] or "",
                 "is_new_user": False,
             }
         return {
-            "last_ticker": None,
-            "last_sector": None,
-            "last_mode": None,
-            "message_count": 0,
-            "first_seen": None,
+            "last_ticker": None, "last_sector": None, "last_mode": None,
+            "message_count": 0, "first_seen": None,
+            "conversation_summary": "", "topics": "",
             "is_new_user": True,
         }
     finally:
@@ -203,14 +215,90 @@ def update_context(
         conn.close()
 
 
+def update_conversation_summary(user_id: int, chat_id: int, summary: str):
+    """Simpan ringkasan percakapan ke DB."""
+    _ensure_schema()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE user_context SET conversation_summary=? WHERE user_id=? AND chat_id=?",
+            (summary[:2000], user_id, chat_id),
+        )
+        conn.commit()
+    except Exception as e:
+        logger.warning("update_summary error: %s", e)
+    finally:
+        conn.close()
+
+
+def update_topics(user_id: int, chat_id: int, topics: str):
+    """Simpan topik-topik yang dibahas."""
+    _ensure_schema()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE user_context SET topics=? WHERE user_id=? AND chat_id=?",
+            (topics[:500], user_id, chat_id),
+        )
+        conn.commit()
+    except Exception as e:
+        logger.warning("update_topics error: %s", e)
+    finally:
+        conn.close()
+
+
+def save_web_search_cache(user_id: int, chat_id: int, search_result: str):
+    """Simpan hasil riset web terakhir untuk referensi."""
+    _ensure_schema()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE user_context SET web_search_cache=? WHERE user_id=? AND chat_id=?",
+            (search_result[:2000], user_id, chat_id),
+        )
+        conn.commit()
+    except Exception as e:
+        logger.warning("save_web_search error: %s", e)
+    finally:
+        conn.close()
+
+
+def get_web_search_cache(user_id: int, chat_id: int) -> str:
+    """Ambil hasil riset web terakhir."""
+    _ensure_schema()
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT web_search_cache FROM user_context WHERE user_id=? AND chat_id=?",
+            (user_id, chat_id),
+        ).fetchone()
+        return row["web_search_cache"] if row and row["web_search_cache"] else ""
+    finally:
+        conn.close()
+
+
+def get_conversation_for_inject(user_id: int, chat_id: int) -> Dict[str, Any]:
+    """
+    Ambil semua konteks percakapan untuk di-inject ke system prompt LLM.
+    """
+    ctx = get_user_context(user_id, chat_id)
+    recent = get_recent_messages(user_id, chat_id, limit=10)
+    stats = get_user_recent_context_stats(user_id, chat_id, limit=10)
+
+    return {
+        "context": ctx,
+        "recent_messages": recent,
+        "stats": stats,
+    }
+
+
 def is_new_user(user_id: int, chat_id: int) -> bool:
-    """Cek apakah user_id belum pernah chat di chat_id ini."""
     ctx = get_user_context(user_id, chat_id)
     return ctx["is_new_user"]
 
 
-def get_user_recent_context_stats(user_id: int, chat_id: int, limit: int = 10) -> Dict[str, Any]:
-    """Ambil statistik ticker & sektor terakhir dari riwayat user untuk analisis minat."""
+def get_user_recent_context_stats(user_id: int, chat_id: int, limit: int = 10) -> Dict[str, list]:
+    """Ambil statistik ticker & sektor dari riwayat."""
     _ensure_schema()
     conn = _get_conn()
     try:
@@ -222,40 +310,38 @@ def get_user_recent_context_stats(user_id: int, chat_id: int, limit: int = 10) -
         ).fetchall()
         tickers = [r["context_ticker"] for r in rows if r["context_ticker"]]
         sectors = [r["context_sector"] for r in rows if r["context_sector"]]
-        return {
-            "recent_tickers": tickers,
-            "recent_sectors": sectors
-        }
+        return {"recent_tickers": tickers, "recent_sectors": sectors}
     finally:
         conn.close()
 
 
 def cleanup_old_messages(max_age_days: int = 7):
-    """Hapus pesan lebih tua dari max_age_days. Dipanggil periodik."""
+    """Hapus pesan lebih tua dari max_age_days."""
     _ensure_schema()
     cutoff = time.time() - (max_age_days * 86400)
     conn = _get_conn()
     try:
         result = conn.execute("DELETE FROM messages WHERE ts < ?", (cutoff,))
         conn.commit()
-        deleted = result.rowcount
-        if deleted > 0:
-            logger.info("Cleaned up %d old messages (>%d days)", deleted, max_age_days)
+        if result.rowcount > 0:
+            logger.info("Cleaned up %d old messages (>%d days)", result.rowcount, max_age_days)
     finally:
         conn.close()
 
 
 # ── Self-test ─────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("Testing chat_memory...")
+    print("Testing chat_memory v2...")
     save_message(1, 100, "user", "Cek BBCA dong", context_ticker="BBCA")
     save_message(1, 100, "assistant", "BBCA harganya Rp9.850...")
     save_message(1, 100, "user", "Fundamentalnya gimana?")
-    msgs = get_recent_messages(1, 100, limit=5)
-    print(f"Recent messages ({len(msgs)}):")
-    for m in msgs:
-        print(f"  [{m['role']}] {m['content'][:60]}")
-    ctx = get_user_context(1, 100)
-    print(f"Context: {ctx}")
-    print(f"is_new_user(999, 100) = {is_new_user(999, 100)}")
+    ctx = get_conversation_for_inject(1, 100)
+    print(f"Recent messages: {len(ctx['recent_messages'])}")
+    print(f"Context: ticker={ctx['context'].get('last_ticker')}, new={ctx['context'].get('is_new_user')}")
+    update_conversation_summary(1, 100, "Diskusi tentang BBCA, user minta cek fundamental")
+    update_topics(1, 100, "BBCA, fundamental, saham bank")
+    save_web_search_cache(1, 100, "BBCA: harga Rp9.850, PE 18, PBV 2.5")
+    ctx2 = get_conversation_for_inject(1, 100)
+    print(f"Summary: {ctx2['context'].get('conversation_summary')}")
+    print(f"Web cache: {get_web_search_cache(1, 100)[:50]}...")
     print("OK!")

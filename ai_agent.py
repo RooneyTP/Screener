@@ -60,11 +60,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_stock_data",
-            "description": "Analisis LIVE lengkap 1 saham IHSG: harga, % change, sinyal, skor, "
-                           "confidence, SL/TP, RRR, RSI, ADX, MACD, pattern, support/resistance, "
+            "description": "Analisis LIVE lengkap 1 saham IHSG: harga, % change (harian & sesi intraday), "
+                           "sinyal, skor, confidence, SL/TP, RRR, RSI, ADX, MACD, pattern, support/resistance, "
                            "volume spike, MM activity, AI verdict & win prob, trend mingguan/bulanan, "
                            "regime, PE, PBV, market cap. Pakai ini untuk pertanyaan tentang SATU emiten "
-                           "(naik/turun, bagus/jelek, entry/exit, kapan beli, dll).",
+                           "(naik/turun, bagus/jelek, entry/exit, kapan beli, dll). "
+                           "⚠️ Cek Session_Change% untuk tau arah intraday (bukan cuma Change_pct harian).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -295,15 +296,65 @@ Analisis 1 emiten, fundamental, top picks, sinyal, swing/scalp, sektor, kondisi 
 - Panggil tool `update_preferences` jika pengguna secara eksplisit menyebut gaya trading mereka (swing/scalp/invest) atau meminta kedalaman tertentu.
 
 ─── 4. GAYA FORMAT MUTLAK ───
-- OUTPUT HARUS PLAIN TEXT MURNI. (Telegram user interface)
-- DILARANG pakai bold/italic (** atau _).
-- DILARANG pakai heading markdown (# atau ###).
-- DILARANG pakai tabel markdown (pipe |).
-- DILARANG pakai backtick (`).
-- Gunakan emoji secukupnya dan bullet point (-) agar mudah dibaca.
-- Angka uang: Rp6.225 (pakai titik).
-"""
+||- OUTPUT HARUS PLAIN TEXT MURNI. (Telegram user interface)
+||- DILARANG pakai bold/italic (** atau _).
+||- DILARANG pakai heading markdown (# atau ###).
+||- DILARANG pakai tabel markdown (pipe |).
+||- DILARANG pakai backtick (`).
+||- Gunakan emoji secukupnya dan bullet point (-) agar mudah dibaca.
+||- Angka uang: Rp6.225 (pakai titik).
 
+─── 5. SUMBER DATA & TOOL AWARENESS (V2) ───
+|- Semua data sinyal berasal dari v2 engine: file `screener_v2_result_*.csv`
+|- Kolom data lowercase: ticker, score, signal, swing_trend, swing_volume, regime, rsi, adx, rrr, stop_loss, take_profit, price
+|- Skema sinyal v2 (threshold BERVARIASI tergantung regime market — BULL/BEAR/RANGING):
+|    STRONG_BUY ≥ 65-75  (tergantung regime)
+|    BUY ≥ 58-65         (tergantung regime)
+|    WEAK_BUY ≥ 55       (sama di semua regime)
+|    HOLD ≥ 33-45        (tergantung regime)
+|    SELL < 33-45        (tergantung regime)
+|- Regime RANGING (skor ≥65 SB, ≥58 B, ≥55 WB) adalah yang paling sering terjadi di IHSG
+|||- Threshold minimum untuk sinyal beli: WEAK_BUY minimal 55
+
+─── 6. SWING GATE — FILTER Wajib Sebelum Sinyal BUY —
+|||- Swing Gate adalah sistem filter 2-lapis yang WAJIB dicek sebelum merekomendasikan eksekusi:
+||    1. Weekly Trend Alignment: close > EMA20 > EMA50 (uptrend mingguan)
+||    2. Volume Breakout: volume hari ini > 1.5x rata-rata volume 20 hari
+|||- Data swing gate ada di kolom:
+||    swing_trend (True/False) — apakah weekly trend alignment terpenuhi
+||    swing_volume (True/False) — apakah volume breakout terpenuhi
+|||- Cara baca hasil Swing Gate:
+||    * swing_trend=True AND swing_volume=True → sinyal LAYAK dieksekusi
+||    * swing_trend=False ATAU swing_volume=False → sinyal TERTUNDA, perlu tunggu konfirmasi trend/volume
+|||- JANGAN rekomendasikan eksekusi untuk saham yang gagal swing gate
+
+─── 7. CARA ANALISIS SAHAM DENGAN SWING GATE ───
+|||Ketika user tanya tentang suatu saham, cek dulu swing gate status-nya dari data:
+|||- Jika swing_trend=True & swing_volume=True: katakan "Lolos Swing Gate ✅ — siap dieksekusi"
+|||- Jika swing_trend=False ATAU swing_volume=False: katakan "Gagal Swing Gate ❌ — tunggu konfirmasi trend/volume"
+|||- Jangan rekomendasikan eksekusi untuk saham yang gagal swing gate
+
+─── 8. WAJIB PANGGIL TOOL UNTUK DATA REAL ───
+|||- JANGAN PERNAH menjawab kondisi pasar (IHSG naik/turun, sentimen pasar, market overview)
+||  berdasarkan pengetahuan internal atau tebakan. SELALU panggil `get_market_overview`
+||  untuk mendapatkan data IHSG real-time, USD/IDR, market breadth.
+|||- JANGAN PERNAH mengatakan "pasar cautiously bullish" atau sentimen pasar apapun
+||  tanpa data real dari tool. Tool `get_market_overview` akan return IHSG change asli.
+|||- Jika user tanya "pasar gimana?", "IHSG naik/turun?", "kondisi market hari ini?",
+||  WAJIB panggil `get_market_overview()` dulu sebelum menjawab.
+|||- Untuk analisis saham individual, WAJIB panggil `get_stock_data(ticker)` — jangan
+||  pernah menjawab harga/teknikal saham dari ingatan.
+|||- 🔴 KRUSIAL — BEDAKAN "Change_pct" vs "Session_Change%":
+||  `Change_pct` = perubahan close hari ini vs close kemarin (harian).
+||  `Session_Change%` = perubahan harga sejak open (intraday) — ini yg menunjukkan
+||  apakah saham benar-benar naik sejak buka market atau turun.
+||  JANGAN bilang "saham ini naik dari awal buka" cuma karena Change_pct positif.
+||  Cek Session_Change% dulu:
+||    * Session_Change% POSITIF + Change_pct POSITIF → benar naik sejak open
+||    * Session_Change% NEGATIF → SAHAM TURUN SEJAK OPEN, jangan bilang bullish!
+||  Juga cek Day_High vs Day_Low: jika harga mendekati Day_Low, saham sedang lemah
+||  di sesi hari ini meskipun Change_pct mungkin positif.
+"""
 # --- Helper: Retry dengan Backoff ----------------------------------------
 def _sanitize_plain(text: str) -> str:
     """Bersihkan markdown markup supaya output benar-benar plain text.
@@ -375,17 +426,32 @@ def _call_with_retry(func, *args, **kwargs):
 
 # --- Data helpers (baca CSV screener terbaru) ----------------------------
 def _latest_csv_path() -> Optional[str]:
-    files = sorted(glob.glob(os.path.join(ROOT, "screener_ihsg_*.csv")) +
-                   glob.glob(os.path.join(ROOT, "Data Screener", "screener_ihsg_*.csv")))
-    return files[-1] if files else None
+    """Cari CSV v2 dulu, fallback ke CSV lama."""
+    v2 = sorted(glob.glob(os.path.join(ROOT, "screener_v2_result*.csv")))
+    if v2:
+        return v2[-1]
+    old = sorted(glob.glob(os.path.join(ROOT, "screener_ihsg_*.csv")) +
+                 glob.glob(os.path.join(ROOT, "Data Screener", "screener_ihsg_*.csv")))
+    return old[-1] if old else None
 
 def _load_csv():
+    """Load CSV dan normalisasi kolom ke lowercase."""
     import pandas as pd
     path = _latest_csv_path()
     if not path:
         return None
     try:
-        return pd.read_csv(path)
+        df = pd.read_csv(path)
+        # Normalize columns: rename old uppercase to new lowercase
+        col_map = {
+            "Ticker": "ticker", "Skor": "score", "Sinyal": "signal",
+            "Harga": "price", "RSI": "rsi", "ADX": "adx", "RRR": "rrr",
+            "Stop_Loss": "stop_loss", "Target_1": "take_profit",
+            "ATR": "atr", "Volume": "volume", "Sektor": "sektor",
+            "Confidence%": "confidence",
+        }
+        df.rename(columns={k: v for k, v in col_map.items() if k in df.columns}, inplace=True)
+        return df
     except Exception as e:
         logger.warning("Gagal baca CSV %s: %s", path, e)
         return None
@@ -399,35 +465,73 @@ def _records(df, cols, n=None):
 
 # --- Tool Implementations ------------------------------------------------
 def _tool_get_stock_data(ticker: str) -> Dict[str, Any]:
-    from telegram_bot import _lookup_ticker_live
-    data = _lookup_ticker_live(ticker.upper())
-    if not data or data.get("_error"):
-        return {"success": False, "error": (data or {}).get("_error", "Data tidak ditemukan")}
-    keep = ["Ticker", "Harga", "Change_pct", "Sinyal", "Strength", "Skor", "Confidence%",
-            "Tech_Score", "Fund_Score", "RS_Score", "RSI", "ADX", "MACD", "BB_Width%",
-            "Pattern", "Divergence", "Support", "Resistance", "Stop_Loss", "Target_1",
-            "Target_2", "Target_3", "RRR", "ATR", "Vol_Ratio", "Vol_Spike",
-            "Weekly_Trend", "Monthly_Trend", "Regime", "Hold", "Hold_Mode",
-            "MM_Activity", "MM_Confidence", "AI_Verdict", "AI_Win_Prob%",
-            "IHSG_Change", "IHSG_Trend", "ARB_Warning", "PE", "PBV", "MarketCap", "Sektor"]
-    return {"success": True, **{k: data.get(k) for k in keep if k in data}}
+    """Cari data saham dari v2 CSV dulu, fallback ke live."""
+    t = ticker.upper()
+
+    # Try v2 CSV first
+    df = _load_csv()
+    if df is not None and 'ticker' in df.columns:
+        match = df[df['ticker'] == t]
+        if not match.empty:
+            r = match.iloc[0].to_dict()
+            return {"success": True,
+                    "Ticker": t,
+                    "Harga": r.get('price', 0),
+                    "Skor": r.get('score', 0),
+                    "Sinyal": r.get('signal', 'N/A'),
+                    "RSI": r.get('rsi', 0),
+                    "ADX": r.get('adx', 0),
+                    "RRR": r.get('rrr', 0),
+                    "Stop_Loss": r.get('stop_loss', 0),
+                    "Target_1": r.get('take_profit', 0),
+                    "swing_trend": r.get('swing_trend', False),
+                    "swing_volume": r.get('swing_volume', False),
+                    "regime": r.get('regime', 'N/A'),
+                    "volume": r.get('volume', 0),
+                    "vol_ratio": r.get('vol_ratio', 0),
+                    "macd": r.get('macd', 0),
+                    "atr": r.get('atr', 0),}
+
+    # Fallback ke old live lookup
+    try:
+        from telegram_bot import _lookup_ticker_live
+        data = _lookup_ticker_live(t)
+        if data and not data.get("_error"):
+            keep = ["Ticker", "Harga", "Change_pct", "Session_Change%", "Prev_Close",
+                    "Sinyal", "Strength", "Skor", "Confidence%", "RSI", "ADX", "MACD",
+                    "Support", "Resistance", "Stop_Loss", "Target_1", "RRR", "ATR",
+                    "Vol_Ratio", "Weekly_Trend", "Monthly_Trend", "Regime",
+                    "MM_Activity", "AI_Verdict", "AI_Win_Prob%",
+                    "PE", "PBV", "MarketCap", "Sektor"]
+            return {"success": True, **{k: data.get(k) for k in keep if k in data}}
+    except Exception as e:
+        logger.warning("Fallback live lookup gagal: %s", e)
+
+    return {"success": False, "error": f"Data {t} tidak ditemukan"}
 
 def _tool_get_fundamentals(ticker: str) -> Dict[str, Any]:
-    from telegram_bot import _fetch_fundamentals
-    f = _fetch_fundamentals(ticker.upper())
-    pe, pbv, mcap, eps = f.get("PE", 0), f.get("PBV", 0), f.get("MarketCap", 0), f.get("EPS", 0)
-    if not any([pe, pbv, mcap, eps]):
-        return {"success": False, "error": f"Data fundamental {ticker.upper()} tidak tersedia"}
-    valuation = []
-    if pe and pe > 0:
-        valuation.append("PE rendah (relatif murah)" if pe < 12 else "PE tinggi (relatif mahal)" if pe > 25 else "PE wajar")
-    if pbv and pbv > 0:
-        valuation.append("PBV < 1 (di bawah nilai buku)" if pbv < 1 else "PBV > 3 (premium)" if pbv > 3 else "PBV wajar")
-    return {"success": True, "ticker": ticker.upper(), "PE": pe, "PBV": pbv,
-            "EPS": eps, "MarketCap": mcap, "interpretasi": valuation}
+    try:
+        from telegram_bot import _fetch_fundamentals
+        f = _fetch_fundamentals(ticker.upper())
+        pe, pbv, mcap, eps = f.get("PE", 0), f.get("PBV", 0), f.get("MarketCap", 0), f.get("EPS", 0)
+        if not any([pe, pbv, mcap, eps]):
+            return {"success": False, "error": f"Data fundamental {ticker.upper()} tidak tersedia"}
+        valuation = []
+        if pe and pe > 0:
+            valuation.append("PE rendah (relatif murah)" if pe < 12 else "PE tinggi (relatif mahal)" if pe > 25 else "PE wajar")
+        if pbv and pbv > 0:
+            valuation.append("PBV < 1 (di bawah nilai buku)" if pbv < 1 else "PBV > 3 (premium)" if pbv > 3 else "PBV wajar")
+        return {"success": True, "ticker": ticker.upper(), "PE": pe, "PBV": pbv,
+                "EPS": eps, "MarketCap": mcap, "interpretasi": valuation}
+    except Exception as e:
+        logger.warning("Fallback fundamentals gagal: %s", e)
+        return {"success": False, "error": f"Fundamental {ticker.upper()} tidak tersedia (v1 fallback unavailable)"}
 
 def _tool_compare_stocks(tickers: List[str]) -> Dict[str, Any]:
-    from telegram_bot import _lookup_ticker_live, _search_ticker
+    try:
+        from telegram_bot import _lookup_ticker_live, _search_ticker
+    except ImportError:
+        return {"success": False, "error": "V1 fallback tidak tersedia"}
     out = []
     for t in tickers[:4]:
         d = _lookup_ticker_live(t.upper(), compact=True)
@@ -445,49 +549,62 @@ def _tool_compare_stocks(tickers: List[str]) -> Dict[str, Any]:
         })
     return {"success": True, "comparison": out}
 
-def _tool_get_top_stocks(n: int = 5, sort_by: str = "Skor") -> Dict[str, Any]:
+def _tool_get_top_stocks(n: int = 5, sort_by: str = "score") -> Dict[str, Any]:
     df = _load_csv()
     if df is None:
         return {"success": False, "error": "CSV screener tidak ditemukan"}
     n = min(20, max(1, int(n or 5)))
     if sort_by not in df.columns:
-        sort_by = "Skor"
+        sort_by = "score" if "score" in df.columns else "Skor" if "Skor" in df.columns else df.columns[0]
     top = df.sort_values(sort_by, ascending=False)
-    cols = ["Ticker", "Sektor", "Sinyal", "Harga", "Skor", "Confidence%", "RRR", "AI_Verdict", "AI_Win_Prob%"]
+    cols = [c for c in ["ticker", "sektor", "signal", "price", "score", "rrr", "swing_trend", "swing_volume"] if c in df.columns]
     return {"success": True, "sort_by": sort_by, "stocks": _records(top, cols, n)}
 
 def _tool_list_signals(signal_type: str = "ALL") -> Dict[str, Any]:
     df = _load_csv()
-    if df is None or "Sinyal" not in df.columns:
-        return {"success": False, "error": "Data sinyal tidak tersedia"}
-    cols = ["Ticker", "Sektor", "Harga", "Skor", "Confidence%", "RRR", "AI_Verdict"]
+    if df is None or "signal" not in df.columns:
+        # Fallback old column name
+        if df is not None and "Sinyal" in df.columns:
+            pass  # will use after rename in _load_csv
+        else:
+            return {"success": False, "error": "Data sinyal tidak tersedia"}
+    cols = [c for c in ["ticker", "sektor", "price", "score", "rrr", "signal", "swing_trend", "swing_volume"] if c in df.columns]
+    sig_col = "signal" if "signal" in df.columns else "Sinyal"
     if signal_type and signal_type != "ALL":
-        sub = df[df["Sinyal"] == signal_type]
+        sub = df[df[sig_col] == signal_type]
         return {"success": True, "signal_type": signal_type, "count": len(sub),
-                "stocks": _records(sub.sort_values("Skor", ascending=False), cols, 25)}
+                "stocks": _records(sub.sort_values("score", ascending=False) if "score" in df.columns else sub, cols, 25)}
     result = {}
-    for s in ["ULTRA_BUY", "STRONG_BUY", "BUY"]:
-        sub = df[df["Sinyal"] == s].sort_values("Skor", ascending=False)
+    for s in ["STRONG_BUY", "BUY", "WEAK_BUY"]:
+        sub = df[df[sig_col] == s].sort_values("score", ascending=False) if "score" in df.columns else df[df[sig_col] == s]
         result[s] = _records(sub, cols, 12)
     total = sum(len(v) for v in result.values())
     return {"success": True, "total": total, "signals": result}
 
 def _tool_get_trade_setups(mode: str) -> Dict[str, Any]:
-    from telegram_bot import _is_scalp_csv
+    try:
+        from telegram_bot import _is_scalp_csv
+    except ImportError:
+        _is_scalp_csv = lambda r: False  # fallback: anggap semua swing
     df = _load_csv()
-    if df is None or "Sinyal" not in df.columns:
+    sig_col = "signal" if df is not None and "signal" in df.columns else "Sinyal"
+    if df is None or sig_col not in df.columns:
         return {"success": False, "error": "Data tidak tersedia"}
-    buys = df[df["Sinyal"].isin(["ULTRA_BUY", "STRONG_BUY", "BUY"])].copy()
+    buys = df[df[sig_col].isin(["STRONG_BUY", "BUY"])].copy()
     setups = []
     for _, r in buys.iterrows():
         rec = r.to_dict()
         is_scalp = _is_scalp_csv(rec)
         if (mode == "scalp" and is_scalp) or (mode == "swing" and not is_scalp):
             setups.append({
-                "ticker": rec.get("Ticker"), "sinyal": rec.get("Sinyal"),
-                "harga": rec.get("Harga"), "skor": rec.get("Skor"),
-                "rrr": rec.get("RRR"), "adx": rec.get("ADX"),
-                "stop_loss": rec.get("Stop_Loss"), "target_1": rec.get("Target_1"),
+                "ticker": rec.get("ticker") or rec.get("Ticker"), 
+                "sinyal": rec.get("signal") or rec.get("Sinyal"),
+                "harga": rec.get("price") or rec.get("Harga"), 
+                "skor": rec.get("score") or rec.get("Skor"),
+                "rrr": rec.get("rrr") or rec.get("RRR"), 
+                "adx": rec.get("adx") or rec.get("ADX"),
+                "stop_loss": rec.get("stop_loss") or rec.get("Stop_Loss"), 
+                "target_1": rec.get("take_profit") or rec.get("Target_1"),
                 "ai_verdict": rec.get("AI_Verdict"),
             })
     setups.sort(key=lambda x: (x.get("skor") or 0), reverse=True)
@@ -495,51 +612,62 @@ def _tool_get_trade_setups(mode: str) -> Dict[str, Any]:
 
 def _tool_get_sector_signals() -> Dict[str, Any]:
     df = _load_csv()
-    if df is None or "Sektor" not in df.columns or "Sinyal" not in df.columns:
+    sec_col = "sektor" if "sektor" in df.columns else "Sektor" if "Sektor" in df.columns else None
+    sig_col = "signal" if "signal" in df.columns else "Sinyal" if "Sinyal" in df.columns else None
+    if df is None or sec_col is None or sig_col is None:
         return {"success": False, "error": "Data sektor tidak tersedia"}
-    g = df.groupby("Sektor").agg(
-        total=("Ticker", "count"),
-        ultra=("Sinyal", lambda x: (x == "ULTRA_BUY").sum()),
-        strong=("Sinyal", lambda x: (x == "STRONG_BUY").sum()),
-        buy=("Sinyal", lambda x: (x == "BUY").sum()),
+    g = df.groupby(sec_col).agg(
+        total=("ticker" if "ticker" in df.columns else "Ticker", "count"),
+        strong=("signal" if "signal" in df.columns else "Sinyal", lambda x: (x == "STRONG_BUY").sum()),
+        buy=("signal" if "signal" in df.columns else "Sinyal", lambda x: (x == "BUY").sum()),
+        weak=("signal" if "signal" in df.columns else "Sinyal", lambda x: (x == "WEAK_BUY").sum()),
     ).reset_index()
-    g["bullish"] = g["ultra"] + g["strong"] + g["buy"]
+    g["bullish"] = g["strong"] + g["buy"] + g["weak"]
     g = g.sort_values("bullish", ascending=False)
     return {"success": True, "sectors": g.to_dict("records")}
 
 def _tool_get_sector_stocks(sector: str) -> Dict[str, Any]:
     df = _load_csv()
-    if df is None or "Sektor" not in df.columns:
+    sec_col = "sektor" if df is not None and "sektor" in df.columns else "Sektor"
+    if df is None or sec_col not in df.columns:
         return {"success": False, "error": "Data sektor tidak tersedia"}
-    mask = df["Sektor"].astype(str).str.contains(sector, case=False, na=False)
+    mask = df[sec_col].astype(str).str.contains(sector, case=False, na=False)
     sub = df[mask]
     if sub.empty:
-        sectors = sorted(df["Sektor"].dropna().astype(str).unique().tolist())
+        sectors = sorted(df[sec_col].dropna().astype(str).unique().tolist())
         return {"success": False, "error": f"Sektor '{sector}' tidak ditemukan",
                 "sektor_tersedia": sectors}
-    cols = ["Ticker", "Sektor", "Sinyal", "Harga", "Skor", "Confidence%", "RRR"]
-    sub = sub.sort_values("Skor", ascending=False)
-    return {"success": True, "matched_sector": sub["Sektor"].iloc[0],
+    score_col = "score" if "score" in df.columns else "Skor"
+    sub = sub.sort_values(score_col, ascending=False)
+    cols = [c for c in ["ticker", "sektor", "signal", "price", "score", "rrr"] if c in sub.columns]
+    return {"success": True, "matched_sector": sub[sec_col].iloc[0],
             "count": len(sub), "stocks": _records(sub, cols, 20)}
 
 def _tool_get_market_overview() -> Dict[str, Any]:
-    from telegram_bot import _compute_market_breadth, _fetch_ihsg_change_cached, _fetch_usd_change_cached, _get_signals
-    breadth = _compute_market_breadth()
-    ihsg_c, ihsg_t = _fetch_ihsg_change_cached()
+    """Market overview dari v2 data."""
+    result = {"success": True, "total_buy_signals": 0, "strong_buy": 0, "buy": 0}
+    df = _load_csv()
+    if df is not None:
+        sig_col = "signal" if "signal" in df.columns else "Sinyal" if "Sinyal" in df.columns else None
+        if sig_col:
+            result["strong_buy"] = int((df[sig_col] == "STRONG_BUY").sum())
+            result["buy"] = int((df[sig_col] == "BUY").sum())
+            result["weak_buy"] = int((df[sig_col] == "WEAK_BUY").sum())
+            result["total_buy_signals"] = result["strong_buy"] + result["buy"] + result["weak_buy"]
+
+    # IHSG context
     try:
-        usd = _fetch_usd_change_cached()
+        from idx_alpha_screener import data
+        ihsg_df = data.fetch_ihsg_cached()
+        if ihsg_df is not None and not ihsg_df.empty and len(ihsg_df) >= 2:
+            close_col = 'close' if 'close' in ihsg_df.columns else 'Close'
+            if close_col in ihsg_df.columns:
+                result["ihsg_change_pct"] = float((ihsg_df[close_col].iloc[-1] / ihsg_df[close_col].iloc[-2] - 1) * 100)
+                result["ihsg_trend"] = "BULL" if result["ihsg_change_pct"] > 0 else "BEAR"
     except Exception:
-        usd = 0.0
-    s = _get_signals()
-    return {"success": True,
-            "ihsg_change_pct": ihsg_c, "ihsg_trend": ihsg_t,
-            "usd_change_pct": usd,
-            "pct_above_ema50": breadth.get("pct_above_ema50"),
-            "breadth_total": breadth.get("total"),
-            "total_buy_signals": s.get("total"),
-            "ultra_buy": len(s.get("ultra", [])),
-            "strong_buy": len(s.get("strong", [])),
-            "buy": len(s.get("buy", []))}
+        pass
+
+    return result
 
 def _tool_screen_stocks(**filters) -> Dict[str, Any]:
     df = _load_csv()
@@ -551,31 +679,42 @@ def _tool_screen_stocks(**filters) -> Dict[str, Any]:
     def numcol(col):
         return pd.to_numeric(d[col], errors="coerce") if col in d.columns else None
 
-    if filters.get("min_skor") is not None and "Skor" in d.columns:
-        d = d[numcol("Skor") >= float(filters["min_skor"])]
-    if filters.get("min_confidence") is not None and "Confidence%" in d.columns:
-        d = d[numcol("Confidence%") >= float(filters["min_confidence"])]
-    if filters.get("min_rrr") is not None and "RRR" in d.columns:
-        d = d[numcol("RRR") >= float(filters["min_rrr"])]
-    if filters.get("rsi_below") is not None and "RSI" in d.columns:
-        d = d[numcol("RSI") <= float(filters["rsi_below"])]
-    if filters.get("rsi_above") is not None and "RSI" in d.columns:
-        d = d[numcol("RSI") >= float(filters["rsi_above"])]
-    if filters.get("min_adx") is not None and "ADX" in d.columns:
-        d = d[numcol("ADX") >= float(filters["min_adx"])]
-    if filters.get("max_price") is not None and "Harga" in d.columns:
-        d = d[numcol("Harga") <= float(filters["max_price"])]
-    if filters.get("signal") and "Sinyal" in d.columns:
-        d = d[d["Sinyal"] == filters["signal"]]
-    if filters.get("sector") and "Sektor" in d.columns:
-        d = d[d["Sektor"].astype(str).str.contains(str(filters["sector"]), case=False, na=False)]
-    if filters.get("volume_spike") and "Volume_Spike" in d.columns:
-        d = d[d["Volume_Spike"].astype(str).str.upper().isin(["YES", "EXTREME", "60D_HIGH", "ELEVATED"])]
+    # Map old column names to lowercase (normalized by _load_csv)
+    skor_col = "score" if "score" in d.columns else "Skor"
+    conf_col = "confidence" if "confidence" in d.columns else "Confidence%"
+    rrr_col = "rrr" if "rrr" in d.columns else "RRR"
+    rsi_col = "rsi" if "rsi" in d.columns else "RSI"
+    adx_col = "adx" if "adx" in d.columns else "ADX"
+    price_col = "price" if "price" in d.columns else "Harga"
+    sig_col = "signal" if "signal" in d.columns else "Sinyal"
+    sec_col = "sektor" if "sektor" in d.columns else "Sektor"
+    vol_spike_col = "volume_spike" if "volume_spike" in d.columns else "Volume_Spike"
+
+    if filters.get("min_skor") is not None and skor_col in d.columns:
+        d = d[numcol(skor_col) >= float(filters["min_skor"])]
+    if filters.get("min_confidence") is not None and conf_col in d.columns:
+        d = d[numcol(conf_col) >= float(filters["min_confidence"])]
+    if filters.get("min_rrr") is not None and rrr_col in d.columns:
+        d = d[numcol(rrr_col) >= float(filters["min_rrr"])]
+    if filters.get("rsi_below") is not None and rsi_col in d.columns:
+        d = d[numcol(rsi_col) <= float(filters["rsi_below"])]
+    if filters.get("rsi_above") is not None and rsi_col in d.columns:
+        d = d[numcol(rsi_col) >= float(filters["rsi_above"])]
+    if filters.get("min_adx") is not None and adx_col in d.columns:
+        d = d[numcol(adx_col) >= float(filters["min_adx"])]
+    if filters.get("max_price") is not None and price_col in d.columns:
+        d = d[numcol(price_col) <= float(filters["max_price"])]
+    if filters.get("signal") and sig_col in d.columns:
+        d = d[d[sig_col] == filters["signal"]]
+    if filters.get("sector") and sec_col in d.columns:
+        d = d[d[sec_col].astype(str).str.contains(str(filters["sector"]), case=False, na=False)]
+    if filters.get("volume_spike") and vol_spike_col in d.columns:
+        d = d[d[vol_spike_col].astype(str).str.upper().isin(["YES", "EXTREME", "60D_HIGH", "ELEVATED"])]
 
     limit = int(filters.get("limit") or 15)
-    if "Skor" in d.columns:
-        d = d.sort_values("Skor", ascending=False)
-    cols = ["Ticker", "Sektor", "Sinyal", "Harga", "Skor", "Confidence%", "RSI", "ADX", "RRR", "Volume_Spike"]
+    if skor_col in d.columns:
+        d = d.sort_values(skor_col, ascending=False)
+    cols = [c for c in ["ticker", "sektor", "signal", "price", "score", "confidence", "rsi", "adx", "rrr", "volume_spike"] if c in d.columns]
     return {"success": True, "match_count": len(d), "applied_filters": {k: v for k, v in filters.items() if v is not None},
             "stocks": _records(d, cols, limit)}
 
@@ -616,7 +755,7 @@ def _tool_get_holders(ticker: str) -> Dict[str, Any]:
     df = _load_csv()
     if df is None:
         return {"success": False, "error": "CSV screener tidak ditemukan"}
-    m = df[df["Ticker"].astype(str).str.upper() == tkr]
+    m = df[df["ticker"].astype(str).str.upper() == tkr]
     if m.empty:
         return {"success": False, "error": f"{tkr} tidak ada di data screener"}
     row = m.iloc[0]
@@ -785,14 +924,14 @@ class AIAgent:
             if res.get("success"):
                 lines = ["Top 5 Saham Hari Ini"]
                 for s in res["stocks"]:
-                    lines.append(f"  {s.get('Ticker')} - Rp{int(s.get('Harga',0)):,} | Skor {s.get('Skor')} | {s.get('Sinyal')}")
+                    lines.append(f"  {s.get('ticker') or s.get('Ticker','?')} - Skor {s.get('score') or s.get('Skor',0)} | {s.get('signal') or s.get('Sinyal','?')}")
                 return "\n".join(lines)
         if any(k in t for k in ["sinyal", "signal", "beli apa"]):
             res = _tool_list_signals("ALL")
             if res.get("success"):
                 lines = [f"Sinyal beli - {res.get('total',0)} saham"]
-                for s in (res.get("signals", {}).get("ULTRA_BUY", []) + res.get("signals", {}).get("STRONG_BUY", []))[:8]:
-                    lines.append(f"  {s.get('Ticker')} - Rp{int(s.get('Harga',0)):,} | RRR{s.get('RRR')}")
+                for s in (res.get("signals", {}).get("STRONG_BUY", []) + res.get("signals", {}).get("BUY", []))[:8]:
+                    lines.append(f"  {s.get('ticker') or s.get('Ticker','?')} - Skor {s.get('score') or s.get('Skor',0)} | {s.get('signal') or s.get('Sinyal','?')}")
                 return "\n".join(lines)
         tickers = _re.findall(r'\b([A-Z]{3,5})\b', user_text.upper())
         ignore = {"YANG", "SAHAM", "GIMANA", "BAGUS", "JELEK", "NAIK", "TURUN", "BESOK", "HARI"}
@@ -813,9 +952,18 @@ class AIAgent:
         s = d.get('Support', 0) or 0
         r = d.get('Resistance', 0) or 0
         sr_str = f"\n🔻 Support: {int(s):,} | 🔺 Resistance: {int(r):,}" if s > 0 or r > 0 else ""
+        
+        # 🔴 FIX BULLISH PALSU: Tampilkan intraday direction
+        session_chg = d.get("Session_Change%", 0)
+        if session_chg is not None and session_chg != 0:
+            arrow = "🔺" if session_chg > 0 else "🔻"
+            session_str = f"\n{arrow} Sesi: {session_chg:+.2f}%"
+        else:
+            session_str = ""
+
         return (f"{emoji} {d.get('Ticker')} ({d.get('Sektor','')})\n"
                 f"Harga: {d.get('Harga'):,} | Sinyal: {d.get('Sinyal')} {d.get('Strength','')}\n"
-                f"Skor: {d.get('Skor')}/15 | Conf: {d.get('Confidence%')}%\n"
+                f"Skor: {d.get('Skor')}/15 | Conf: {d.get('Confidence%')}%{session_str}\n"
                 f"SL: {d.get('Stop_Loss'):,} | TP1: {d.get('Target_1'):,} | RRR: {d.get('RRR')}{sr_str}{hold_str}\n"
                 f"AI: {d.get('AI_Verdict','N/A')} ({d.get('AI_Win_Prob%','?')}%)\n"
                 f"RSI: {d.get('RSI')} | ADX: {d.get('ADX')} | MM: {d.get('MM_Activity')}")
@@ -852,8 +1000,40 @@ class AIAgent:
                 dyn_prompt += f"- Sedang membahas sektor: {last_sector}\n"
             dyn_prompt += "Gunakan konteks ini bila user menyebut 'dia', 'saham itu', 'sektor ini', dsb tanpa menyebutkan nama spesifik.\n"
 
-        # 3. Load DB History
-        db_history = chat_memory.get_recent_messages(u_id, chat_id, limit=5)
+        # 3. Load DB History — v2: 10 pesan + summary + web cache
+        conv = chat_memory.get_conversation_for_inject(u_id, chat_id)
+        db_history = conv["recent_messages"]  # 10 pesan (dari 5)
+        ctx_dict = conv["context"]
+
+        # Tambahkan summary percakapan & topik ke system prompt
+        if ctx_dict.get("conversation_summary"):
+            dyn_prompt += "\n\n[CATATAN PERCAKAPAN SEBELUMNYA]\n"
+            dyn_prompt += ctx_dict["conversation_summary"]
+            dyn_prompt += "\n\n"
+        if ctx_dict.get("topics"):
+            dyn_prompt += "\n[TOPIK YANG SUDAH DBAHAS]\n"
+            dyn_prompt += ctx_dict["topics"]
+            dyn_prompt += "\n\n"
+
+        # Inject hasil riset web terakhir (web_search_cache)
+        web_cache = chat_memory.get_web_search_cache(u_id, chat_id)
+        if web_cache:
+            dyn_prompt += "\n[CATATAN RISET TERAKHIR]\n"
+            dyn_prompt += web_cache
+            dyn_prompt += "\n\n"
+
+        # Tambahkan riwayat ticker & sektor yang pernah ditanyakan
+        stats = conv.get("stats", {})
+        if stats.get("recent_tickers"):
+            dyn_prompt += "[RIWAYAT TICKER USER]\n"
+            dyn_prompt += "Ticker pernah ditanyakan: " + ", ".join(stats["recent_tickers"]) + "\n\n"
+
+        # Hitung total percakapan — untuk auto-summary tiap 12 turn
+        total_msgs = ctx_dict.get("message_count", 0)
+
+        # Cek apakah saatnya auto-summary (habis kelipatan 10 user-assistant pair)
+        needs_summary = total_msgs > 0 and total_msgs % 10 == 0 and not ctx_dict.get("is_new_user")
+
         hist = [{"role": "system", "content": dyn_prompt}]
         for msg in db_history:
             hist.append({"role": msg["role"], "content": msg["content"]})
@@ -957,6 +1137,30 @@ class AIAgent:
         final_answer = _sanitize_plain(final_answer)
         chat_memory.save_message(u_id, chat_id, "user", user_text, last_ticker, last_sector)
         chat_memory.save_message(u_id, chat_id, "assistant", final_answer, last_ticker, last_sector)
+
+        # Auto-summary tiap 10 turn — preserve inti diskusi
+        if needs_summary:
+            try:
+                from openai import OpenAI
+                # Generate summary dari riwayat terakhir
+                hist_plain = "\n".join(
+                    f"{m['role']}: {m['content'][:200]}"
+                    for m in db_history[-6:] + [{"role": "user", "content": user_text}, {"role": "assistant", "content": final_answer}]
+                )
+                summary_prompt = [
+                    {"role": "system", "content": "Ringkas percakapan saham ini dalam 2-3 kalimat. Fokus: ticker, sektor, analisis, keputusan utama."},
+                    {"role": "user", "content": f"Ringkasan percakapan saham:\n{hist_plain}"}
+                ]
+                if self.client and self.client.backend == "opencode_zen":
+                    # Untuk opencode_zen minimal panggil summary langsung
+                    pass
+                if self.client:
+                    sum_resp = self.client.chat(summary_prompt)
+                    summary_text = sum_resp.get("content", "")
+                    if summary_text:
+                        chat_memory.update_conversation_summary(u_id, chat_id, summary_text)
+            except Exception as e:
+                logger.warning("Auto-summary gagal: %s", e)
         
         return final_answer
 
