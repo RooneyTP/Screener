@@ -157,9 +157,19 @@ def analisis_satu_saham(ticker: str, df: Optional[pd.DataFrame] = None,
             conviction = conv_result["conviction"] + conf_bonus * conf_mult
             conviction = round(max(0, min(100, conviction)), 1)
             
-            # Signal dari conviction
-            signal = conv_result["signal"]
-            total_score = conviction  # simpan di variable yg sama untuk kompatibilitas
+            # Signal dari FINAL conviction (setelah confluence bonus)
+            v4_cfg_th = v4_cfg.get("thresholds", {})
+            if v4_cfg_th and isinstance(v4_cfg_th, dict):
+                th = v4_cfg_th.get(regime, v4_conviction.THRESHOLDS.get(regime, [62,55,48,40,35]))
+            else:
+                th = v4_conviction.THRESHOLDS.get(regime, [62,55,48,40,35])
+            sb, b, wb, h, _ = th
+            if conviction >= sb:     signal = "STRONG_BUY"
+            elif conviction >= b:    signal = "BUY"
+            elif conviction >= wb:   signal = "WEAK_BUY"
+            elif conviction >= h:    signal = "HOLD"
+            else:                    signal = "SELL"
+            total_score = conviction
             
             # Simpan metadata v4 untuk output
             v4_meta = {
