@@ -71,11 +71,15 @@ v4:
   ab_test_mode: "v4_only"            # "v4_only" atau "compare" (A/B vs v3)
   
   # Dynamic Conviction thresholds (5-level: SB/B/WB/H/S)
+  # Berdasarkan kalibrasi 2680 sinyal dari 20 ticker:
+  #   cutoff ≥62: WR 58.1%, AvgRet +0.74% (STRONG_BUY)
+  #   cutoff ≥58: WR 51.9%, AvgRet -0.10% (BUY)
+  #   cutoff ≥50: WR ~48% (WEAK_BUY)
   thresholds:
-    BULL:              [78, 68, 58, 48, 38]
-    BEAR:              [85, 75, 65, 55, 45]
-    RANGING:           [80, 70, 60, 50, 40]
-    HIGH_VOLATILITY:   [80, 70, 60, 50, 40]
+    BULL:              [65, 58, 50, 42, 35]
+    BEAR:              [62, 52, 45, 38, 30]
+    RANGING:           [62, 55, 48, 40, 35]
+    HIGH_VOLATILITY:   [62, 55, 48, 40, 35]
   
   # Soft penalties — gradual, bukan binary cutoff
   adx_no_trend_penalty: 0.08       # Kurangi 8% per poin ADX < 15

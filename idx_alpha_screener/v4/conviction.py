@@ -75,15 +75,14 @@ FACTOR_WEIGHTS = {
 }
 
 # ═══════════════════════════════════════════════════════════════
-#  CONVICTION THRESHOLDS — v4 lebih granular
+#  CONVICTION THRESHOLDS — Default (bisa di-override via config)
 # ═══════════════════════════════════════════════════════════════
-# v3: [72, 62, 52, 38] untuk BULL
-# v4: [78, 68, 58, 48, 38] — ada EXTRA_CAUTIOUS di antaranya
+# Akan di-override oleh v4.config["thresholds"] saat runtime
 THRESHOLDS = {
-    "BULL":            [78, 68, 58, 48, 38],
-    "BEAR":            [85, 75, 65, 55, 45],
-    "RANGING":         [80, 70, 60, 50, 40],
-    "HIGH_VOLATILITY": [80, 70, 60, 50, 40],
+    "BULL":            [65, 58, 50, 42, 35],
+    "BEAR":            [62, 52, 45, 38, 30],
+    "RANGING":         [62, 55, 48, 40, 35],
+    "HIGH_VOLATILITY": [62, 55, 48, 40, 35],
 }
 
 # Default config (bisa di-override via config.yaml v4:)
@@ -426,7 +425,12 @@ def compute_conviction(row: pd.Series, regime: str = "RANGING",
     """
     cfg = {**DEFAULT_CONFIG, **(config or {})}
     weights = FACTOR_WEIGHTS.get(regime, FACTOR_WEIGHTS["RANGING"])
-    thresholds = THRESHOLDS.get(regime, THRESHOLDS["RANGING"])
+    # Prioritaskan threshold dari config (dari config.yaml) atas hardcoded
+    th_config = cfg.get("thresholds", {})
+    if th_config and isinstance(th_config, dict):
+        thresholds = th_config.get(regime, THRESHOLDS.get(regime, THRESHOLDS["RANGING"]))
+    else:
+        thresholds = THRESHOLDS.get(regime, THRESHOLDS["RANGING"])
 
     # 1. Compute all factor scores
     factors = {}

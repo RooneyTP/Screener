@@ -34,10 +34,10 @@ config: dict = {
     "weekly_bonus": 3,
     "conviction_bonus": 5,
     "thresholds": {
-        "BULL": [78, 68, 58, 48, 38],
-        "BEAR": [85, 75, 65, 55, 45],
-        "RANGING": [80, 70, 60, 50, 40],
-        "HIGH_VOLATILITY": [80, 70, 60, 50, 40],
+        "BULL": [65, 58, 50, 42, 35],
+        "BEAR": [62, 52, 45, 38, 30],
+        "RANGING": [62, 55, 48, 40, 35],
+        "HIGH_VOLATILITY": [62, 55, 48, 40, 35],
     },
 }
 
@@ -50,6 +50,11 @@ def configure(cfg: dict):
     for key, val in cfg.items():
         if key == "thresholds" and isinstance(val, dict):
             config["thresholds"].update(val)
+            # Sync ke conviction module
+            from v4 import conviction as v4c
+            for regime, th in val.items():
+                if regime in v4c.THRESHOLDS:
+                    v4c.THRESHOLDS[regime] = th
         else:
             config[key] = val
     logger.info("v4 configured: %s", {k: v for k, v in config.items()
