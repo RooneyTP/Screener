@@ -1,0 +1,162 @@
+# ═══════════════════════════════════════════════════════════════
+# IDX Alpha Screener v3 — Configuration
+# ═══════════════════════════════════════════════════════════════
+# Ubah nilai di sini tanpa perlu edit kode python.
+# Berlaku setelah restart scan.
+#
+# v3 Changes:
+#   - Threshold lebih ketat (STRONG_BUY 72+ di BULL)
+#   - ADX filter dinaikkan (no_trend: 15, weak_trend: 18)
+#   - IHSG market context filter default ON
+#   - Exit strategy (max hold, flat exit, hard stop)
+#   - Portfolio heat management (max positions, per sector)
+
+scoring:
+  # ── Threshold Sinyal v3 ──
+  # Format: [STRONG_BUY_min, BUY_min, WEAK_BUY_min, HOLD_min]
+  # Threshold lebih ketat untuk kurangi noise.
+  thresholds:
+    BULL:              [72, 62, 52, 38]
+    BEAR:              [80, 70, 60, 48]
+    RANGING:           [75, 64, 55, 40]
+    HIGH_VOLATILITY:   [75, 64, 55, 40]
+
+  # ── Risk-Reward Setup ──
+  risk_reward:
+    sl_multiplier: 2.0     # Stop Loss = price - (ATR × sl_multiplier)
+    tp_multiplier: 3.0     # Take Profit = price + (ATR × tp_multiplier)
+    sl_floor_pct: 0.85     # Maksimal kerugian (85% dari harga = -15%)
+    rrr_min: 1.0           # Minimal Risk-Reward Ratio
+
+  # ── ADX Filter v3 (more strict) ──
+  adx_filter:
+    no_trend: 15           # ADX < 15 → semua BUY jadi HOLD (sebelumnya 12)
+    weak_trend: 18         # ADX < 18 → BUY/WEAK_BUY jadi HOLD (sebelumnya 16)
+
+  # ── Swing Gate Behavior ──
+  swing_gate:
+    partial_pass_hold: ["BUY", "WEAK_BUY"]
+
+  # ── Entry Zone ──
+  entry_zone:
+    floor_ideal_pct: 0.85
+    floor_good_pct: 0.90
+    ideal_min_pct: 0.88
+
+  # ── IHSG Market Context ──
+  market_filter:
+    enabled: true
+    bearish_threshold_20d: -4.0   # Skip scan jika IHSG turun >4% dalam 20 hari
+    warn_threshold_5d: -3.0       # Warning jika IHSG turun >3% dalam 5 hari
+
+cooldown:
+  enabled: true
+  days: 5
+  db_path: data/signal_cooldown.json
+
+sector:
+  enabled: true
+  max_per_sector: 2
+
+telegram:
+  top_buy_count: 10
+  top_overall_count: 5
+
+# ═══════════════════════════════════════════════════════════════
+# V4 ENGINE — Confluence Gate + Dynamic Conviction Scoring
+# ═══════════════════════════════════════════════════════════════
+# Aktifkan dengan flag --v4 di main.py, atau set enabled: true
+v4:
+  enabled: false                     # Aktifkan v4 engine (override —v4 flag)
+  ab_test_mode: "v4_only"            # "v4_only" atau "compare" (A/B vs v3)
+  
+  # Dynamic Conviction thresholds (5-level: SB/B/WB/H/S)
+  thresholds:
+    BULL:              [78, 68, 58, 48, 38]
+    BEAR:              [85, 75, 65, 55, 45]
+    RANGING:           [80, 70, 60, 50, 40]
+    HIGH_VOLATILITY:   [80, 70, 60, 50, 40]
+  
+  # Soft penalties — gradual, bukan binary cutoff
+  adx_no_trend_penalty: 0.08       # Kurangi 8% per poin ADX < 15
+  ihsg_bear_penalty: 5             # Kurangi 5 poin kalo IHSG bearish
+  weekly_bonus: 3                  # Tambah 3 poin kalo weekly trend align
+  conviction_bonus: 5              # Tambah 5 poin kalo >=5/8 faktor positif
+  
+  # Confluence gate
+  confluence_bonus_multiplier: 0.5 # Seberapa besar confluence pengaruh
+  
+  # Telegram output v4 (lebih detail)
+  telegram:
+    show_factor_breakdown: true    # Tampilkan breakdown faktor di Telegram
+    show_confluence: true          # Tampilkan confluence score
+
+# ═══════════════════════════════════════════════════════════════
+# EXIT STRATEGY — Kapan keluar dari posisi (P0)
+# ═══════════════════════════════════════════════════════════════
+exit_strategy:
+  # Hard Stop: proteksi gap open — exit jika harga turun X% dari entry
+  # Contoh: -15% → kalau gap open -20%, kamu udah keluar di -15%
+  hard_stop_pct: -15.0
+
+  # Max Hold: paksa exit setelah N hari — hindari modal terikat
+  # Contoh: 15 hari kalender (termasuk weekend)
+  max_hold_days: 15
+
+  # Flat Exit: harga nggak bergerak > X% selama N hari → exit
+  # Contoh: return < 2% dalam 7 hari → opportunity loss, pindah
+  flat_exit_days: 7
+  flat_exit_threshold_pct: 2.0
+
+  # Earnings Blackout: jangan entry N hari sebelum laporan keuangan
+  # (data earnings harus disediakan terpisah, default skip)
+  earnings_blackout_days: 7
+
+# ═══════════════════════════════════════════════════════════════
+# PORTFOLIO HEAT — Batasi risiko over-konsentrasi (P0)
+# ═══════════════════════════════════════════════════════════════
+portfolio:
+  enabled: true
+  max_positions: 5           # Maks 5 posisi bersamaan
+  max_per_sector: 2          # Maks 2 di sektor yang sama
+  max_sector_exposure_pct: 40.0  # Maks 40% modal di satu sektor
+
+# ═══════════════════════════════════════════════════════════════
+# EARNINGS CALENDAR (optional) — untuk blackout
+# ═══════════════════════════════════════════════════════════════
+# earnings_calendar:
+#   annual_only: false       # false = Q1+Q2+Q3 juga di-blackout
+#   use_approx_dates: false  # true = pakai estimasi tanggal
+
+# ═══════════════════════════════════════════════════════════════
+# SLIPPAGE MODEL — Biaya realistis per tier saham
+# ═══════════════════════════════════════════════════════════════
+slippage:
+  enabled: true
+  # Tier di-detect otomatis dari price (fallback jika mcap tidak ada)
+  large_cap:
+    min_price: 5000
+    spread_pct: 0.15
+    fee_pct: 0.10
+  mid_cap:
+    min_price: 1000
+    spread_pct: 0.35
+    fee_pct: 0.10
+  small_cap:
+    min_price: 200
+    spread_pct: 0.80
+    fee_pct: 0.15
+  micro_cap:
+    min_price: 0
+    spread_pct: 1.50
+    fee_pct: 0.15
+
+# ═══════════════════════════════════════════════════════════════
+# PERFORMANCE TRACKER — Log sinyal + evaluasi mingguan
+# ═══════════════════════════════════════════════════════════════
+perf_tracker:
+  enabled: true
+  csv_path: data/perf_tracker.csv        # Lokasi database sinyal
+  weekly_report: true                    # Generate report mingguan
+  auto_close_positions: false            # Otomatis close via exit strategy
+  min_signals_for_report: 5              # Minimal sinyal untuk laporan mingguan
