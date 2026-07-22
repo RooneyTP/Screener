@@ -138,6 +138,9 @@ def apply_sector_cap(hasil: list, max_per_sector: int = 2) -> list:
 
     for h in sorted_hasil:
         sector = h.get("sector", "Unknown") or "Unknown"
+        # Skip sector cap kalo sektor Unknown (data fundamental gagal fetch)
+        if sector == "Unknown":
+            continue
         # Potong sektor terlalu panjang untuk key
         sector_key = sector[:25]
 

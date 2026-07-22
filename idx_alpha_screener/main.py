@@ -872,6 +872,9 @@ def main():
             sell = [h for h in hasil if h["signal"] == "SELL"]
 
             sep = "▬" * 30
+            tg_cfg = CONFIG.get("telegram", {})
+            top_n_overall = tg_cfg.get("top_overall_count", 5)
+            top_n_buy = tg_cfg.get("top_buy_count", 10)
             lines = [
                 f"📈 *IDX Alpha Screener v2*",
                 f"Saham discan: {len(hasil)} | {datetime.now().strftime('%d/%m/%Y %H:%M')}",
