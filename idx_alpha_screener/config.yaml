@@ -51,7 +51,7 @@ scoring:
 
 cooldown:
   enabled: true
-  days: 5
+  days: 1                    # 1 hari — biar dapet sinyal segar tiap hari
   db_path: data/signal_cooldown.json
 
 sector:
