@@ -918,9 +918,24 @@ def main():
                         lines.append(
                             f"   🎯 *Entry:* Ideal Rp{e_ideal:,} / Good Rp{e_good:,}"
                         )
-                    lines.append(
-                        f"   SL Rp {h['stop_loss']:,} → TP Rp {h['take_profit']:,} | RRR {h['rrr']:.1f}"
-                    )
+                    # Trailing stop estimate — TP fixed diganti trailing
+                    entry_p = h['price']
+                    atr_v = h.get('atr', 0)
+                    if atr_v and atr_v > 0:
+                        trail_stop = int(max(entry_p * 0.95, entry_p - atr_v * 2.5))
+                        gain_pct = ((entry_p - trail_stop) / entry_p) * 100
+                        if trail_stop < entry_p:
+                            lines.append(
+                                f"   📏 *Trail:* Rp {trail_stop:,} ({gain_pct:.1f}% dr entry)"
+                            )
+                        else:
+                            lines.append(
+                                f"   📏 *Trail:* Rp {trail_stop:,}"
+                            )
+                    else:
+                        lines.append(
+                            f"   🛑 *Stop:* Rp {h['stop_loss']:,}"
+                        )
                 lines.append(sep)
             else:
                 lines.append("📭 *Tidak ada sinyal BUY* — semua saham gagal swing gate atau skor < threshold")
