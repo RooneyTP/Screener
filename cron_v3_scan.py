@@ -11,7 +11,7 @@ print(f"{'='*60}\n  IDX ALPHA SCREENER v5 — {now}\n  Engine: 3 Profile + Dynam
 sys.stdout.flush()
 try:
     result = subprocess.run(
-        [sys.executable, "main.py", "--top", "125", "--no-ihsg", "--telegram", "--v5"],
+        [sys.executable, "main.py", "--top", "125", "--no-ihsg", "--telegram", "--v4"],
         cwd=SCREENER_DIR, capture_output=True, text=True, timeout=600
     )
     if result.stdout:
