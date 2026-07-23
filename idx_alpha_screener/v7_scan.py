@@ -77,12 +77,16 @@ for tkr in WATCHLIST:
                 swing_score += 5  # bonus broker flow
             
             if swing_score >= 50 or ("akumulasi" in bf and v7r["score"] >= 48):
+                # Skip kalo distribusi masif
+                if "distribusi" in bf and v7r["score"] < 55:
+                    continue
                 exit_s = compute_exit(price, atr, regime, "swing", weekly)
                 sizing = position_sizing(CAPITAL, price, swing_score, atr_pct)
                 swing_list.append({
                     "tkr": tkr, "score": swing_score, "price": price,
                     "exit": exit_s, "sizing": sizing,
                     "bf": bf, "ff": ff, "weekly": weekly,
+                    "brokers": v7r["factors"].get("brokers", ""),  # <-- NEW
                 })
             
             # ── Intraday Swing: volume surge + score>=48 ──
@@ -111,10 +115,12 @@ if swing_list:
         cap = " ⚠️" if s["weekly"] == "BEARISH" else ""
         print(f"{s['tkr']:<6} Skor {s['score']:.1f} | Rp{s['price']:,}")
         print(f"  🛑 SL Rp{e['stop_loss']:,} | 🎯 TP Rp{e['take_profit']:,} | 📏 Trail >Rp{e['trailing_start']:,}")
-        print(f"  📊 Hold max {e['max_hold_days']} hari | RRR {e['rrr']}")
+        print(f"  📊 Hold max {e['max_hold_days']} hari | RRR {e['rrr']} | Foreign: {s['ff']}")
         print(f"  💰 Lot {si['lots']} (Rp{si['cost']:,} = {si['pct_modal']}% modal){cap}")
-        if s['bf'] != 'netral' and s['bf'] != 'no_data':
-            print(f"  🏦 Broker: {s['bf']} | Foreign: {s['ff']}")
+        if s['bf'] and s['bf'] != 'netral' and s['bf'] != 'no_data':
+            print(f"  🏦 Flow: {s['bf']}")
+            if s.get('brokers'):
+                print(f"  {s['brokers']}")
 else:
     print("Tidak ada sinyal swing hari ini.")
 print()

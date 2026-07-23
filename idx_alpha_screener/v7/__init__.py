@@ -50,11 +50,9 @@ def factor_broker_flow(code: str) -> dict:
     Broker Flow Factor — skor berdasarkan akumulasi institusi.
     
     Logic:
-      - Top 5 broker: hitung net buy volume
-      - Foreign net: positif = bagus
-      - Institutional accumulation = sinyal kuat
-    
-    Returns: {"score": 0-100, "detail": str}
+      - Hitung net buy ALL brokers
+      - Ambil top 5 net buyers + top 5 net sellers
+      - Kalau net buyers > net sellers = akumulasi
     """
     try:
         provider = get_provider()
@@ -64,32 +62,50 @@ def factor_broker_flow(code: str) -> dict:
         if not summary or not isinstance(summary, list) or len(summary) < 2:
             return {"score": 40, "detail": "no_data"}
         
-        # Hitung net buy dari top broker
-        total_net = 0
-        top_brokers = sorted(summary[:10], key=lambda x: 
-                            int(x.get("buy_value", 0)) + int(x.get("sell_value", 0)), 
-                            reverse=True)
+        # Hitung net per broker
+        broker_nets = []
+        for b in summary:
+            try:
+                buy = int(b.get("buy_value", 0))
+                sell = int(b.get("sell_value", 0))
+                net = buy - sell
+                broker_nets.append({"code": b.get("code","??"), "net": net, "buy": buy, "sell": sell})
+            except: pass
         
-        for b in top_brokers[:5]:
-            buy = int(b.get("buy_value", 0))
-            sell = int(b.get("sell_value", 0))
-            total_net += (buy - sell)
+        # Sort by net (descending)
+        broker_nets.sort(key=lambda x: x["net"], reverse=True)
         
-        # Kategorikan
-        if total_net > 100_000_000_000:  # >100M net buy
-            return {"score": 85, "detail": f"akumulasi_masif_{total_net/1e9:.1f}B"}
-        elif total_net > 10_000_000_000:
-            return {"score": 75, "detail": f"akumulasi_{total_net/1e9:.1f}B"}
-        elif total_net > 1_000_000_000:
-            return {"score": 65, "detail": f"net_buy_{total_net/1e9:.1f}B"}
-        elif total_net > -1_000_000_000:
-            return {"score": 50, "detail": "netral"}
+        top_buyers = [b for b in broker_nets if b["net"] > 0]
+        top_sellers = [b for b in broker_nets if b["net"] < 0]
+        
+        total_buy_net = sum(b["net"] for b in top_buyers[:5])
+        total_sell_net = abs(sum(b["net"] for b in top_sellers[:5]))
+        net_flow = total_buy_net - total_sell_net
+        
+        # Kode broker top 3
+        top3_buyers = " ".join(f"{b['code']}(+{b['net']/1e9:.0f}B)" for b in top_buyers[:3])
+        top3_sellers = " ".join(f"{b['code']}({b['net']/1e9:.0f}B)" for b in top_sellers[:3])
+        
+        # Skor berdasarkan net flow
+        if net_flow > 100_000_000_000:
+            return {"score": 85, "detail": f"akumulasi_masif_{net_flow/1e9:.0f}B", 
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
+        elif net_flow > 10_000_000_000:
+            return {"score": 75, "detail": f"akumulasi_{net_flow/1e9:.1f}B",
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
+        elif net_flow > 1_000_000_000:
+            return {"score": 65, "detail": f"net_buy_{net_flow/1e9:.1f}B",
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
+        elif net_flow > -1_000_000_000:
+            return {"score": 50, "detail": "netral",
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
         else:
-            return {"score": 30, "detail": "distribusi"}
+            return {"score": 30, "detail": f"distribusi_{abs(net_flow)/1e9:.0f}B",
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
             
     except Exception as e:
         logger.debug("Broker flow error %s: %s", code, e)
-        return {"score": 40, "detail": "error"}
+        return {"score": 40, "detail": "error", "brokers": ""}
 
 
 def factor_foreign_flow(code: str) -> dict:
@@ -240,5 +256,6 @@ def compute(code: str, v4_score: float, regime: str) -> dict:
             "foreign_detail": ff["detail"],
             "fundamental": fq["score"],
             "fundamental_detail": fq["detail"],
-        }
+            "brokers": bf.get("brokers", ""),
+            }
     }
