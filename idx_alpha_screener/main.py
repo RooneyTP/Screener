@@ -45,6 +45,9 @@ import v5.engine as v5_engine_run
 import v5.momentum_score as v5_ms
 import v5.dynamic_threshold as v5_dt
 
+# ── v6 Engine (toggleable) ──
+import v6 as v6_engine
+
 # ── Telegram via existing Screener infrastructure (utils/telegram_sender) ──
 _SCREENER_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCREENER_ROOT not in sys.path:
@@ -145,8 +148,27 @@ def analisis_satu_saham(ticker: str, df: Optional[pd.DataFrame] = None,
         # 5. Deteksi regime
         regime, trend_score, adx_now = rg.detect_market_regime(df)
 
-        # 6. Scoring — v3, v4, atau v5
-        if v5_engine.is_enabled():
+        # 6. Scoring — v3, v4, v5, atau v6
+        if v6_engine.is_enabled():
+            # ── v6 Engine: Corrected Weight Scoring ──
+            row["regime"] = regime
+            v6_result = v6_engine.compute_score(row)
+            total_score = v6_result["score"]
+            signal = v6_result["signal"]
+            # Weekly trend filter
+            wt = row.get("weekly_trend", "NO_DATA")
+            if signal in ("STRONG_BUY", "BUY", "WEAK_BUY") and wt == "BEARISH":
+                _old = signal; signal = "HOLD"
+                logger.info("%s: weekly BEARISH, %s -> HOLD", ticker.replace('.JK',''), _old)
+            # Overextended filter: VWAP >5% + RSI >65
+            pv = row.get("pct_vs_vwap", 0); rv = row.get("rsi", 50)
+            if signal in ("STRONG_BUY","BUY") and not pd.isna(pv) and not pd.isna(rv):
+                if pv > 5 and rv > 65: signal = "HOLD"
+            swing_result = {"trend_aligned": signal in ("STRONG_BUY","BUY"),"volume_breakout": False}
+            v4_meta = {"conviction":total_score,"confluence":0,"conviction_raw":total_score,
+                       "confluence_bonus":0,"positive_factors":0,"factor_breakdown":"v6","confluence_detail":"v6"}
+            
+        elif v5_engine.is_enabled():
             # ── v5 Engine: 3 Profile Adaptive Scoring ──
             # Reset momentum tracker per ticker
             ticker_clean = ticker.replace('.JK', '')
@@ -588,6 +610,8 @@ def main():
                        help="Gunakan v4 engine (Confluence Gate + Dynamic Conviction)")
     parser.add_argument("--v5", action="store_true", default=False,
                        help="Gunakan v5 engine (3 Profile Adaptive Scoring)")
+    parser.add_argument("--v6", action="store_true", default=False,
+                       help="Gunakan v6 engine (Corrected Weight Scoring)")
     args = parser.parse_args()
 
     # ── Load config ────────────────────────────────────────────────────
@@ -619,6 +643,14 @@ def main():
         logger.info("   Dynamic percentile: %s, Momentum lookback: %d hari",
                    v5_engine.config.get("dynamic_percentile", True),
                    v5_engine.config.get("score_momentum_days", 5))
+
+    # ── Configure v6 Engine ─────────────────────────────────────────────
+    v6_cfg_yaml = CONFIG.get("v6", {})
+    v6_engine.enabled = args.v6 or v6_cfg_yaml.get("enabled", False)
+    if v6_cfg_yaml:
+        v6_engine.configure(v6_cfg_yaml)
+    if v6_engine.is_enabled():
+        logger.info("🔬 v6 Engine AKTIF — Corrected Weight Scoring (ML-based factor inversion)")
 
     # ── Init Cooldown Tracker ───────────────────────────────────────────
     cd_cfg = CONFIG.get("cooldown", {})

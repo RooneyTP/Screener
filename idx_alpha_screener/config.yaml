@@ -119,6 +119,20 @@ v5:
     VALUE:    [60, 52, 45, 38, 30]
 
 # ═══════════════════════════════════════════════════════════════
+# V6 ENGINE — Corrected Weight Scoring (ML-based)
+# ═══════════════════════════════════════════════════════════════
+# Berdasarkan analisis 4.689 sampel:
+#   POSITIF: volume, trend, weekly_trend
+#   NEGATIF: vwap, macd (inverted di V6)
+# V6 meng-invert faktor yang terbukti negatif di IDX.
+v6:
+  enabled: false
+  thresholds:
+    BULL:    [68, 58, 50, 42, 35]
+    BEAR:    [65, 55, 48, 40, 32]
+    RANGING: [66, 56, 48, 40, 32]
+
+# ═══════════════════════════════════════════════════════════════
 # EXIT STRATEGY — Kapan keluar dari posisi (P0)
 # ═══════════════════════════════════════════════════════════════
 exit_strategy:
