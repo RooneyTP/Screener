@@ -41,9 +41,19 @@ def format_brokers(s):
     r = []
     for part in p:
         part = part.strip()
+        if not part: continue
         codes = re.findall(r'([A-Z]{2})\(', part)
-        named = [BROKER_NAMES.get(c,c) for c in codes]
-        prefix = "Beli: " if "blue" in part or "B" in part[:2] else "Jual: "
+        named = []
+        for c in codes:
+            name = BROKER_NAMES.get(c,"")
+            # Ambil kata pertama aja biar pendek
+            if name:
+                short = name.split()[0] if " " in name else name
+            else:
+                short = c
+            named.append(short)
+        is_buy = "B" in part[:1] or "blue" in part.lower() or part.startswith("\U0001f535")
+        prefix = "Beli: " if is_buy else "Jual: "
         r.append(prefix + ", ".join(named))
     return " | ".join(r)
 
