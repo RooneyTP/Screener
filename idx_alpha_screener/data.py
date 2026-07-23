@@ -346,6 +346,25 @@ def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # ── Relative Volume ──
     df["rel_volume"] = (volume / volume.rolling(60).mean().replace(0, np.nan)).shift(1)
 
+    # ── Weekly Trend Alignment ──
+    # Resample ke weekly, hitung EMA12/50, forward-fill ke daily, shift 1 week
+    try:
+        weekly_close = close.resample("W-FRI").last()
+        if len(weekly_close) > 15:
+            weekly_ema12 = weekly_close.ewm(span=12, adjust=False).mean()
+            weekly_ema50 = weekly_close.ewm(span=50, adjust=False).mean()
+            weekly_trend = (weekly_ema12 > weekly_ema50).astype(int)
+            weekly_trend = weekly_trend.replace({1: "BULLISH", 0: "BEARISH"})
+            # Resample back to daily
+            df["weekly_trend"] = weekly_trend.reindex(df.index, method="ffill")
+            # Shift 5 hari untuk hindari look-ahead
+            df["weekly_trend"] = df["weekly_trend"].shift(5)
+        else:
+            df["weekly_trend"] = "NO_DATA"
+        df.loc[df.index[:50], "weekly_trend"] = "NO_DATA"
+    except Exception:
+        df["weekly_trend"] = "NO_DATA"
+
     # ── Clean up NaN dari periode awal ──
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 

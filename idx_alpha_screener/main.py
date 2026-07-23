@@ -265,6 +265,14 @@ def analisis_satu_saham(ticker: str, df: Optional[pd.DataFrame] = None,
                         signal = "HOLD"
                         logger.info("%s: ADX %.1f < %d, %s → HOLD (trend lemah)", ticker.replace('.JK',''), adx_now, adx_weak, _old)
             
+            # ── Weekly Trend Filter (higher timeframe) ──
+            # Jangan BUY lawan arah mingguan — prinsip higher timeframe rules
+            wt = row.get("weekly_trend", "NO_DATA")
+            if signal in ("STRONG_BUY", "BUY", "WEAK_BUY") and wt == "BEARISH":
+                _old = signal
+                signal = "HOLD"
+                logger.info("%s: weekly trend BEARISH, %s → HOLD", ticker.replace('.JK',''), _old)
+            
             v4_meta = None  # tidak ada metadata v4
 
         rr = sc.compute_risk_reward(row)
