@@ -168,7 +168,48 @@ portfolio:
   max_sector_exposure_pct: 40.0  # Maks 40% modal di satu sektor
 
 # ═══════════════════════════════════════════════════════════════
-# EARNINGS CALENDAR (optional) — untuk blackout
+# WATCHLIST — Fokus saham konglomerat & grup
+# ═══════════════════════════════════════════════════════════════
+watchlist:
+  # User picks
+  user:
+    - "ALII"
+    - "BRPT"
+    - "BUMI"
+    - "TPIA"
+    - "CUAN"
+    - "MPPA"
+  
+  # Barito Group (BRPT)
+  barito:
+    - "BRPT"  # Barito Pacific (holding)
+    - "DSSA"  # Dian Swastatika Sentosa
+    - "BUMI"  # Bumi Resources (terafiliasi)
+    - "ENRG"  # Energi Mega Persada
+  
+  # Bakrie Group
+  bakrie:
+    - "BUMI"  # Bumi Resources
+    - "ENRG"  # Energi Mega Persada
+    - "BNBR"  # Bakrie & Brothers
+    - "VBID"  # Bakrie Telecom
+    - "ELTY"  # Bakrieland Development
+  
+  # Salim Group (First Pacific)
+  salim:
+    - "INDF"  # Indofood Sukses Makmur
+    - "ICBP"  # Indofood CBP
+    - "KLBF"  # Kalbe Farma
+    - "HMSP"  # HM Sampoerna
+    - "BISI"  # Bisi International
+  
+  # Astra Group
+  astra:
+    - "ASII"  # Astra International
+    - "UNTR"  # United Tractors
+    - "AKRA"  # AKR Corporindo
+    - "CPIN"  # Charoen Pokphand
+    - "ISAT"  # Indosat Ooredoo
 # ═══════════════════════════════════════════════════════════════
 # earnings_calendar:
 #   annual_only: false       # false = Q1+Q2+Q3 juga di-blackout
