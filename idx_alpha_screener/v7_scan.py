@@ -132,13 +132,9 @@ if swing:
     for i,s in enumerate(swing):
         e=s["exit"]; si=s["sizing"]
         cap = " WEEKLY BEAR" if s["weekly"]=="BEARISH" else ""
-        print("#{} {} Skor {} | Rp{:,}".format(i+1,s["tkr"],s["score"],int(s["price"])))
-        print("  SL Rp{:,} | TP Rp{:,} | Trail >Rp{:,}".format(e["stop_loss"],e["take_profit"],e["trailing_start"]))
-        print("  Hold {} hr | RRR {} | Foreign: {}{}".format(e["max_hold_days"],e["rrr"],s["ff"],cap))
-        print("  Lot {} (Rp{:,} = {}% modal)".format(si["lots"],si["cost"],si["pct_modal"]))
+        print("#{:<2} {} {:>5.1f} | Rp{:,} | SL {} | TP {}{}".format(i+1,s["tkr"],s["score"],int(s["price"]),int(e["stop_loss"]),int(e["take_profit"]),cap))
         if s["bf"] and s["bf"] not in ("netral","no_data"):
-            print("  Flow: {}".format(s["bf"]))
-            if s["brokers"]: print("  {}".format(s["brokers"]))
+            print("  {} | Foreign: {}".format(s["bf"],s["ff"]))
 else:
     print("Tidak ada sinyal swing hari ini.")
 print()
@@ -149,12 +145,9 @@ if intra:
     print("Total: {} sinyal".format(len(intra)))
     for s in intra:
         e=s["exit"]; si=s["sizing"]
-        print("{} Skor {} | Rp{:,}".format(s["tkr"],s["score"],int(s["price"])))
-        print("  SL Rp{:,} | TP Rp{:,}".format(e["stop_loss"],e["take_profit"]))
-        print("  Hold max {} hr | RRR {} | Vol {:.1f}x".format(e["max_hold_days"],e["rrr"],s["vol"]))
-        print("  Lot {} (Rp{:,} = {}% modal)".format(si["lots"],si["cost"],si["pct_modal"]))
+        print("{:<6} {:>5.1f} | Rp{:,} | SL {} | TP {} | Vol {:.1f}x".format(s["tkr"],s["score"],int(s["price"]),int(e["stop_loss"]),int(e["take_profit"]),s["vol"]))
         if s["bf"] and s["bf"] not in ("netral","no_data"):
-            print("  Flow: {}".format(s["bf"]))
+            print("  {}".format(s["bf"]))
 else:
     print("Tidak ada sinyal intraday hari ini.")
 print()

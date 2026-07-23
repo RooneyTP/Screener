@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cron Wrapper — V7 Dual Mode Scanner (21:00 WIB)"""
 import sys, os, subprocess
-SCREENER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "idx_alpha_screener")
+SCREENER_DIR = r"C:\Hermes_Workspace\Screener\idx_alpha_screener"
 print(f"{'='*50}\n  V7 DUAL MODE SCAN\n  [cron_v3_scan.py] {__import__('datetime').datetime.now().strftime('%d/%m/%Y %H:%M')} WIB\n{'='*50}")
 sys.stdout.flush()
 try:
