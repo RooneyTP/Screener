@@ -131,6 +131,10 @@ class InvezgoProvider:
             df.set_index("Date", inplace=True)
             df.sort_index(inplace=True)
             df = df[~df.index.duplicated(keep='last')]
+            # Tambah lowercase aliases untuk kompatibilitas compute_all_indicators
+            for col in ["Open","High","Low","Close","Volume"]:
+                if col in df.columns:
+                    df[col.lower()]=df[col]
             return df
             
         except Exception as e:
