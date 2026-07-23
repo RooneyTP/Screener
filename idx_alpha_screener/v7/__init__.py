@@ -158,10 +158,10 @@ def factor_fundamental_quality(code: str) -> dict:
         if not fund or not isinstance(fund, dict):
             return {"score": 40, "detail": "no_data"}
         
-        per = fund.get("PER", fund.get("per", fund.get("pe_ratio", None)))
-        pbv = fund.get("PBV", fund.get("pbv", fund.get("pb_ratio", None)))
+        per = fund.get("PER", fund.get("per", None))
+        pbv = fund.get("PBV", fund.get("pbv", None))
         roe = fund.get("ROE", fund.get("roe", None))
-        div = fund.get("DividendYield", fund.get("dividend_yield", None))
+        div = fund.get("Dividend Yield", fund.get("dividend_yield", None))
         
         score = 50
         

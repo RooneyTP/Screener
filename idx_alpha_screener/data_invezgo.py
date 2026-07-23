@@ -131,6 +131,9 @@ class InvezgoProvider:
             df.set_index("Date", inplace=True)
             df.sort_index(inplace=True)
             df = df[~df.index.duplicated(keep='last')]
+            # Strip timezone biar kompatibel dengan data.py (non-UTC index)
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
             # Tambah lowercase aliases untuk kompatibilitas compute_all_indicators
             for col in ["Open","High","Low","Close","Volume"]:
                 if col in df.columns:
@@ -145,13 +148,20 @@ class InvezgoProvider:
         """Ambil data fundamental (PER, PBV, ROE, dll) dari Invezgo."""
         code = code.replace('.JK', '').upper()
         try:
-            keystat = self.client.analysis.get_keystat(code=code, type_period="Q", limit=4)
-            if keystat:
-                # Cari data terbaru
-                if isinstance(keystat, list) and len(keystat) > 0:
-                    latest = keystat[-1] if len(keystat) > 1 else keystat[0]
-                    return latest if isinstance(latest, dict) else {}
-            return {}
+            keystat = self.client.analysis.get_keystat(code=code, type_period="Q", limit=8)
+            if not keystat or "rows" not in keystat:
+                return {}
+            
+            result = {}
+            for row in keystat["rows"]:
+                name = row.get("name", "")
+                values = row.get("values", [])
+                if values and len(values) > 0:
+                    latest = values[-1]
+                    val = latest.get("amount", None)
+                    if val is not None:
+                        result[name] = val
+            return result
         except Exception as e:
             logger.debug("Gagal ambil fundamental %s: %s", code, e)
             return {}
