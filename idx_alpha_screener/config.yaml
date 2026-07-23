@@ -119,18 +119,18 @@ v5:
     VALUE:    [60, 52, 45, 38, 30]
 
 # ═══════════════════════════════════════════════════════════════
-# V6 ENGINE — Corrected Weight Scoring (ML-based)
+# V6 ENGINE — V4 optimized untuk KONGLOMERAT
 # ═══════════════════════════════════════════════════════════════
-# Berdasarkan analisis 4.689 sampel:
-#   POSITIF: volume, trend, weekly_trend
-#   NEGATIF: vwap, macd (inverted di V6)
-# V6 meng-invert faktor yang terbukti negatif di IDX.
+# V6 = V4 scoring engine + universe terbatas konglomerat.
+# Backtest: WR 47.8% (konglomerat) vs 44.0% (campuran).
+# Threshold dikalibrasi untuk large caps dengan fee lebih rendah.
 v6:
   enabled: false
   thresholds:
-    BULL:    [68, 58, 50, 42, 35]
-    BEAR:    [65, 55, 48, 40, 32]
-    RANGING: [66, 56, 48, 40, 32]
+    BULL:    [65, 55, 48, 40, 32]
+    BEAR:    [60, 52, 45, 38, 30]
+    RANGING: [62, 52, 45, 38, 30]
+    HIGH_VOLATILITY: [62, 52, 45, 38, 30]
 
 # ═══════════════════════════════════════════════════════════════
 # EXIT STRATEGY — Kapan keluar dari posisi (P0)

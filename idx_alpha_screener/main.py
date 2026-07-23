@@ -150,23 +150,27 @@ def analisis_satu_saham(ticker: str, df: Optional[pd.DataFrame] = None,
 
         # 6. Scoring — v3, v4, v5, atau v6
         if v6_engine.is_enabled():
-            # ── v6 Engine: Corrected Weight Scoring ──
-            row["regime"] = regime
-            v6_result = v6_engine.compute_score(row)
-            total_score = v6_result["score"]
-            signal = v6_result["signal"]
-            # Weekly trend filter
-            wt = row.get("weekly_trend", "NO_DATA")
-            if signal in ("STRONG_BUY", "BUY", "WEAK_BUY") and wt == "BEARISH":
-                _old = signal; signal = "HOLD"
-                logger.info("%s: weekly BEARISH, %s -> HOLD", ticker.replace('.JK',''), _old)
-            # Overextended filter: VWAP >5% + RSI >65
-            pv = row.get("pct_vs_vwap", 0); rv = row.get("rsi", 50)
-            if signal in ("STRONG_BUY","BUY") and not pd.isna(pv) and not pd.isna(rv):
-                if pv > 5 and rv > 65: signal = "HOLD"
-            swing_result = {"trend_aligned": signal in ("STRONG_BUY","BUY"),"volume_breakout": False}
-            v4_meta = {"conviction":total_score,"confluence":0,"conviction_raw":total_score,
-                       "confluence_bonus":0,"positive_factors":0,"factor_breakdown":"v6","confluence_detail":"v6"}
+            # ── v6 Engine: V4 Scoring + Konglomerat Universe ──
+            # V6 pake engine V4 (terbukti paling bagus) + threshold
+            # khusus large caps + konfigurasi konglomerat.
+            total_score = sc.compute_total_score(row, regime)
+            signal = sc.classify(total_score, regime)
+            swing_result = sf.swing_gate_pass(df)
+            if not swing_result['passed']:
+                logger.debug("Swing gate FAILED untuk %s — %s", ticker, ', '.join(swing_result['reasons']))
+            _orig_signal = signal
+            if signal in ("STRONG_BUY", "BUY", "WEAK_BUY") and not swing_result['passed']:
+                if swing_result.get('trend_aligned') or swing_result.get('volume_breakout'):
+                    if signal == "STRONG_BUY": signal = "BUY"
+                    else: signal = "HOLD"
+                else: signal = "HOLD"
+            # ADX filter (mild — hanya untuk no trend)
+            if signal in ("STRONG_BUY", "BUY", "WEAK_BUY") and not pd.isna(adx_now):
+                if adx_now < 12:
+                    _old = signal; signal = "HOLD"
+            v4_meta = {"conviction": total_score, "confluence": 0, "conviction_raw": total_score,
+                       "confluence_bonus": 0, "positive_factors": 0, "factor_breakdown": "v6",
+                       "confluence_detail": "v6"}
             
         elif v5_engine.is_enabled():
             # ── v5 Engine: 3 Profile Adaptive Scoring ──

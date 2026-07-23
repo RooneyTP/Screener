@@ -1,160 +1,75 @@
 """
-v6 — Corrected Weight Scoring Engine
-=====================================
-Berdasarkan analisis ML (4.689 sampel), beberapa faktor scoring
-ternyata NEGATIF terhadap forward return di IDX:
+v6 — V4 Engine optimized for KONGLOMERAT universe
+==================================================
+V6 bukan engine baru — tapi V4 dengan:
+  1. Universe terbatas saham konglomerat (25-30 ticker)
+  2. Threshold dikalibrasi khusus untuk large caps
+  3. Slippage tier Large/Mid (bukan Small/Micro)
+  4. Gak ada BEARISH weekly filter (terbukti gak ngaruh)
 
-  POSITIF: volume (+0.0056), trend (+0.0048), weekly_trend (+0.0042)
-  NEGATIF: vwap (-0.0056), macd (-0.0051), sr_proximity (-0.0016)
+Alasan: WR konglomerat 47.8% vs campuran 44.0% (+3.8% lebih tinggi).
+Large caps predictable, fundamental lengkap, fee lebih murah.
 
-Artinya: saham dengan VWAP premium & MACD bullish SUDAH harga
-dibentuk pasar — cenderung reversal. V6 meng-invert faktor-faktor
-ini untuk mean-reversion approach.
+Grup konglomerat:
+  ASTRONEWS Sapta: ASII, UNTR, AKRA, AALI, CPIN, ISAT
+  SALIM: INDF, ICBP, KLBF, HMSP
+  DJARUM: BBCA, BBRI, BMRI, BBNI
+  SINARMAS: SMRA, BSDE, ASRI
+  ADARO: ADRO
+  BARITO: BRPT
+  BAKRIE: ENRG
+  LIPPO: LPKR
+  CHAROEN: CPIN, JPFA
 """
 
-import logging, numpy as np, pandas as pd
-from typing import Optional, Dict
-logger = logging.getLogger("v6")
-
-enabled: bool = False
-config: dict = {}
-THRESHOLDS = {"BULL":[68,58,50,42,35],"BEAR":[65,55,48,40,32],"RANGING":[66,56,48,40,32]}
-
-def configure(cfg:dict):
-    global config,THRESHOLDS
-    if not cfg: return
-    config.update(cfg)
-    if "thresholds" in cfg and isinstance(cfg["thresholds"],dict):
-        THRESHOLDS.update(cfg["thresholds"])
-
-def is_enabled(): return enabled
-
-# ── V6 Factors (dikoreksi berdasarkan ML) ──
-
-def f_trend(row):
-    """Trend alignment — POSITIF predictor"""
-    e12,e50,p=row.get("ema12",0),row.get("ema50",0),row.get("close",0)
-    a=row.get("adx",0)
-    if pd.isna(e12)or pd.isna(e50)or p==0:return 30
-    s=30
-    if p>e12>e50:s+=30
-    elif p>e12 and e12<e50:s+=12
-    elif p<e12<e50:s-=10
-    if not pd.isna(a):
-        if a>=25:s+=12
-        elif a>=20:s+=5
-        elif a>=15:s+=2
-    return max(0,min(100,s))
-
-def f_volume(row):
-    """Volume confirmation — POSITIF predictor"""
-    v=row.get("vol_ratio",1.0)
-    if pd.isna(v)or v==0:return 40
-    if v>1.8:return 85
-    elif v>1.5:return 75
-    elif v>1.2:return 65
-    elif v>1.0:return 55
-    elif v>0.8:return 45
-    return 35
-
-def f_weekly_trend(row):
-    """Weekly trend — POSITIF predictor"""
-    wt=row.get("weekly_trend","NO_DATA")
-    if wt=="BULLISH":return 80
-    elif wt=="BEARISH":return 20
-    return 40
-
-def f_vwap(row):
-    """
-    VWAP — INVERTED (NEGATIF predictor)
-    Harga jauh di atas VWAP = extended, cenderung reversal.
-    Harga dekat/bawah VWAP = mean reversion opportunity.
-    """
-    pct=row.get("pct_vs_vwap",0)
-    if pd.isna(pct):return 40
-    # Mean reversion: reward di bawah atau dekat VWAP
-    if -2<=pct<0:return 75  # sedikit di bawah VWAP = opportunity
-    elif -4<=pct<-2:return 65
-    elif 0<pct<=1.5:return 60  # di atas wajar
-    elif pct<-4:return 45  # terlalu jauh di bawah = bearish
-    elif 1.5<pct<=3:return 40  # mulai extended
-    elif 3<pct<=5:return 30
-    elif pct>5:return 15  # overextended
-    return 40
-
-def f_macd(row):
-    """
-    MACD — INVERTED (NEGATIF predictor)
-    MACD bullish adalah lagging indicator di IDX.
-    Reward: MACD histogram rising from below zero (early signal)
-    """
-    hist=row.get("macd_hist",0)
-    sig=row.get("macd_signal",0)
-    macd=row.get("macd",0)
-    if pd.isna(hist):return 40
-    bull=macd>sig
-    # Histogram naik dari negatif = early bullish (bagus)
-    if not bull and hist>0:return 70  # turning point
-    elif bull and hist>0:return 55  # confirmed tapi late
-    elif bull:return 50
-    elif not bull and hist<0:return 30
-    return 40
-
-def f_rsi(row):
-    """RSI — INVERTED. RSI 40-55 sweet spot, >65 overbought"""
-    r=row.get("rsi",50)
-    if pd.isna(r)or r==0:return 30
-    if 40<=r<=55:return 70
-    elif 35<=r<40:return 60
-    elif 55<r<=60:return 55
-    elif 30<=r<35:return 45
-    elif 60<r<=65:return 35
-    elif r>65:return 20
-    elif r<30:return 15
-    return 40
-
-def f_relative_strength(row):
-    """Relative strength vs IHSG — NEUTRAL. Reward mean reversion"""
-    r=row.get("ret_20d",0)
-    i=row.get("idx_ret_20d",0)
-    if pd.isna(r):return 40
-    if pd.isna(i)or i==0:
-        return 50 if r>0 else 30
-    rel=r-i
-    if 0<rel<=3:return 70  # slight outperformance
-    elif rel>5:return 50  # terlalu outperformed = reversion risk
-    elif -3<=rel<=0:return 55  # slight underperformance
-    elif -8<=rel<-3:return 40
-    elif rel<-8:return 25
-    return 40
-
-# ── V6 Compute ──
-_FACTORS={
-    "trend":f_trend,"volume":f_volume,"weekly_trend":f_weekly_trend,
-    "vwap":f_vwap,"macd":f_macd,"rsi":f_rsi,"relative_strength":f_relative_strength,
-}
-_WEIGHTS=[
-    ("trend",0.22),("volume",0.18),("weekly_trend",0.15),
-    ("vwap",0.14),("macd",0.10),("rsi",0.10),("relative_strength",0.11),
+# Ticker per grup
+KONGLOMERAT_TICKERS = [
+    # ASTRA (Boy Thohir)
+    "ASII.JK", "UNTR.JK", "AKRA.JK", "CPIN.JK", "ISAT.JK",
+    # SALIM
+    "INDF.JK", "ICBP.JK", "KLBF.JK", "HMSP.JK",
+    # DJARUM (Hartono)
+    "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK",
+    # SINARMAS
+    "SMRA.JK", "BSDE.JK", "ASRI.JK",
+    # ADARO (Boy Thohir)
+    "ADRO.JK",
+    # BARITO
+    "BRPT.JK",
+    # BAKRIE
+    "ENRG.JK",
+    # LIPPO
+    "LPKR.JK",
+    # Tambahan blue chip pendukung
+    "TLKM.JK", "UNVR.JK", "GGRM.JK", "MYOR.JK", "SIDO.JK",
+    "BJBR.JK", "BJTM.JK", "BRIS.JK", "BBTN.JK",
+    "ADMR.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK",
+    "TOWR.JK", "TBIG.JK", "MTEL.JK",
 ]
 
-def compute_score(row) -> dict:
-    """Compute V6 score + signal"""
-    factors={}
-    for name,func in _FACTORS.items():
-        try:factors[name]=func(row)
-        except:factors[name]=40
+# Threshold khusus large caps (lebih rendah karena WR lebih bagus)
+# Berdasarkan backtest konglomerat 2.500+ sinyal
+THRESHOLDS = {
+    "BULL":            [65, 55, 48, 40, 32],
+    "BEAR":            [60, 52, 45, 38, 30],
+    "RANGING":         [62, 52, 45, 38, 30],
+    "HIGH_VOLATILITY": [62, 52, 45, 38, 30],
+}
 
-    score=sum(factors[n]*w for n,w in _WEIGHTS)
-    score=round(max(0,min(100,score)),1)
+import logging
+logger = logging.getLogger("v6")
+enabled: bool = False
 
-    # Signal
-    regime=row.get("regime","RANGING")
-    th=THRESHOLDS.get(regime,THRESHOLDS["RANGING"])
-    if score>=th[0]:sig="STRONG_BUY"
-    elif score>=th[1]:sig="BUY"
-    elif score>=th[2]:sig="WEAK_BUY"
-    elif score>=th[3]:sig="HOLD"
-    else:sig="SELL"
+def configure(cfg: dict):
+    global THRESHOLDS
+    if cfg:
+        if "thresholds" in cfg:
+            THRESHOLDS.update(cfg["thresholds"])
+        # Sync ke scoring module (biar V4 pake threshold V6)
+        try:
+            import scoring as sc
+            sc.THRESHOLDS.update(THRESHOLDS)
+        except:
+            pass
 
-    return {"score":score,"signal":sig,"factors":factors}
+def is_enabled(): return enabled
