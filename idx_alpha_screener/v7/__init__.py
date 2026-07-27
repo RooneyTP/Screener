@@ -121,7 +121,7 @@ def factor_foreign_flow(code: str) -> dict:
         # Cari foreign net dari summary
         foreign_net = 0
         for item in summary:
-            if item.get("code") in ["AG", "RG", "DB"]:  # Foreign brokers
+            if item.get("code") in ["AG", "RG", "DB", "GS", "ML", "CS", "UBS"]:  # Foreign brokers
                 buy = int(item.get("buy_value", 0))
                 sell = int(item.get("sell_value", 0))
                 foreign_net += (buy - sell)

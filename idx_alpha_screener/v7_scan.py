@@ -110,27 +110,28 @@ def main():
             if "akumulasi" in bf and v7r["score"] >= 48:
                 swing_score += 5
 
-            ok = swing_score >= 50 or ("akumulasi" in bf and v7r["score"] >= 48)
-            if not ok:
-                continue
-            if "distribusi" in bf and v7r["score"] < 55:
-                continue
-            nn = ("netral" in bf) or ("net_buy" in bf and swing_score < 52)
-            if swing_score < 55 and nn:
-                continue
+            # ── Swing filter (independent) ──
+            swing_ok = False
+            if swing_score >= 50 or ("akumulasi" in bf and v7r["score"] >= 48):
+                if not ("distribusi" in bf and v7r["score"] < 55):
+                    nn = ("netral" in bf) or ("net_buy" in bf and swing_score < 52)
+                    if not (swing_score < 55 and nn):
+                        swing_ok = True
 
-            entry_rec = recommend_entry(tkr, price, atr, row, v7r, sentiment)
-            ex = compute_exit(price, atr, regime, "swing", weekly)
-            sz = position_sizing(CAPITAL, price, swing_score, atr_pct)
-            swing.append({
-                "tkr": tkr, "score": swing_score, "price": price,
-                "exit": ex, "sizing": sz,
-                "bf": bf, "ff": ff, "weekly": weekly, "brokers": brokers_raw,
-                "entry_rec": entry_rec,
-            })
+            if swing_ok:
+                entry_rec = recommend_entry(tkr, price, atr, row, v7r, sentiment)
+                ex = compute_exit(price, atr, regime, "swing", weekly)
+                sz = position_sizing(CAPITAL, price, swing_score, atr_pct)
+                swing.append({
+                    "tkr": tkr, "score": swing_score, "price": price,
+                    "exit": ex, "sizing": sz,
+                    "bf": bf, "ff": ff, "weekly": weekly, "brokers": brokers_raw,
+                    "entry_rec": entry_rec,
+                })
 
-            # Intraday
-            if v7r["score"] >= 48 and vol_ratio >= 1.0:
+            # ── Intraday filter (independent of swing) ──
+            intra_ok = v7r["score"] >= 48 and vol_ratio >= 1.0
+            if intra_ok:
                 ex2 = compute_exit(price, atr, regime, "intraday", weekly)
                 sz2 = position_sizing(CAPITAL, price, v7r["score"], atr_pct)
                 entry_rec2 = recommend_entry(tkr, price, atr, row, v7r, sentiment)
@@ -140,8 +141,9 @@ def main():
                     "entry_rec": entry_rec2,
                 })
 
-            # Record cooldown — regardless of swing/intra signal
-            cooldown.record(tkr, v7r["signal"], {"score": swing_score})
+            # Record cooldown if ANY signal passed
+            if swing_ok or intra_ok:
+                cooldown.record(tkr, v7r["signal"], {"score": swing_score})
 
         except Exception as e:
             logger.debug("Skip %s: %s", tkr, e)

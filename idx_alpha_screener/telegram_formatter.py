@@ -166,14 +166,23 @@ def format_message(
     n_swing = len(swing_list)
     n_intra = len(intra_list)
 
-    # Hitung alokasi (top 3 masing-masing)
+    # Hitung alokasi (top 3 deduplicate — same ticker may appear in both)
     alloc = 0
     total_risk = 0
+    counted_tickers = set()
     for s in swing_list[:3]:
+        tkr = s.get("tkr", "")
+        if tkr in counted_tickers:
+            continue
+        counted_tickers.add(tkr)
         cost = s.get("sizing", {}).get("cost", 0)
         alloc += cost
         total_risk += s.get("sizing", {}).get("risk_amount", int(cost * 0.05))
     for s in intra_list[:3]:
+        tkr = s.get("tkr", "")
+        if tkr in counted_tickers:
+            continue
+        counted_tickers.add(tkr)
         cost = s.get("sizing", {}).get("cost", 0)
         alloc += cost
         total_risk += s.get("sizing", {}).get("risk_amount", int(cost * 0.05))
