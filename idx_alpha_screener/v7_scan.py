@@ -44,7 +44,7 @@ def main():
     except Exception as e:
         logger.error("Gagal init Invezgo: %s", e)
         print(f"❌ Gagal init Invezgo: {e}")
-        return
+        sys.exit(1)
 
     try:
         df_ihsg = fetch_ihsg_cached(period="2y")
@@ -55,7 +55,7 @@ def main():
     # ── Market regime — compute ONCE from IHSG ──
     if df_ihsg is not None and not df_ihsg.empty and len(df_ihsg) >= 50:
         df_ihsg_regime = compute_all_indicators(df_ihsg.copy())
-        regime, trend_score, adx_val = detect_market_regime(df_ihsg_regime)
+        regime, _, _ = detect_market_regime(df_ihsg_regime)
     else:
         regime = "RANGING"
     logger.info("Market regime: %s", regime)
