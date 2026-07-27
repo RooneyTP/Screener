@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Cron Wrapper — V7 Dual Mode Scanner (21:00 WIB)"""
+"""Cron Wrapper — V7 Dual Mode Scanner (21:00 WIB)
+Telegram delivery is handled inside v7_scan.py via send_telegram_sync."""
 import sys, os, subprocess
 SCREENER_DIR = r"C:\Hermes_Workspace\Screener\idx_alpha_screener"
 print(f"{'='*50}\n  V7 DUAL MODE SCAN\n  [cron_v3_scan.py] {__import__('datetime').datetime.now().strftime('%d/%m/%Y %H:%M')} WIB\n{'='*50}")
