@@ -111,7 +111,15 @@ def position_sizing(capital: float, price: float, score: float, atr_pct: float) 
     elif atr_pct < 1.5: base_pct *= 1.3 # low vol = lebih berani
     
     cost = capital * base_pct
-    lots = max(1, int(cost / (price * 100)))  # 100 saham per lot
+    raw_lots = int(cost / (price * 100))  # 100 saham per lot
+    if raw_lots == 0:
+        # Cek apakah 1 lot masih dalam batas MAX_PER_POS
+        if price * 100 <= MAX_PER_POS:
+            lots = 1
+        else:
+            return {"lots": 0, "cost": 0, "risk_pct": 0}
+    else:
+        lots = raw_lots
     actual_cost = lots * price * 100
     
     return {

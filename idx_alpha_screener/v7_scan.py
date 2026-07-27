@@ -64,7 +64,7 @@ def main():
     cd_cfg = CONFIG.get("cooldown", {})
     cooldown = CooldownTracker(
         db_path=os.path.join(ROOT, cd_cfg.get("db_path", "data/signal_cooldown.json")),
-        cooldown_days=cd_cfg.get("days", 1),
+        cooldown_days=cd_cfg.get("days", 1) if cd_cfg.get("enabled", True) else 0,
     )
 
     # ── Market sentiment — dihitung sekali, dipakai entry_rec ──
