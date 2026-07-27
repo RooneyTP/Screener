@@ -204,7 +204,7 @@ def predict_market_sentiment(df_ihsg: pd.DataFrame, invezgo_provider=None) -> di
 
     # ── CLASSIFICATION ──
     # RED: (A) turun 3+ hari + ADX>20 + RSI<45 + foreign jual
-    #      (B) downtrend + ADX kuat + 3d return negatif + volume turun
+    #      (B) downtrend + ADX kuat + 3d return negatif + volume naik (distribusi)
     red_cond_a = (
         red_count >= 3
         and not pd.isna(adx) and adx > 20
