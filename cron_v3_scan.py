@@ -3,10 +3,13 @@
 Telegram delivery is handled inside v7_scan.py via send_telegram_sync."""
 import sys, os, subprocess
 SCREENER_DIR = r"C:\Hermes_Workspace\Screener\idx_alpha_screener"
-print(f"{'='*50}\n  V7 DUAL MODE SCAN\n  [cron_v3_scan.py] {__import__('datetime').datetime.now().strftime('%d/%m/%Y %H:%M')} WIB\n{'='*50}")
+# Gunakan Hermes venv python yang punya invezgo-sdk
+VENV_PYTHON = r"C:\Users\yanli\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"
+PYTHON = VENV_PYTHON if os.path.exists(VENV_PYTHON) else sys.executable
+print(f"{'='*50}\n  V7 DUAL MODE SCAN\n  [cron_v3_scan.py] ...")
 sys.stdout.flush()
 try:
-    result = subprocess.run([sys.executable, "v7_scan.py"], cwd=SCREENER_DIR, capture_output=True, text=True, timeout=600)
+    result = subprocess.run([PYTHON, "v7_scan.py"], cwd=SCREENER_DIR, capture_output=True, text=True, timeout=600)
     if result.stdout: print(result.stdout)
     if result.stderr:
         err = [l for l in result.stderr.split('\n') if 'ERROR' in l or 'Traceback' in l]
