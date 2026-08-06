@@ -54,6 +54,15 @@ cooldown:
   days: 1                    # 1 hari — biar dapet sinyal segar tiap hari
   db_path: data/signal_cooldown.json
 
+# ── Market Mode Filter (v7.10) ──
+# Di regime lemah, hanya sinyal terkuat yang diizinkan.
+# Basis: backtest V4 — BEAR WR 33%, HIGH_VOL 35.6%, RANGING 38.9%, BULL 51.3%
+market_mode:
+  enabled: true
+  # BEAR/HIGH_VOLATILITY → hanya STRONG_BUY
+  # RANGING → STRONG_BUY + BUY
+  # BULL → semua sinyal
+
 sector:
   enabled: true
   max_per_sector: 2
@@ -171,6 +180,15 @@ portfolio:
 # WATCHLIST — Fokus saham konglomerat & grup
 # ═══════════════════════════════════════════════════════════════
 watchlist:
+  # Ticker dengan WR rendah dari backtest V4 (hold 10d) — di-skip:
+  # ICBP 14.7%, BISI 4.8%, CPIN 25.0%, INDF 34.0%, KLBF 34.5%
+  disabled:
+    - "ICBP"
+    - "BISI"
+    - "CPIN"
+    - "INDF"
+    - "KLBF"
+
   # User picks
   user:
     - "ALII"

@@ -9,7 +9,7 @@ Cara pakai:
   df = provider.fetch_historical("BBCA", period="1y")
 """
 
-import os, logging, warnings
+import os, logging, warnings, time
 from datetime import datetime, timedelta
 from typing import Optional
 import pandas as pd
@@ -41,7 +41,7 @@ else:
                 _search_ev=_hp
                 break
     if _search_ev:
-        with open(_search_ev) as f:
+        with open(_search_ev, encoding="utf-8", errors="replace") as f:
             for line in f:
                 line=line.strip()
                 if line.startswith("INVEZGO_API_KEY="):
@@ -69,6 +69,7 @@ class InvezgoProvider:
     def __init__(self):
         self.client = get_client()
         self._stock_list_cache = None
+        self._cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
     
     def get_stock_list(self):
         """Dapatkan daftar semua saham IDX."""
@@ -78,23 +79,39 @@ class InvezgoProvider:
         self._stock_list_cache = data
         return data
     
-    def get_historical(self, code: str, period: str = "1y") -> pd.DataFrame:
+    def get_historical(self, code: str, period: str = "1y", use_cache: bool = True) -> pd.DataFrame:
         """
-        Ambil data historis harian (OHLCV) dari Invezgo.
-        
+        Ambil data historis harian (OHLCV) dari Invezgo, dengan cache harian.
+
         Parameters
         ----------
         code : str
             Kode saham tanpa .JK (contoh: "BBCA")
         period : str
             "1mo", "3mo", "6mo", "1y", "2y", "max"
-        
+        use_cache : bool
+            True = pakai cache file harian (default). False = fetch langsung.
+
         Returns
         -------
         pd.DataFrame dengan kolom: open, high, low, close, volume
         """
         code = code.replace('.JK', '').upper()
-        
+
+        # ── Cache harian: simpan per (code, period) dengan TTL 20 jam ──
+        if use_cache:
+            cache_path = os.path.join(self._cache_dir, f"v7_{code}_{period}.csv")
+            if os.path.exists(cache_path):
+                age_hours = (time.time() - os.path.getmtime(cache_path)) / 3600
+                if age_hours < 20:
+                    try:
+                        df = pd.read_csv(cache_path, index_col=0, parse_dates=True,
+                                         encoding="utf-8", encoding_errors="replace")
+                        if not df.empty:
+                            return df
+                    except Exception:
+                        pass
+
         # Hitung tanggal
         today = datetime.now()
         period_map = {
@@ -104,7 +121,7 @@ class InvezgoProvider:
         days = period_map.get(period, 365)
         from_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
         to_date = today.strftime("%Y-%m-%d")
-        
+
         try:
             data = self.client.analysis.get_chart_stock(code=code, from_date=from_date, to_date=to_date)
             if not data:
@@ -138,6 +155,14 @@ class InvezgoProvider:
             for col in ["Open","High","Low","Close","Volume"]:
                 if col in df.columns:
                     df[col.lower()]=df[col]
+
+            # Simpan cache
+            if use_cache:
+                try:
+                    os.makedirs(self._cache_dir, exist_ok=True)
+                    df.to_csv(cache_path, encoding="utf-8")
+                except Exception:
+                    pass
             return df
             
         except Exception as e:

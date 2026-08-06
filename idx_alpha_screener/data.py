@@ -387,7 +387,8 @@ def fetch_ihsg_cached(period: str = "2y", cache_minutes: int = 1440) -> pd.DataF
         age_minutes = (time.time() - mtime) / 60
         if age_minutes < cache_minutes:
             logger.info("IHSG cache HIT (age=%.1f menit)", age_minutes)
-            df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
+            df = pd.read_csv(cache_path, index_col=0, parse_dates=True,
+                             encoding="utf-8", encoding_errors="replace")
             if not df.empty:
                 return df
 
@@ -402,7 +403,7 @@ def fetch_ihsg_cached(period: str = "2y", cache_minutes: int = 1440) -> pd.DataF
     idx.columns = [c.lower() for c in idx.columns]
     idx.index = pd.to_datetime(idx.index)
     idx.index.name = "date"
-    idx.to_csv(cache_path)
+    idx.to_csv(cache_path, encoding="utf-8")
     logger.info("IHSG disimpan ke cache: %s", cache_path)
     return idx
 
@@ -472,7 +473,8 @@ def fetch_with_cache(ticker: str, period: str = "18mo", cache_minutes: int = 288
         age_minutes = (time.time() - mtime) / 60
         if age_minutes < cache_minutes:
             logger.info("Cache HIT: %s (age=%.1f menit)", ticker, age_minutes)
-            df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
+            df = pd.read_csv(cache_path, index_col=0, parse_dates=True,
+                             encoding="utf-8", encoding_errors="replace")
             if not df.empty:
                 return df
             logger.warning("Cache file kosong untuk %s, fetch ulang", ticker)
@@ -483,7 +485,7 @@ def fetch_with_cache(ticker: str, period: str = "18mo", cache_minutes: int = 288
 
     if not df.empty:
         os.makedirs(cache_dir, exist_ok=True)
-        df.to_csv(cache_path)
+        df.to_csv(cache_path, encoding="utf-8")
         logger.info("Disimpan ke cache: %s", cache_path)
     else:
         logger.warning("Data kosong untuk %s, tidak disimpan ke cache", ticker)

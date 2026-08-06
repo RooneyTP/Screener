@@ -45,6 +45,7 @@ def format_message(
     market_sentiment: Optional[dict] = None,
     capital: float = 20_000_000,
     summary: Optional[dict] = None,
+    narratives: Optional[Dict[str, str]] = None,
 ) -> str:
     """
     Format pesan Telegram lengkap untuk V7 screener.
@@ -59,6 +60,9 @@ def format_message(
     market_sentiment : dict, optional — dari predict_market_sentiment()
     capital : float — modal total
     summary : dict, optional — ringkasan tambahan
+    narratives : dict[str, str], optional — {ticker: kalimat naratif} dari
+        ai_narrative.generate_narratives(). Default None/kosong = kompatibel
+        dengan pemanggil lama; sinyal tanpa narrative tetap diformat seperti biasa.
 
     Returns
     -------
@@ -66,6 +70,7 @@ def format_message(
     """
     now = datetime.now().strftime("%d/%m %H:%M")
     lines = []
+    narratives = narratives or {}
 
     # ── HEADER ──
     lines.append(f"📊 SCREENER V7 — {now} WIB")
@@ -91,6 +96,13 @@ def format_message(
             lines.append("→ Bisa open entry, trailing longgar")
         else:
             lines.append("→ Harga limit, jangan kejar")
+        # IHSG key levels
+        kl = market_sentiment.get("key_levels")
+        if kl and kl.get("current", 0) > 0:
+            lines.append(
+                f"📊 IHSG {kl['current']:,.0f} | Support {kl['support']:,.0f} | "
+                f"Resist {kl['resistance']:,.0f}"
+            )
         lines.append("")
 
     # ── SWING ──
@@ -116,7 +128,10 @@ def format_message(
                 entry_info += f" {entry_range}"
 
             wk = " ⚠️ BEAR" if s.get("weekly") == "BEARISH" else ""
-            lines.append(f"{i+1}. {tkr} {score:.1f} | {_fmt_price(price)} | {entry_info}{wk}")
+            grp = f" [{s.get('group')}]" if s.get("group") else ""
+            cont = s.get("continuation")
+            cont_label = f" (lanjutan - sinyal {cont})" if cont else ""
+            lines.append(f"{i+1}. {tkr}{grp} {score:.1f} | {_fmt_price(price)} | {entry_info}{wk}{cont_label}")
 
             # Line 2: SL / TP / RRR
             lines.append(f"   SL {_fmt_price(sl)} | TP {_fmt_price(tp)} | RRR {rrr}")
@@ -131,6 +146,11 @@ def format_message(
                 if len(bf_short) > 20:
                     bf_short = bf_short[:20]
                 lines.append(f"   {bf_short}")
+
+            # Line 4 (optional): AI narrative — konteks tambahan, bukan prediksi
+            nar = narratives.get(tkr)
+            if nar:
+                lines.append(f"   └ 📝 {nar}")
 
         lines.append("")
 
@@ -155,7 +175,9 @@ def format_message(
             if entry_range and entry_range != "-":
                 entry_info += f" {entry_range}"
 
-            lines.append(f"{tkr} {score:.1f} | {_fmt_price(price)} | Vol {vol:.1f}x")
+            cont = s.get("continuation")
+            cont_label = f" (lanjutan - sinyal {cont})" if cont else ""
+            lines.append(f"{tkr} {score:.1f} | {_fmt_price(price)} | Vol {vol:.1f}x{cont_label}")
             lines.append(f"   SL {_fmt_price(sl)} | TP {_fmt_price(tp)} | {entry_info}")
         lines.append("")
 
@@ -191,6 +213,11 @@ def format_message(
     lines.append(f"Modal {_fmt_price(capital)} | Risiko {_fmt_price(total_risk)} ({(total_risk/capital*100) if capital>0 else 0:.0f}%)")
 
     # ── EXIT STRATEGY ──
+    any_cont = any(s.get("continuation") for s in swing_list) or any(
+        s.get("continuation") for s in intra_list
+    )
+    if any_cont:
+        lines.append("🔄 (lanjutan) = sinyal sama sudah muncul <14 hari lalu")
     lines.append("")
     lines.append("🛡 EXIT: SL jika tutup <SL | Trailing aktif +3%")
     lines.append("⚠️ Data Invezgo | Keputusan trader")

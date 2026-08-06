@@ -75,6 +75,42 @@ def _count_consecutive(series, val: int) -> int:
     return count
 
 
+def compute_ihsg_key_levels(df_ihsg: pd.DataFrame) -> dict:
+    """
+    Hitung level kunci IHSG: support & resistance dari swing high/low terbaru.
+    Pakai Donchian 20/50 hari sebagai proxy level psikologis.
+
+    Returns dict: {support: float, resistance: float, current: float, trend: str}
+    """
+    empty = {"support": 0.0, "resistance": 0.0, "current": 0.0, "trend": "N/A"}
+    if df_ihsg is None or df_ihsg.empty or len(df_ihsg) < 30:
+        return empty
+    try:
+        close = df_ihsg["close"]
+        high = df_ihsg["high"]
+        low = df_ihsg["low"]
+        current = float(close.iloc[-1])
+
+        # Support/resistance dari swing terakhir 20 hari (jangan include hari ini penuh)
+        recent_high = float(high.iloc[-20:-1].max()) if len(high) >= 21 else float(high.max())
+        recent_low = float(low.iloc[-20:-1].min()) if len(low) >= 21 else float(low.min())
+
+        # Trend dari EMA12 vs EMA50 (recompute cepat)
+        ema12 = close.ewm(span=12, adjust=False).mean().iloc[-1]
+        ema50 = close.ewm(span=50, adjust=False).mean().iloc[-1]
+        trend = "UP" if ema12 > ema50 else "DOWN"
+
+        return {
+            "support": round(recent_low, 0),
+            "resistance": round(recent_high, 0),
+            "current": round(current, 0),
+            "trend": trend,
+        }
+    except Exception as e:
+        logger.debug("Key levels error: %s", e)
+        return empty
+
+
 def predict_market_sentiment(df_ihsg: pd.DataFrame, invezgo_provider=None) -> dict:
     """
     Prediksi arah IHSG besok.

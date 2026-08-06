@@ -96,8 +96,7 @@ def position_sizing(capital: float, price: float, score: float, atr_pct: float) 
         return {"lots": 0, "cost": 0, "risk_pct": 0}
     
     # Score-based allocation
-    # Limit alokasi: maks 90% modal, maks 15% per posisi
-    TOTAL_MAX = capital * 0.9
+    # Limit alokasi: maks 15% per posisi
     MAX_PER_POS = capital * 0.15
     
     if score >= 70: base_pct = 0.15     # 15% (turun dari 20%)
