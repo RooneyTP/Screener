@@ -50,6 +50,103 @@ def group_of(ticker: str) -> str:
     return GROUP_NAMES.get(ticker.upper(), "")
 
 
+def _update_logged_sizing(logged_signals: list, ticker: str, mode: str,
+                          lots: int, cost: int) -> None:
+    """Sinkronkan lot/cost hasil guard ke daftar sinyal yang akan di-log ke perf CSV.
+
+    logged_signals punya satu baris per (ticker, mode) — sama dengan sinyal di
+    swing/intra, jadi update in-place supaya CSV konsisten dengan rekomendasi.
+    """
+    for lg in logged_signals:
+        if lg.get("ticker") == ticker and lg.get("mode") == mode:
+            lg["lots"] = lots
+            lg["cost"] = cost
+            return
+
+
+def enforce_group_concentration_guard(swing: list, intra: list,
+                                      logged_signals: list,
+                                      capital: float,
+                                      max_pct: float = 40.0) -> list:
+    """C2 — Guard konsentrasi grup konglomerat (grup = proxy sektor).
+
+    Dipanggil SETELAH sinyal swing+intraday terkumpul dan sizing dihitung.
+    Total alokasi (cost) per grup konglomerat dihitung dari SEMUA sinyal
+    (swing + intraday). Jika total sebuah grup melebihi max_pct% modal
+    (default 40% — config portfolio.max_sector_exposure_pct), lot sinyal
+    grup itu diturunkan secara proporsional (minimal 1 lot) dan cost
+    diperbarui di signal dict + logged_signals agar pesan Telegram dan
+    perf CSV konsisten.
+
+    Pendekatan: TURUNKAN LOT (bukan sekadar menandai) karena position_sizing
+    hanya membatasi 15%/posisi — tanpa guard agregat, 3 sinyal grup sama
+    (mis. BRPT/BUMI/DSSA Barito) bisa menumpuk >40% modal di grup yang
+    korelasinya tinggi. Penurunan proporsional aman: (1) hanya aktif saat
+    >max_pct, (2) floor 1 lot, (3) tidak mengubah ticker/harga → dedup &
+    cooldown tidak terpengaruh, (4) saat konsentrasi normal fungsi ini
+    no-op total (perilaku lama TIDAK berubah).
+
+    Return daftar baris peringatan (kosong jika semua grup normal).
+    """
+    warnings = []
+    if capital <= 0 or not (swing or intra):
+        return warnings
+    limit = capital * max_pct / 100.0
+    all_signals = [("swing", s) for s in swing] + [("intraday", s) for s in intra]
+
+    # ── Total alokasi per grup ──
+    group_cost = {}
+    for _mode, s in all_signals:
+        g = group_of(s.get("tkr", ""))
+        if not g:
+            continue
+        cost = float((s.get("sizing") or {}).get("cost", 0) or 0)
+        group_cost[g] = group_cost.get(g, 0.0) + cost
+
+    for g, total in sorted(group_cost.items()):
+        pct = total / capital * 100.0
+        if pct <= max_pct:
+            continue  # normal — no-op
+        factor = limit / total  # < 1 → skala proporsional
+        details = []
+        for mode, s in all_signals:
+            if group_of(s.get("tkr", "")) != g:
+                continue
+            sz = s.get("sizing") or {}
+            old_lots = int(sz.get("lots", 0) or 0)
+            if old_lots <= 0:
+                continue
+            new_lots = max(1, int(old_lots * factor))
+            if new_lots >= old_lots:
+                continue
+            price = float(s.get("price", 0) or 0)
+            if price <= 0:
+                continue
+            new_cost = int(new_lots * price * 100)
+            sz["lots"] = new_lots
+            sz["cost"] = new_cost
+            sz["pct_modal"] = round(new_cost / capital * 100, 1)
+            _update_logged_sizing(logged_signals, s.get("tkr", ""), mode,
+                                  new_lots, new_cost)
+            details.append(f"{s.get('tkr')} {old_lots}→{new_lots} lot")
+        new_total = sum(
+            float((s.get("sizing") or {}).get("cost", 0) or 0)
+            for _m, s in all_signals if group_of(s.get("tkr", "")) == g
+        )
+        new_pct = new_total / capital * 100.0
+        if details:
+            warnings.append(
+                f"⚠️ KONSENTRASI: Grup {g} {pct:.0f}% > {max_pct:.0f}% — "
+                f"lot dikurangi ({', '.join(details)}) → {new_pct:.0f}%"
+            )
+        else:
+            warnings.append(
+                f"⚠️ KONSENTRASI: Grup {g} {pct:.0f}% > {max_pct:.0f}% — "
+                f"hati-hati (lot sudah minimal, tidak bisa dikurangi)"
+            )
+    return warnings
+
+
 def aggregate_sector_flow(signals: list) -> str:
     """
     Agregasi broker flow per grup (proxy sektor) dari daftar sinyal.
@@ -222,6 +319,7 @@ def main():
                     "signal": v7r["signal"], "entry_price": price,
                     "sl": ex["stop_loss"], "tp": ex["take_profit"],
                     "lots": sz.get("lots", 0), "cost": sz.get("cost", 0),
+                    "regime": regime,
                 })
 
             # ── Intraday filter (independent of swing) ──
@@ -240,6 +338,7 @@ def main():
                     "signal": v7r["signal"], "entry_price": price,
                     "sl": ex2["stop_loss"], "tp": ex2["take_profit"],
                     "lots": sz2.get("lots", 0), "cost": sz2.get("cost", 0),
+                    "regime": regime,
                 })
 
             # Record cooldown if ANY signal passed
@@ -252,6 +351,21 @@ def main():
 
     swing.sort(key=lambda x: x["score"], reverse=True)
     intra.sort(key=lambda x: x["score"], reverse=True)
+
+    # ── C2: Guard konsentrasi grup konglomerat (grup = proxy sektor) ──
+    # position_sizing membatasi 15% per posisi, tapi tanpa guard agregat,
+    # 3 sinyal grup sama (mis. BRPT/BUMI/DSSA Barito) bisa menumpuk >40%
+    # modal di satu grup berkorelasi tinggi. Batas dari config
+    # portfolio.max_sector_exposure_pct (default 40%). No-op saat normal.
+    portfolio_cfg = CONFIG.get("portfolio", {})
+    if portfolio_cfg.get("enabled", True):
+        max_group_pct = float(portfolio_cfg.get("max_sector_exposure_pct", 40.0))
+        concentration_warnings = enforce_group_concentration_guard(
+            swing, intra, logged_signals, CAPITAL, max_pct=max_group_pct)
+        for w in concentration_warnings:
+            logger.warning("C2: %s", w)
+    else:
+        concentration_warnings = []
 
     # ── Log performa sinyal ke CSV (dedup persistén: ±1% harga & <14 hari) ──
     perf_csv = os.path.join(ROOT, "data", "perf_tracker_v7.csv")
@@ -287,7 +401,9 @@ def main():
         narratives = {}
 
     # ── Format & print ──
-    output_message = format_message(swing, intra, sentiment, CAPITAL, narratives=narratives)
+    output_message = format_message(swing, intra, sentiment, CAPITAL,
+                                    narratives=narratives,
+                                    concentration_warnings=concentration_warnings)
 
     # Tambah posisi alerts + sector line ke output
     extra_parts = []

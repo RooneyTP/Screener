@@ -46,6 +46,7 @@ def format_message(
     capital: float = 20_000_000,
     summary: Optional[dict] = None,
     narratives: Optional[Dict[str, str]] = None,
+    concentration_warnings: Optional[List[str]] = None,
 ) -> str:
     """
     Format pesan Telegram lengkap untuk V7 screener.
@@ -63,6 +64,9 @@ def format_message(
     narratives : dict[str, str], optional — {ticker: kalimat naratif} dari
         ai_narrative.generate_narratives(). Default None/kosong = kompatibel
         dengan pemanggil lama; sinyal tanpa narrative tetap diformat seperti biasa.
+    concentration_warnings : list[str], optional — baris peringatan C2
+        (guard konsentrasi grup konglomerat) dari v7_scan. Default None =
+        tidak ada peringatan → format output TIDAK berubah untuk pemanggil lama.
 
     Returns
     -------
@@ -219,6 +223,11 @@ def format_message(
 
     lines.append(f"Swing {n_swing} | Intra {n_intra} | Alokasi {_fmt_price(alloc)}")
     lines.append(f"Modal {_fmt_price(capital)} | Risiko {_fmt_price(total_risk)} ({(total_risk/capital*100) if capital>0 else 0:.0f}%)")
+
+    # ── C2: peringatan konsentrasi grup (opsional — tidak muncul saat normal) ──
+    if concentration_warnings:
+        lines.append("")
+        lines.extend(concentration_warnings)
 
     # ── EXIT STRATEGY ──
     any_cont = any(s.get("continuation") for s in swing_list) or any(

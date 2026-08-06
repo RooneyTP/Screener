@@ -242,6 +242,53 @@ class TestPerfTrackerDedup(unittest.TestCase):
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# TEST 1b — perf_tracker: kolom regime (C2 kolom) + backfill CSV lama
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestPerfTrackerRegimeColumn(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.csv = os.path.join(self._tmp.name, "perf_tracker_v7.csv")
+
+    def test_new_signal_logged_with_regime(self):
+        s = _mk_signal()
+        s["regime"] = "BULL"
+        dedup_and_log_batch(self.csv, [s])
+        with open(self.csv, encoding="utf-8") as f:
+            header = f.readline().strip().split(",")
+        self.assertIn("regime", header, "header CSV harus punya kolom regime")
+        rows = load_signals(self.csv)
+        self.assertEqual(rows[0]["regime"], "BULL", "baris baru terisi regime nyata")
+
+    def test_signal_without_regime_defaults_unknown(self):
+        # Pemanggil lama (tanpa key regime) → default 'unknown', tidak crash
+        dedup_and_log_batch(self.csv, [_mk_signal()])
+        rows = load_signals(self.csv)
+        self.assertEqual(rows[0]["regime"], "unknown")
+
+    def test_old_csv_without_regime_backfilled_unknown(self):
+        # CSV lama persis format data/ asli (tanpa kolom fresh & regime)
+        with open(self.csv, "w", newline="", encoding="utf-8") as f:
+            f.write("date,ticker,mode,score,signal,entry_price,sl,tp,lots,cost\n")
+            f.write("2026-08-03 13:44,BRPT,swing,65.0,STRONG_BUY,1840.0,1692.0,2057.0,13,2392000\n")
+        # Log sinyal baru → migrasi header aman + backfill baris lama
+        s = _mk_signal(ticker="DSSA", entry_price=5000.0)
+        s["regime"] = "RANGING"
+        dedup_and_log_batch(self.csv, [s])
+        with open(self.csv, encoding="utf-8") as f:
+            header = f.readline().strip().split(",")
+        self.assertIn("regime", header, "kolom regime ditambahkan ke header CSV lama")
+        self.assertIn("fresh", header, "kolom fresh tetap ditambahkan juga")
+        rows = load_signals(self.csv)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["regime"], "unknown", "baris lama di-backfill 'unknown'")
+        self.assertEqual(rows[0]["fresh"], "1", "baris lama di-backfill fresh=1")
+        self.assertEqual(rows[1]["regime"], "RANGING", "baris baru terisi regime nyata")
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # TEST 2 — weekly_report: classify_ohlc (MFE/MAE) & evaluate_signals
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -556,6 +603,126 @@ class TestTelegramFormatter(unittest.TestCase):
                                                 narratives=narratives)
         self.assertIn("(truncated)", msg)
         self.assertLessEqual(len(msg), 3510, "pesan terpotong tetap di batas wajar")
+
+    def test_concentration_warnings_absent_by_default(self):
+        # Tanpa parameter C2 → format lama, tidak ada baris KONSENTRASI
+        msg = telegram_formatter.format_message(self._swing_list(2), self._intra_list(1))
+        self.assertNotIn("KONSENTRASI", msg)
+
+    def test_concentration_warnings_shown_when_provided(self):
+        msg = telegram_formatter.format_message(
+            self._swing_list(2), self._intra_list(1),
+            concentration_warnings=[
+                "⚠️ KONSENTRASI: Grup Barito 45% > 40% — lot dikurangi (BRPT 15→13 lot) → 39%"])
+        self.assertIn("⚠️ KONSENTRASI: Grup Barito 45% > 40%", msg)
+        self.assertIn("lot dikurangi", msg)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TEST 5b — C2 guard konsentrasi grup konglomerat (v7_scan)
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestC2ConcentrationGuard(unittest.TestCase):
+    """C2 — 3 sinyal grup sama >40% modal → lot diturunkan proporsional +
+    peringatan di format_message; saat normal (<40%) → no-op total."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Import v7_scan tanpa menulis file log data/screener.log
+        # (jangan sentuh data/ asli selama test). FileHandler diganti
+        # handler null inert (level 1000) supaya logging lain tidak rusak.
+        class _NullHandler:
+            level = 1000
+            def setFormatter(self, *a, **k):
+                return None
+        with mock.patch("logging.FileHandler", _NullHandler):
+            import v7_scan as v7s
+        cls.v7s = v7s
+
+    def _sig(self, tkr, price, lots, group):
+        """Sinyal swing sintetis — sizing dibuat persis seperti position_sizing."""
+        return {
+            "tkr": tkr, "score": 70.0, "price": price,
+            "exit": {"stop_loss": int(price * 0.9), "take_profit": int(price * 1.2),
+                     "rrr": 2.0},
+            "sizing": {"lots": lots, "cost": lots * price * 100, "pct_modal": 15.0,
+                       "risk_amount": lots * price * 100 * 0.05},
+            "bf": "akumulasi", "ff": "net_buy", "weekly": "BULLISH",
+            "brokers": "", "entry_rec": {"method": "Limit", "price_range": "-"},
+            "group": group,
+        }
+
+    def _logged(self, tickers, mode="swing", lots=0, price=0.0):
+        return [{"ticker": t, "mode": mode, "lots": lots, "cost": lots * price * 100}
+                for t in tickers]
+
+    def test_3_signals_same_group_45pct_lots_reduced_and_warned(self):
+        CAP = 20_000_000
+        price = 2000.0
+        lots = int(CAP * 0.15 / (price * 100))  # 15 lot = 15% modal per sinyal
+        self.assertEqual(lots, 15)
+        swing = [self._sig("BRPT", price, lots, "Barito"),
+                 self._sig("BUMI", price, lots, "Barito"),
+                 self._sig("DSSA", price, lots, "Barito")]  # total 45% > 40%
+        logged = self._logged(["BRPT", "BUMI", "DSSA"], lots=lots, price=price)
+
+        warns = self.v7s.enforce_group_concentration_guard(
+            swing, [], logged, CAP, max_pct=40.0)
+
+        self.assertEqual(len(warns), 1, "satu peringatan untuk grup Barito")
+        self.assertIn("KONSENTRASI", warns[0])
+        self.assertIn("Barito", warns[0])
+        self.assertIn("45% > 40%", warns[0])
+        self.assertIn("lot dikurangi", warns[0])
+        # Lot benar-benar diturunkan (15 → 13) & total cost ≤ 40% modal
+        self.assertEqual(swing[0]["sizing"]["lots"], 13)
+        total = sum(s["sizing"]["cost"] for s in swing)
+        self.assertLessEqual(total, CAP * 0.40 + 1, "total grup ≤ 40% setelah guard")
+        # logged_signals ikut disinkronkan (CSV konsisten dengan pesan)
+        self.assertEqual(logged[0]["lots"], swing[0]["sizing"]["lots"])
+        self.assertEqual(logged[0]["cost"], swing[0]["sizing"]["cost"])
+        # Peringatan tampil di format_message
+        msg = telegram_formatter.format_message(swing, [], capital=CAP,
+                                                concentration_warnings=warns)
+        self.assertIn("⚠️ KONSENTRASI", msg)
+        self.assertIn("Barito", msg)
+
+    def test_1_signal_15pct_normal_no_change_no_warning(self):
+        CAP = 20_000_000
+        price = 2000.0
+        lots = int(CAP * 0.15 / (price * 100))
+        swing = [self._sig("BRPT", price, lots, "Barito")]  # 15% saja
+        logged = self._logged(["BRPT"], lots=lots, price=price)
+
+        warns = self.v7s.enforce_group_concentration_guard(
+            swing, [], logged, CAP, max_pct=40.0)
+
+        self.assertEqual(warns, [], "konsentrasi normal → tanpa peringatan")
+        self.assertEqual(swing[0]["sizing"]["lots"], lots, "lot tidak berubah")
+        self.assertEqual(swing[0]["sizing"]["cost"], lots * price * 100,
+                         "cost tidak berubah")
+        self.assertEqual(logged[0]["lots"], lots, "logged_signals tidak berubah")
+
+    def test_two_groups_only_offending_one_reduced(self):
+        CAP = 20_000_000
+        price = 2000.0
+        lots = int(CAP * 0.15 / (price * 100))
+        swing = [self._sig("BRPT", price, lots, "Barito"),   # 15%
+                 self._sig("BUMI", price, lots, "Barito"),   # 15%
+                 self._sig("DSSA", price, lots, "Barito"),   # 15% → 45% Barito
+                 self._sig("ASII", price, lots, "Astra")]    # 15% Astra — normal
+        logged = self._logged(["BRPT", "BUMI", "DSSA", "ASII"], lots=lots, price=price)
+
+        warns = self.v7s.enforce_group_concentration_guard(
+            swing, [], logged, CAP, max_pct=40.0)
+
+        self.assertEqual(len(warns), 1, "hanya Barito yang melanggar")
+        self.assertIn("Barito", warns[0])
+        astra = swing[3]
+        self.assertEqual(astra["sizing"]["lots"], lots, "grup normal tidak disentuh")
+
+    def test_empty_signals_no_crash(self):
+        self.assertEqual(self.v7s.enforce_group_concentration_guard([], [], [], 20_000_000), [])
 
 
 # ══════════════════════════════════════════════════════════════════════════

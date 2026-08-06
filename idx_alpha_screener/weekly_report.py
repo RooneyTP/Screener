@@ -34,7 +34,7 @@ EVAL_CSV = os.path.join(DATA_DIR, "evaluations_v7.csv")
 EVAL_MARK = os.path.join(DATA_DIR, "evaluated_keys.json")
 FIELDS = ["date", "ticker", "mode", "score", "signal", "entry_price", "sl", "tp",
           "lots", "cost", "status", "close_price", "return_pct", "mfe_pct", "mae_pct",
-          "eval_date"]
+          "eval_date", "regime"]
 
 # ── E2: mapping grup konglomerat — konsisten dengan v7_scan.py GROUP_NAMES ──
 GROUP_NAMES = {
@@ -196,6 +196,7 @@ def _data_missing_row(s: dict, mode: str, today: datetime) -> dict:
         "status": "DATA_MISSING", "close_price": "",
         "return_pct": "", "mfe_pct": "", "mae_pct": "",
         "eval_date": today.strftime("%Y-%m-%d"),
+        "regime": s.get("regime", "") or "",
     }
 
 
@@ -268,6 +269,7 @@ def evaluate_signals(provider=None) -> list:
                 "mfe_pct": round(res["mfe_pct"], 2),
                 "mae_pct": round(res["mae_pct"], 2),
                 "eval_date": today.strftime("%Y-%m-%d"),
+                "regime": s.get("regime", "") or "",
             }
             _append_eval(row)
             results.append(row)

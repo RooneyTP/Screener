@@ -6,8 +6,11 @@ Fungsinya: mengukur Win Rate asli V7 secara forward (karena
 backtest V7 tidak mungkin — broker flow tidak punya history).
 
 CSV: data/perf_tracker_v7.csv
-Kolom: date, ticker, mode, score, signal, entry_price, sl, tp, lots, cost, fresh
+Kolom: date, ticker, mode, score, signal, entry_price, sl, tp, lots, cost, fresh, regime
   - fresh: 1 = sinyal baru, 0 = lanjutan (duplikat sinyal lama <14 hari, ±1% harga)
+  - regime: regime market saat sinyal dikeluarkan (BULL/BEAR/HIGH_VOLATILITY/RANGING)
+    dari detect_market_regime di v7_scan; baris lama (CSV migrasi) di-backfill 'unknown'.
+    Dipakai weekly_report (E2) untuk tabel WR per regime market.
 
 DEDUP PERSISTEN (A1):
 Sebelum menulis sinyal baru, riwayat CSV dicek. Jika ticker + mode yang sama
@@ -25,7 +28,10 @@ from datetime import datetime, timedelta
 logger = logging.getLogger("perf_tracker")
 
 DEFAULT_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "perf_tracker_v7.csv")
-FIELDS = ["date", "ticker", "mode", "score", "signal", "entry_price", "sl", "tp", "lots", "cost", "fresh"]
+FIELDS = ["date", "ticker", "mode", "score", "signal", "entry_price", "sl", "tp", "lots", "cost", "fresh", "regime"]
+
+# Nilai default saat migrasi CSV lama (kolom ditambahkan ke header + baris lama di-backfill)
+FIELD_DEFAULTS = {"fresh": "1", "regime": "unknown"}
 
 # ── Parameter dedup ──
 DEDUP_TOLERANCE = 0.01      # toleransi entry_price ±1%
@@ -47,10 +53,11 @@ def _parse_date(value):
 
 
 def _ensure_header(csv_path):
-    """Pastikan header CSV punya kolom 'fresh' (migrasi aman untuk CSV lama).
+    """Pastikan header CSV punya SEMUA kolom FIELDS (migrasi aman untuk CSV lama).
 
-    Jika file sudah ada tapi header belum punya kolom 'fresh', seluruh baris
-    lama di-backfill fresh=1 (dianggap sinyal baru) dan header ditulis ulang.
+    Jika file sudah ada tapi header belum punya kolom tertentu (mis. 'fresh'
+    atau 'regime'), seluruh baris lama di-backfill nilai default kolom itu
+    (fresh=1, regime='unknown') dan header ditulis ulang.
     No-op jika file belum ada atau header sudah lengkap.
     """
     if not os.path.exists(csv_path):
@@ -61,7 +68,8 @@ def _ensure_header(csv_path):
         if not first_line.strip():
             return
         header_cols = [c.strip().lower() for c in first_line.strip().split(",")]
-        if "fresh" in header_cols:
+        missing = [f for f in FIELDS if f not in header_cols]
+        if not missing:
             return
         with open(csv_path, newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
@@ -69,9 +77,12 @@ def _ensure_header(csv_path):
             writer = csv.DictWriter(f, fieldnames=FIELDS)
             writer.writeheader()
             for row in rows:
-                row["fresh"] = "1"
+                for col in missing:
+                    row[col] = FIELD_DEFAULTS.get(col, "")
                 writer.writerow(row)
-        logger.info("Perf CSV migrasi: kolom 'fresh' ditambahkan, %d baris lama di-backfill fresh=1", len(rows))
+        logger.info("Perf CSV migrasi: kolom %s ditambahkan, %d baris lama di-backfill (%s)",
+                    ",".join(missing), len(rows),
+                    ", ".join(f"{c}={FIELD_DEFAULTS.get(c, '')}" for c in missing))
     except Exception as e:
         logger.warning("Gagal migrasi header perf CSV (%s): %s", csv_path, e)
 
@@ -130,11 +141,13 @@ def find_previous_signal(csv_path, ticker, mode, entry_price,
 
 
 def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
-               lots, cost, fresh=True) -> bool:
+               lots, cost, fresh=True, regime="unknown") -> bool:
     """Log satu sinyal ke CSV. Return True jika sukses.
 
     fresh=True  → sinyal baru (fresh=1 di CSV)
     fresh=False → lanjutan/duplikat (fresh=0 di CSV, dilabel '(lanjutan)' di Telegram)
+    regime      → regime market saat sinyal (BULL/BEAR/HIGH_VOLATILITY/RANGING),
+                  default 'unknown' untuk pemanggil lama (kompatibel).
     """
     try:
         os.makedirs(os.path.dirname(csv_path), exist_ok=True)
@@ -150,6 +163,7 @@ def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
             "lots": int(lots),
             "cost": int(cost),
             "fresh": 1 if fresh else 0,
+            "regime": regime if regime else "unknown",
         }
         new_file = not os.path.exists(csv_path)
         _ensure_header(csv_path)  # migrasi header kalau CSV lama (no-op jika sudah lengkap)
