@@ -147,6 +147,11 @@ def format_message(
                     bf_short = bf_short[:20]
                 lines.append(f"   {bf_short}")
 
+            # Line 3b: earnings momentum (B1) — 1 baris, hanya kalau ada data
+            earn = s.get("earn", "")
+            if earn and earn not in ("no_data", "error"):
+                lines.append(f"   📈 {earn}")
+
             # Line 4 (optional): AI narrative — konteks tambahan, bukan prediksi
             nar = narratives.get(tkr)
             if nar:
@@ -179,6 +184,9 @@ def format_message(
             cont_label = f" (lanjutan - sinyal {cont})" if cont else ""
             lines.append(f"{tkr} {score:.1f} | {_fmt_price(price)} | Vol {vol:.1f}x{cont_label}")
             lines.append(f"   SL {_fmt_price(sl)} | TP {_fmt_price(tp)} | {entry_info}")
+            earn = s.get("earn", "")
+            if earn and earn not in ("no_data", "error"):
+                lines.append(f"   📈 {earn}")
         lines.append("")
 
     # ── SUMMARY ──

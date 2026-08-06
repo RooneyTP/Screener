@@ -373,15 +373,32 @@ def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 def fetch_ihsg_cached(period: str = "2y", cache_minutes: int = 1440) -> pd.DataFrame:
     """
-    Ambil data IHSG (^JKSE) dengan cache lokal 1 jam.
+    Ambil data IHSG dengan cache lokal 1 hari.
     Dipanggil sekali, hasilnya dipakai untuk semua ticker — tidak ada download
     ulang per ticker.
+
+    Fallback berjenjang (B3): Invezgo (get_index_history, cache internal 20 jam)
+    → cache CSV lokal → Yahoo Finance (^JKSE).
     """
     cache_dir = "cache"
     cache_path = os.path.join(cache_dir, "_IHSG_.csv")
     os.makedirs(cache_dir, exist_ok=True)
 
-    # Cek cache
+    # 1) Invezgo dulu — data 100% Invezgo (header v7_scan)
+    try:
+        from data_invezgo import InvezgoProvider
+        idx = InvezgoProvider().get_index_history(code="COMPOSITE", period=period)
+        if idx is not None and not idx.empty:
+            try:
+                idx.to_csv(cache_path, encoding="utf-8")
+            except Exception:
+                pass
+            logger.info("IHSG dari Invezgo (%d baris)", len(idx))
+            return idx
+    except Exception as e:
+        logger.debug("IHSG Invezgo gagal, lanjut fallback: %s", e)
+
+    # 2) Cache lokal
     if os.path.exists(cache_path):
         mtime = os.path.getmtime(cache_path)
         age_minutes = (time.time() - mtime) / 60
@@ -392,7 +409,7 @@ def fetch_ihsg_cached(period: str = "2y", cache_minutes: int = 1440) -> pd.DataF
             if not df.empty:
                 return df
 
-    # Cache miss — download
+    # 3) Cache miss — download Yahoo Finance
     logger.info("IHSG cache MISS — download ^JKSE...")
     idx = yf.download("^JKSE", period=period, progress=False,
                       auto_adjust=True, multi_level_index=False)

@@ -142,6 +142,29 @@ v6:
     HIGH_VOLATILITY: [62, 52, 45, 38, 30]
 
 # ═══════════════════════════════════════════════════════════════
+# V7 ENGINE — Invezgo Enhanced Scoring (F1)
+# ═══════════════════════════════════════════════════════════════
+# Override threshold & bobot faktor V7. Kosong/absent = pakai hardcode engine
+# (THRESHOLDS dan _V7_WEIGHTS di idx_alpha_screener/v7/__init__.py).
+v7:
+  enabled: true
+  # Threshold sinyal per regime: [STRONG_BUY, BUY, WEAK_BUY, HOLD, SELL]
+  thresholds:
+    BULL:              [62, 52, 45, 38, 30]
+    BEAR:              [58, 48, 42, 35, 28]
+    RANGING:           [60, 50, 42, 35, 28]
+    HIGH_VOLATILITY:   [60, 50, 42, 35, 28]
+  # Bobot faktor (total harus 1.0):
+  #   v4_score 0.40 | broker_flow 0.20 | foreign_flow 0.15
+  #   fundamental 0.15 | earnings_momentum 0.10
+  weights:
+    v4_score: 0.40
+    broker_flow: 0.20
+    foreign_flow: 0.15
+    fundamental: 0.15
+    earnings_momentum: 0.10
+
+# ═══════════════════════════════════════════════════════════════
 # EXIT STRATEGY — Kapan keluar dari posisi (P0)
 # ═══════════════════════════════════════════════════════════════
 exit_strategy:
@@ -210,7 +233,6 @@ watchlist:
     - "BUMI"  # Bumi Resources
     - "ENRG"  # Energi Mega Persada
     - "BNBR"  # Bakrie & Brothers
-    - "VBID"  # Bakrie Telecom
     - "ELTY"  # Bakrieland Development
   
   # Salim Group (First Pacific)

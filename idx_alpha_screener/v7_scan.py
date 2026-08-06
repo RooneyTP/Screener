@@ -87,6 +87,8 @@ def main():
         logger.info("Watchlist disabled (WR rendah): %s", ", ".join(sorted(disabled)))
     CAPITAL = 20_000_000
     v7_engine.enabled = True
+    # F1: override threshold/bobot V7 dari config.yaml (kosong = default hardcode engine)
+    v7_engine.configure(CONFIG.get("v7", {}))
 
     # ── Init providers & data (with crash protection) ──
     try:
@@ -186,6 +188,7 @@ def main():
             atr_pct = (atr / price * 100) if price > 0 else 0
             bf = v7r["factors"].get("broker_detail", "")
             ff = v7r["factors"].get("foreign_detail", "")
+            earn = v7r["factors"].get("earnings_detail", "")
             vol_ratio = float(row.get("vol_ratio", 1) or 1)
             weekly = row.get("weekly_trend", "NO_DATA")
             brokers_raw = v7r["factors"].get("brokers", "")
@@ -209,7 +212,7 @@ def main():
                 swing.append({
                     "tkr": tkr, "score": swing_score, "price": price,
                     "exit": ex, "sizing": sz,
-                    "bf": bf, "ff": ff, "weekly": weekly, "brokers": brokers_raw,
+                    "bf": bf, "ff": ff, "earn": earn, "weekly": weekly, "brokers": brokers_raw,
                     "entry_rec": entry_rec, "group": group_of(tkr),
                     "rsi": float(row.get("rsi", 0) or 0),
                     "vol_ratio": vol_ratio,
@@ -229,7 +232,7 @@ def main():
                 entry_rec2 = recommend_entry(tkr, price, atr, row, v7r, sentiment)
                 intra.append({
                     "tkr": tkr, "score": v7r["score"], "price": price,
-                    "exit": ex2, "sizing": sz2, "bf": bf, "ff": ff, "vol": vol_ratio,
+                    "exit": ex2, "sizing": sz2, "bf": bf, "ff": ff, "earn": earn, "vol": vol_ratio,
                     "entry_rec": entry_rec2, "group": group_of(tkr),
                 })
                 logged_signals.append({

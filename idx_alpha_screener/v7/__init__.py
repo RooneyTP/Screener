@@ -10,7 +10,7 @@ Memanfaatkan data eksklusif dari Invezgo yang tidak ada di Yahoo:
 V7 = V4 core scoring + bonus/malus dari data Invezgo
 """
 
-import logging, numpy as np
+import logging, os, json, re, time, numpy as np
 from typing import Optional, Dict
 
 logger = logging.getLogger("v7")
@@ -19,14 +19,32 @@ enabled: bool = False
 config: dict = {}
 THRESHOLDS = {"BULL":[62,52,45,38,30],"BEAR":[58,48,42,35,28],"RANGING":[60,50,42,35,28],"HIGH_VOLATILITY":[60,50,42,35,28]}
 
+# Bobot default faktor V7 — total HARUS 1.0 (bisa di-override via config.yaml section v7)
+_V7_DEFAULT_WEIGHTS = {
+    "v4_score": 0.40,          # V4 core scoring (digeser 0.50 -> 0.40 utk earnings momentum)
+    "broker_flow": 0.20,       # Broker accumulation
+    "foreign_flow": 0.15,      # Foreign flow
+    "fundamental": 0.15,       # Fundamental quality
+    "earnings_momentum": 0.10, # Earnings momentum (B1) — revenue growth, margin trend, D/E
+}
+_V7_WEIGHTS = dict(_V7_DEFAULT_WEIGHTS)
+
+# Dir cache JSON (data/ sejajar dengan screener.log) — fundamental TTL 7 hari, broker flow 1 hari
+_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
 _invezgo_provider = None
 
 def configure(cfg: dict):
-    global config, THRESHOLDS
+    global config, THRESHOLDS, _V7_WEIGHTS
     if not cfg: return
     config.update(cfg)
     if "thresholds" in cfg:
         THRESHOLDS.update(cfg["thresholds"])
+    if "weights" in cfg:
+        # Override bobot dari config — hanya kunci yang dikenal; total tetap dikelola user
+        w = dict(_V7_DEFAULT_WEIGHTS)
+        w.update({k: float(v) for k, v in cfg["weights"].items() if k in _V7_DEFAULT_WEIGHTS})
+        _V7_WEIGHTS = w
 
 def is_enabled(): return enabled
 
@@ -42,6 +60,152 @@ def get_provider():
     return _invezgo_provider
 
 # ═══════════════════════════════════════════════════════════════
+#  CACHE HELPERS (JSON, pola sama dengan cache CSV yang sudah ada)
+# ═══════════════════════════════════════════════════════════════
+
+def _cache_path(name: str) -> str:
+    return os.path.join(_DATA_DIR, name)
+
+def _safe_code(code: str) -> str:
+    """Sanitasi ticker utk nama file cache — hanya A-Z0-9 (cegah path traversal)."""
+    return re.sub(r"[^A-Z0-9]", "", (code or "").upper())
+
+def _load_json_cache(path: str, ttl_hours: float):
+    """Baca cache JSON kalau masih fresh (mtime < ttl_hours). None kalau miss/rusak."""
+    try:
+        if os.path.exists(path):
+            age_h = (time.time() - os.path.getmtime(path)) / 3600
+            if age_h < ttl_hours:
+                with open(path, encoding="utf-8") as f:
+                    return json.load(f)
+    except Exception:
+        pass
+    return None
+
+def _save_json_cache(path: str, data):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+# ── B2: SATU call broker per ticker (memori per-run + file harian TTL 24 jam) ──
+_broker_mem_cache: dict = {}
+
+def _get_broker_summary_cached(code: str, days: int = 3):
+    """
+    Ambil get_broker_summary() SEKALI per ticker — dipakai bersama oleh
+    factor_broker_flow() dan factor_foreign_flow(). Cache:
+      1. in-memory per run (kedua faktor baca data sama persis)
+      2. data/broker_flow_{code}.json TTL 24 jam (data harian jarang berubah)
+    Parsing kedua faktor tidak berubah — hanya sumber data yang di-share,
+    jadi hasil faktor untuk data yang sama identik (regresi nol).
+    """
+    code = _safe_code(code)
+    if code in _broker_mem_cache:
+        return _broker_mem_cache[code]
+
+    path = _cache_path(f"broker_flow_{code}.json")
+    data = _load_json_cache(path, ttl_hours=24)
+    if data is None:
+        provider = get_provider()
+        if not provider:
+            return None
+        data = provider.get_broker_summary(code, days=days)
+        if data:  # hanya simpan kalau ada isi — hindari cache error transient
+            _save_json_cache(path, data)
+
+    if not data:
+        data = []
+    _broker_mem_cache[code] = data
+    return data
+
+# ── B1: data laporan keuangan dicache 7 hari (angka kuartalan jarang berubah) ──
+_fund_mem_cache: dict = {}
+
+def _get_fundamental_cached(code: str):
+    """
+    IS (8 kuartal — butuh kuartal sama tahun lalu utk YoY) + BS (4 kuartal utk D/E).
+    Cache: data/fundamental_{code}.json TTL 7 hari. Kalau API error, TIDAK di-cache
+    (retry di run berikutnya) tapi di-memori per run agar scan tidak melambat.
+    """
+    code = _safe_code(code)
+    if code in _fund_mem_cache:
+        return _fund_mem_cache[code]
+
+    path = _cache_path(f"fundamental_{code}.json")
+    data = _load_json_cache(path, ttl_hours=24 * 7)
+    if data is None:
+        provider = get_provider()
+        if not provider:
+            return None
+        is_data = provider.get_financial_statement(code, statement="IS", limit=8)
+        bs_data = provider.get_financial_statement(code, statement="BS", limit=4)
+        data = {"IS": is_data, "BS": bs_data, "fetched_at": time.time()}
+        if is_data or bs_data:
+            _save_json_cache(path, data)
+
+    _fund_mem_cache[code] = data
+    return data
+
+# ── Parsing laporan keuangan Invezgo ──
+# Format: {"rows": [{"name": "...", "level": 0, "values": [{"year":..,"period":"Q1","amount":..}]}]}
+_PERIOD_ORDER = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
+
+def _parse_fs_series(fs: dict, name_priority: list, exclude: tuple = ()) -> list:
+    """
+    Ekstrak deret {year, period, amount} (sorted ascending) dari baris pertama
+    yang namanya cocok dengan prioritas name_priority (level paling atas menang).
+    """
+    if not fs or not isinstance(fs, dict):
+        return []
+    rows = fs.get("rows") or []
+    best = None
+    for prio in name_priority:
+        for r in rows:
+            name = str(r.get("name", "")).lower()
+            if prio not in name:
+                continue
+            if exclude and any(ex in name for ex in exclude):
+                continue
+            if best is None or int(r.get("level", 0)) < int(best.get("level", 0)):
+                best = r
+        if best is not None:
+            break
+    if best is None:
+        return []
+    vals = []
+    for v in (best.get("values") or []):
+        try:
+            amt = float(v.get("amount"))
+        except (TypeError, ValueError):
+            continue
+        period = str(v.get("period", ""))
+        try:
+            year = int(v.get("year", 0))
+        except (TypeError, ValueError):
+            continue
+        if period and year:
+            vals.append({"year": year, "period": period, "amount": amt})
+    vals.sort(key=lambda x: (x["year"], _PERIOD_ORDER.get(x["period"], 99)))
+    return vals
+
+_REV_PRIORITY = ["pendapatan usaha", "total pendapatan", "penjualan bersih",
+                 "penjualan", "pendapatan bersih", "revenue", "pendapatan"]
+_REV_EXCLUDE = ("lain", "bunga", "premi", "komisi", "operasi lain")
+_PROFIT_PRIORITY = ["laba bersih", "laba tahun berjalan", "laba periode berjalan",
+                    "net income", "laba neto", "net profit"]
+_PROFIT_EXCLUDE = ("laba kotor", "laba bruto", "laba usaha", "laba sebelum",
+                   "laba operasi", "laba komprehensif")
+_LIAB_PRIORITY = ["total liabilitas", "jumlah liabilitas", "total kewajiban",
+                  "jumlah kewajiban", "liabilitas"]
+_LIAB_EXCLUDE = ("jangka pendek", "jangka panjang", "sewa", "pajak", "dan ekuitas")
+_EQUITY_PRIORITY = ["total ekuitas", "jumlah ekuitas", "ekuitas yang dapat diatribusikan",
+                    "ekuitas", "equity"]
+_EQUITY_EXCLUDE = ("non pengendali", "nonpengendali", "liabilitas")
+
+# ═══════════════════════════════════════════════════════════════
 #  NEW FACTORS (dari Invezgo)
 # ═══════════════════════════════════════════════════════════════
 
@@ -55,10 +219,7 @@ def factor_broker_flow(code: str) -> dict:
       - Kalau net buyers > net sellers = akumulasi
     """
     try:
-        provider = get_provider()
-        if not provider: return {"score": 40, "detail": "no_data"}
-        
-        summary = provider.get_broker_summary(code, days=3)
+        summary = _get_broker_summary_cached(code, days=3)
         if not summary or not isinstance(summary, list) or len(summary) < 2:
             return {"score": 40, "detail": "no_data"}
         
@@ -111,10 +272,7 @@ def factor_broker_flow(code: str) -> dict:
 def factor_foreign_flow(code: str) -> dict:
     """Foreign Flow Factor — asing beli atau jual?"""
     try:
-        provider = get_provider()
-        if not provider: return {"score": 40, "detail": "no_data"}
-        
-        summary = provider.get_broker_summary(code, days=3)
+        summary = _get_broker_summary_cached(code, days=3)
         if not summary or not isinstance(summary, list):
             return {"score": 40, "detail": "no_data"}
         
@@ -195,16 +353,113 @@ def factor_fundamental_quality(code: str) -> dict:
         return {"score": 40, "detail": "error"}
 
 
+def _growth_score(g: float) -> int:
+    if g > 0.20: return 25
+    if g > 0.10: return 18
+    if g > 0.05: return 12
+    if g > 0.01: return 6
+    if g >= -0.01: return 0
+    if g >= -0.05: return -6
+    if g >= -0.10: return -12
+    if g >= -0.20: return -18
+    return -25
+
+def _margin_score(t: float) -> int:
+    if t > 0.02: return 15
+    if t > 0.005: return 8
+    if t >= -0.005: return 0
+    if t >= -0.02: return -8
+    return -15
+
+def _de_score(de: float) -> int:
+    if de < 0.5: return 10
+    if de < 1.0: return 6
+    if de < 1.5: return 0
+    if de < 2.5: return -6
+    return -10
+
+
+def factor_earnings_momentum(code: str) -> dict:
+    """
+    Earnings Momentum Factor (B1) — memakai get_financial_statement():
+      1. Revenue growth YoY (IS, kuartal sama tahun lalu; fallback QoQ)
+      2. Net margin trend (laba bersih / pendapatan, 4 kuartal terakhir)
+      3. D/E dari neraca (BS)
+    Data laporan dicache 7 hari di data/fundamental_{code}.json (angka
+    kuartalan jarang berubah). Kalau laporan tidak tersedia → skor netral 0
+    (tidak crash, tidak memperlambat scan).
+    """
+    try:
+        data = _get_fundamental_cached(code)
+        if not data:
+            return {"score": 0, "detail": "no_data"}
+
+        rev_rows = _parse_fs_series(data.get("IS"), _REV_PRIORITY, _REV_EXCLUDE)
+        profit_rows = _parse_fs_series(data.get("IS"), _PROFIT_PRIORITY, _PROFIT_EXCLUDE)
+        liab_rows = _parse_fs_series(data.get("BS"), _LIAB_PRIORITY, _LIAB_EXCLUDE)
+        equity_rows = _parse_fs_series(data.get("BS"), _EQUITY_PRIORITY, _EQUITY_EXCLUDE)
+
+        # ── 1. Revenue growth: YoY (kuartal sama tahun lalu) / fallback QoQ ──
+        growth, growth_label = None, ""
+        if len(rev_rows) >= 2:
+            latest = rev_rows[-1]
+            prev = None
+            for v in rev_rows[:-1]:
+                if v["period"] == latest["period"] and v["year"] == latest["year"] - 1:
+                    prev = v
+                    break
+            if prev is not None and prev["amount"]:
+                growth = latest["amount"] / prev["amount"] - 1
+                growth_label = "YoY"
+            elif rev_rows[-2]["amount"]:
+                growth = latest["amount"] / rev_rows[-2]["amount"] - 1
+                growth_label = "QoQ"
+
+        # ── 2. Net margin trend: 4 kuartal terakhir (samakan periode) ──
+        rev_map = {f"{v['year']}{v['period']}": v["amount"] for v in rev_rows}
+        prof_map = {f"{v['year']}{v['period']}": v["amount"] for v in profit_rows}
+        common = sorted(k for k in rev_map if k in prof_map)
+        margins = []
+        for k in common[-4:]:
+            if rev_map[k]:
+                margins.append((k, prof_map[k] / rev_map[k]))
+        margin_trend, margin_base, margin_latest = None, None, None
+        if len(margins) >= 2:
+            margin_base, margin_latest = margins[0][1], margins[-1][1]
+            margin_trend = margin_latest - margin_base
+
+        # ── 3. D/E dari neraca (nilai terbaru) ──
+        de = None
+        if liab_rows and equity_rows and equity_rows[-1]["amount"]:
+            de = liab_rows[-1]["amount"] / equity_rows[-1]["amount"]
+
+        if growth is None and margin_trend is None and de is None:
+            return {"score": 0, "detail": "no_data"}
+
+        score = 50
+        parts = []
+        if growth is not None:
+            score += _growth_score(growth)
+            parts.append(f"Rev {growth*100:+.0f}% {growth_label}")
+        if margin_trend is not None:
+            score += _margin_score(margin_trend)
+            parts.append(f"margin {margin_base*100:.0f}->{margin_latest*100:.0f}%")
+        if de is not None:
+            score += _de_score(de)
+            parts.append(f"D/E {de:.1f}")
+
+        return {"score": max(0, min(100, score)), "detail": " | ".join(parts)}
+
+    except Exception as e:
+        logger.debug("Earnings momentum error %s: %s", code, e)
+        return {"score": 0, "detail": "error"}
+
+
 # ═══════════════════════════════════════════════════════════════
 #  V7 MASTER SCORE — menggabungkan V4 + Invezgo factors
 # ═══════════════════════════════════════════════════════════════
 
-_V7_WEIGHTS = {
-    "v4_score": 0.50,       # V4 core scoring masih 50%
-    "broker_flow": 0.20,    # Broker accumulation 20%
-    "foreign_flow": 0.15,   # Foreign flow 15%
-    "fundamental": 0.15,    # Fundamental quality 15%
-}
+# _V7_WEIGHTS dikelola di atas (L23-30 via _V7_DEFAULT_WEIGHTS) — dup, jangan hardcode ulang
 
 def compute(code: str, v4_score: float, regime: str) -> dict:
     """
@@ -227,13 +482,16 @@ def compute(code: str, v4_score: float, regime: str) -> dict:
     bf = factor_broker_flow(code)
     ff = factor_foreign_flow(code)
     fq = factor_fundamental_quality(code)
-    
-    # Weighted score
+    em = factor_earnings_momentum(code)
+    w = _V7_WEIGHTS
+
+    # Weighted score (total bobot = 1.0)
     v7_score = (
-        v4_score * _V7_WEIGHTS["v4_score"] +
-        bf["score"] * _V7_WEIGHTS["broker_flow"] +
-        ff["score"] * _V7_WEIGHTS["foreign_flow"] +
-        fq["score"] * _V7_WEIGHTS["fundamental"]
+        v4_score * w["v4_score"] +
+        bf["score"] * w["broker_flow"] +
+        ff["score"] * w["foreign_flow"] +
+        fq["score"] * w["fundamental"] +
+        em["score"] * w["earnings_momentum"]
     )
     v7_score = round(max(0, min(100, v7_score)), 1)
     
@@ -256,6 +514,8 @@ def compute(code: str, v4_score: float, regime: str) -> dict:
             "foreign_detail": ff["detail"],
             "fundamental": fq["score"],
             "fundamental_detail": fq["detail"],
+            "earnings_momentum": em["score"],
+            "earnings_detail": em["detail"],
             "brokers": bf.get("brokers", ""),
             }
     }

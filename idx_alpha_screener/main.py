@@ -32,7 +32,9 @@ import yaml
 import signal_manager as sm
 import portfolio as pf  # Portfolio heat management
 import slippage as slip # Realistic slippage model
-import perf_tracker as pt # Performance tracker
+# LEGACY - tidak dipakai v7: import perf_tracker dihapus. perf_tracker.py sudah
+# ditulis ulang untuk V7 (fungsi log_signal/dedup_and_log_batch/weekly_stats,
+# dipakai v7_scan.py) — API class PerformanceTracker() tidak ada lagi.
 
 # ── v4 Engine (toggleable) ──
 import v4 as v4_engine
@@ -685,14 +687,12 @@ def main():
     logger.info("Slippage model: %s", "AKTIF" if slip.SLIPPAGE_ENABLED else "NONAKTIF")
 
     # ── Performance Tracker ───────────────────────────────────────────
-    perf_tracker = None
-    perf_cfg = CONFIG.get("perf_tracker", {"enabled": False})
-    if perf_cfg.get("enabled", True):
-        csv_path = perf_cfg.get("csv_path", "data/perf_tracker.csv")
-        if not os.path.isabs(csv_path):
-            csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), csv_path)
-        perf_tracker = pt.PerformanceTracker(csv_path=csv_path)
-        logger.info("Performance tracker: AKTIF")
+    # LEGACY - tidak dipakai v7: blok ini memanggil pt.PerformanceTracker()
+    # yang TIDAK ADA di perf_tracker.py (modul sudah ditulis ulang untuk V7:
+    # log_signal / dedup_and_log_batch / weekly_stats, dipakai v7_scan.py).
+    # Fitur tracking sinyal v2 ini sudah digantikan V7 — dihapus agar
+    # main.py tidak crash di titik ini. (config.yaml L262 "perf_tracker"
+    # dibiarkan; tidak dibaca siapa pun lagi.)
 
     # ── Exit Strategy Config ────────────────────────────────────────────
     exit_cfg = CONFIG.get("exit_strategy", {})
@@ -776,15 +776,8 @@ def main():
             res = analisis_satu_saham(tkr, df=df, no_ihsg=args.no_ihsg, df_ihsg=df_ihsg)
             if res:
                 hasil.append(res)
-                # Record to perf tracker
-                if perf_tracker and res.get("signal") in ("STRONG_BUY", "BUY", "WEAK_BUY"):
-                    perf_tracker.record_signal(
-                        ticker=res["ticker"], signal=res["signal"],
-                        score=res["score"], regime=res["regime"],
-                        slippage_tier=res.get("slippage_tier", "MID"),
-                        total_cost_pct=res.get("total_cost_pct", 0.75),
-                        entry_price=res["price"],
-                    )
+                # LEGACY - tidak dipakai v7: record_signal() tidak ada di
+                # perf_tracker.py (lihat komentar init "Performance Tracker")
                 # Track berapa banyak yg lolos swing gate
                 if res.get('signal') in ("STRONG_BUY", "BUY", "WEAK_BUY"):
                     pass  # auto-logged by classifier
@@ -805,15 +798,8 @@ def main():
             res = analisis_satu_saham(tkr, no_ihsg=args.no_ihsg, df_ihsg=df_ihsg)
             if res:
                 hasil.append(res)
-                # Record to perf tracker
-                if perf_tracker and res.get("signal") in ("STRONG_BUY", "BUY", "WEAK_BUY"):
-                    perf_tracker.record_signal(
-                        ticker=res["ticker"], signal=res["signal"],
-                        score=res["score"], regime=res["regime"],
-                        slippage_tier=res.get("slippage_tier", "MID"),
-                        total_cost_pct=res.get("total_cost_pct", 0.75),
-                        entry_price=res["price"],
-                    )
+                # LEGACY - tidak dipakai v7: record_signal() tidak ada di
+                # perf_tracker.py (lihat komentar init "Performance Tracker")
             else:
                 errors += 1
 

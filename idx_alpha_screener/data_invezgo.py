@@ -9,7 +9,7 @@ Cara pakai:
   df = provider.fetch_historical("BBCA", period="1y")
 """
 
-import os, logging, warnings, time
+import os, logging, re, warnings, time
 from datetime import datetime, timedelta
 from typing import Optional
 import pandas as pd
@@ -17,6 +17,19 @@ import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("invezgo")
+
+
+def _to_int(v):
+    """Konversi aman ke int (volume Invezgo kadang string dengan ribuan)."""
+    try:
+        return int(float(str(v).replace(",", "")))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_code(code: str) -> str:
+    """Sanitasi ticker utk nama file cache — hanya A-Z0-9 (cegah path traversal)."""
+    return re.sub(r"[^A-Z0-9]", "", (code or "").upper())
 
 # ── Load API Key dari .env ──
 API_KEY = ""
@@ -96,7 +109,7 @@ class InvezgoProvider:
         -------
         pd.DataFrame dengan kolom: open, high, low, close, volume
         """
-        code = code.replace('.JK', '').upper()
+        code = _safe_code(code)
 
         # ── Cache harian: simpan per (code, period) dengan TTL 20 jam ──
         if use_cache:
@@ -169,9 +182,93 @@ class InvezgoProvider:
             logger.error("Gagal ambil data historis %s: %s", code, e)
             return pd.DataFrame()
     
+    def get_index_history(self, code: str = "COMPOSITE", period: str = "2y", use_cache: bool = True) -> pd.DataFrame:
+        """
+        Ambil data historis INDEKS dari Invezgo (IHSG = COMPOSITE), cache harian.
+        Drop-in untuk fetch_ihsg_cached() — kolom lowercase OHLCV sama seperti
+        get_historical(). Invezgo max 2 tahun (sama seperti get_historical).
+
+        Parameters
+        ----------
+        code : str — kode indeks Invezgo ("COMPOSITE" = IHSG, "LQ45", dll)
+        period : str — "1mo", "3mo", "6mo", "1y", "2y", "max"
+        use_cache : bool — True = pakai cache file (TTL 20 jam, default)
+
+        Returns
+        -------
+        pd.DataFrame dengan kolom open, high, low, close, volume
+        """
+        code = _safe_code(code)
+
+        # ── Cache harian: sama pola dengan get_historical ──
+        if use_cache:
+            cache_path = os.path.join(self._cache_dir, f"v7_IDX_{code}_{period}.csv")
+            if os.path.exists(cache_path):
+                age_hours = (time.time() - os.path.getmtime(cache_path)) / 3600
+                if age_hours < 20:
+                    try:
+                        df = pd.read_csv(cache_path, index_col=0, parse_dates=True,
+                                         encoding="utf-8", encoding_errors="replace")
+                        if not df.empty:
+                            return df
+                    except Exception:
+                        pass
+
+        today = datetime.now()
+        period_map = {
+            "1mo": 30, "3mo": 90, "6mo": 180,
+            "1y": 365, "2y": 730, "max": 730  # Invezgo max 2 tahun
+        }
+        days = period_map.get(period, 365)
+        from_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+        to_date = today.strftime("%Y-%m-%d")
+
+        try:
+            data = self.client.analysis.get_chart_index(code=code, from_date=from_date, to_date=to_date)
+            if not data:
+                logger.warning("Data kosong untuk indeks %s", code)
+                return pd.DataFrame()
+
+            rows = []
+            for item in data:
+                if "date" not in item:
+                    continue
+                rows.append({
+                    "Date": pd.to_datetime(item.get("date", "")),
+                    "Open": float(item.get("open", 0)),
+                    "High": float(item.get("high", 0)),
+                    "Low": float(item.get("low", 0)),
+                    "Close": float(item.get("close", 0)),
+                    "Volume": _to_int(item.get("volume", 0)),
+                })
+
+            df = pd.DataFrame(rows)
+            if df.empty:
+                return df
+            df.set_index("Date", inplace=True)
+            df.sort_index(inplace=True)
+            df = df[~df.index.duplicated(keep='last')]
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            for col in ["Open", "High", "Low", "Close", "Volume"]:
+                if col in df.columns:
+                    df[col.lower()] = df[col]
+
+            if use_cache:
+                try:
+                    os.makedirs(self._cache_dir, exist_ok=True)
+                    df.to_csv(cache_path, encoding="utf-8")
+                except Exception:
+                    pass
+            return df
+
+        except Exception as e:
+            logger.error("Gagal ambil historis indeks %s: %s", code, e)
+            return pd.DataFrame()
+
     def get_fundamental(self, code: str):
         """Ambil data fundamental (PER, PBV, ROE, dll) dari Invezgo."""
-        code = code.replace('.JK', '').upper()
+        code = _safe_code(code)
         try:
             keystat = self.client.analysis.get_keystat(code=code, type_period="Q", limit=8)
             if not keystat or "rows" not in keystat:
@@ -193,7 +290,7 @@ class InvezgoProvider:
     
     def get_financial_statement(self, code: str, statement: str = "IS", limit: int = 4):
         """Ambil laporan keuangan: IS (labarugi), BS (neraca), CF (aruskas)."""
-        code = code.replace('.JK', '').upper()
+        code = _safe_code(code)
         try:
             return self.client.analysis.get_financial_statement(
                 code=code, statement=statement, type_period="Q", limit=limit
@@ -204,7 +301,7 @@ class InvezgoProvider:
     
     def get_broker_summary(self, code: str, days: int = 5):
         """Ambil data broker summary & foreign flow."""
-        code = code.replace('.JK', '').upper()
+        code = _safe_code(code)
         try:
             to_date = datetime.now().strftime("%Y-%m-%d")
             from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -217,7 +314,7 @@ class InvezgoProvider:
     
     def get_intraday(self, code: str):
         """Ambil snapshot harga real-time."""
-        code = code.replace('.JK', '').upper()
+        code = _safe_code(code)
         try:
             data = self.client.analysis.get_intraday_data(code=code, market="RG")
             if data and isinstance(data, dict):
