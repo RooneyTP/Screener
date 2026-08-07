@@ -28,9 +28,12 @@ CATATAN:
   yang kena SL/TP/trailing/time-stop — perilaku yang sama dengan v7_scan.
   Jadi run intraday ini otomatis memperbarui trailing & menutup posisi,
   dan run berikutnya tidak akan spam (posisi sudah tidak ada).
+  --dry-run → check_positions(mutate=False): evaluasi SAJA, TIDAK update
+  harga/trailing, TIDAK menutup posisi, TIDAK menulis positions.json.
 """
 import os
 import sys
+import json
 import argparse
 import logging
 from datetime import datetime
@@ -49,6 +52,53 @@ from utils.telegram_sender import send_telegram_sync  # noqa: E402
 logger = logging.getLogger("position_check_intraday")
 
 ICONS = {"EXIT": "🚨", "HOLD": "🟢", "INFO": "ℹ️"}
+
+# H6: alert yang gagal terkirim disimpan di sini & di-retry awal run berikutnya
+PENDING_ALERTS = os.path.join(ROOT, "data", "pending_alerts.json")
+
+
+def _load_pending() -> list:
+    """Baca alert yang gagal terkirim dari run sebelumnya."""
+    if os.path.exists(PENDING_ALERTS):
+        try:
+            with open(PENDING_ALERTS, encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except Exception:
+            pass
+    return []
+
+
+def _save_pending(items: list):
+    """Simpan daftar alert pending (gagal kirim) ke disk."""
+    try:
+        os.makedirs(os.path.dirname(PENDING_ALERTS), exist_ok=True)
+        with open(PENDING_ALERTS, "w", encoding="utf-8") as f:
+            json.dump(items, f, indent=2, ensure_ascii=False)
+    except Exception:
+        logger.debug("Simpan pending alerts gagal", exc_info=True)
+
+
+def retry_pending_alerts() -> int:
+    """Kirim ulang alert pending dari run sebelumnya. Return jumlah terkirim.
+
+    H6: alert EXIT tidak boleh hilang permanen hanya karena send gagal —
+    disimpan dulu, dikirim ulang di awal run berikutnya.
+    """
+    pending = _load_pending()
+    if not pending:
+        return 0
+    remaining, sent = [], 0
+    for item in pending:
+        msg = item.get("message") if isinstance(item, dict) else str(item)
+        if msg and send_telegram_sync(msg):
+            sent += 1
+        else:
+            remaining.append(item)
+    _save_pending(remaining)
+    if sent:
+        print(f"✅ {sent} pending alert dari run sebelumnya terkirim (retry)")
+    return sent
 
 
 def setup_logging():
@@ -106,6 +156,10 @@ def main() -> int:
     now = datetime.now().strftime("%H:%M")
     dry = args.dry_run
 
+    # H6: retry alert yang gagal terkirim di run sebelumnya (sebelum cek baru)
+    if not dry:
+        retry_pending_alerts()
+
     tracker = PositionTracker()
 
     # ── Baca posisi aktif ──
@@ -125,7 +179,9 @@ def main() -> int:
         return 1
 
     # ── Reuse logika PositionTracker 100% — hanya ganti sumber harga ──
-    alerts = tracker.check_positions(lambda tkr: intraday_price(provider, tkr))
+    # H1: dry-run → mutate=False (evaluasi SAJA, jangan update/tutup/save)
+    alerts = tracker.check_positions(lambda tkr: intraday_price(provider, tkr),
+                                     mutate=not dry)
 
     if not alerts:
         print("Tidak ada perubahan status")
@@ -164,7 +220,11 @@ def main() -> int:
     if ok:
         print(f"✅ Telegram terkirim ({len(exit_alerts)} alert)")
         return 0
-    print("❌ Gagal kirim Telegram")
+    # H6: send gagal → jangan biarkan alert EXIT hilang permanen (posisi sudah
+    # ditutup) — simpan ke pending_alerts.json, di-retry awal run berikutnya.
+    print("❌ Gagal kirim Telegram — alert disimpan ke pending_alerts.json untuk retry run berikutnya")
+    _save_pending([{"message": message,
+                    "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] + _load_pending())
     return 1
 
 

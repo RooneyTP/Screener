@@ -39,17 +39,6 @@ from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.error import Conflict, TimedOut, RetryAfter
 
-# ── Import idx_alpha_screener modules ──────────────────────────────
-import data
-import scoring as sc
-import swing_filters as sf
-import regime as rg
-import risk as rm
-from main import analisis_satu_saham
-
-# ── Import AI Agent (OpenCodeZen backend) ─────────────────────────
-from ai_agent import ask_ai
-
 # ── Token ──────────────────────────────────────────────────────────
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
@@ -67,6 +56,21 @@ logging.basicConfig(
         logging.StreamHandler()
     ])
 logger = logging.getLogger("screener_v2_bot")
+
+# ── Import idx_alpha_screener modules ──────────────────────────────
+# H5: import modul WAJIB SETELAH setup logging bot. main.py memanggil
+# logging.basicConfig() sendiri saat import — kalau import duluan, basicConfig
+# bot di atas jadi no-op (root logger sudah terkonfigurasi) dan
+# RotatingFileHandler bot tidak pernah aktif → log bot tidak pernah ditulis.
+import data
+import scoring as sc
+import swing_filters as sf
+import regime as rg
+import risk as rm
+from main import analisis_satu_saham
+
+# ── Import AI Agent (OpenCodeZen backend) ─────────────────────────
+from ai_agent import ask_ai
 
 # ── Security: redact token from logs ──────────────────────────────
 class _TokenFilter(logging.Filter):

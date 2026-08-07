@@ -27,18 +27,37 @@ if ROOT not in sys.path:
 from dotenv import load_dotenv
 load_dotenv(os.path.join(ROOT, ".env"))
 
+logger = logging.getLogger("telegram_sender")
+
 # ── Config ──
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID", "-5237365204"))
+_CHAT_ID_RAW = os.getenv("TELEGRAM_CHAT_ID", "") or ""
+try:
+    CHAT_ID = int(_CHAT_ID_RAW)
+except (TypeError, ValueError):
+    # NB3: fallback ke default TIDAK boleh diam-diam — log warning sekali
+    # (nilai default TIDAK diubah).
+    CHAT_ID = -5237365204
+    if not _CHAT_ID_RAW.strip():
+        logger.warning("TELEGRAM_CHAT_ID tidak diset — pakai default %d", CHAT_ID)
+    else:
+        logger.warning("TELEGRAM_CHAT_ID tidak valid (%r) — pakai default %d",
+                       _CHAT_ID_RAW, CHAT_ID)
 MAX_RETRIES = 3
 RATE_LIMIT = 20  # max concurrent sends
 
-logger = logging.getLogger("telegram_sender")
-
-# ── Lazy-init bot with rate limiter ──
+# ── Lazy-init bot ──
 _bot = None
-_bot_lock = asyncio.Lock()
-_semaphore = asyncio.Semaphore(RATE_LIMIT)
+
+def _is_markdown_rejected(exc: Exception) -> bool:
+    """Deteksi error 400 Telegram akibat parse_mode Markdown (karakter _ * [ ] `).
+
+    NB4: HANYA error yang menyebut parsing/entities yang dianggap penolakan
+    markdown → kirim ulang plain. Error lain ('chat not found', network, dll.)
+    langsung di-raise — resend plain sia-sia & bisa double-send.
+    """
+    msg = str(getattr(exc, "message", None) or exc).lower()
+    return "parse" in msg or "bad request: text" in msg
 
 def _get_bot():
     """Lazy-init telegram.Bot (not Application — no polling)."""
@@ -64,14 +83,35 @@ async def send_telegram_message(text: str, chat_id: Optional[int] = None) -> boo
     
     target = chat_id or CHAT_ID
     text = str(text)[:4096]  # Telegram limit
-    
-    async with _semaphore:
+
+    # L10: Semaphore dibuat PER-PANGGILAN — semaphore module-level ter-bind
+    # ke event loop pertama dan RuntimeError saat dipakai dari loop lain
+    # (send_telegram_sync membuat loop baru tiap call / dari thread).
+    semaphore = asyncio.Semaphore(RATE_LIMIT)
+    async with semaphore:
+        use_markdown = True  # fallback ke plain setelah Markdown ditolak (400)
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 bot = _get_bot()
-                await bot.send_message(chat_id=target, text=text, parse_mode='Markdown')
-                logger.info("Sent %d chars to chat %s", len(text), target)
-                return True
+                if use_markdown:
+                    try:
+                        await bot.send_message(chat_id=target, text=text, parse_mode='Markdown')
+                        logger.info("Sent %d chars to chat %s", len(text), target)
+                        return True
+                    except Exception as e:
+                        if _is_markdown_rejected(e):
+                            # Karakter _ * [ ] ` membuat Markdown ditolak (error 400)
+                            # → kirim ulang SEKALI tanpa parse_mode
+                            use_markdown = False
+                            logger.warning("Markdown ditolak (%s) — kirim ulang plain", e)
+                            await bot.send_message(chat_id=target, text=text)
+                            logger.info("Sent %d chars (plain fallback) to chat %s", len(text), target)
+                            return True
+                        raise
+                else:
+                    await bot.send_message(chat_id=target, text=text)
+                    logger.info("Sent %d chars to chat %s", len(text), target)
+                    return True
             except Exception as e:
                 wait = 2 ** attempt  # exponential backoff: 2, 4, 8
                 logger.warning("Send attempt %d/%d failed: %s (retry in %ds)",

@@ -45,6 +45,7 @@ CATATAN:
 """
 import os
 import sys
+import json
 import argparse
 import logging
 from datetime import datetime, timedelta
@@ -63,6 +64,10 @@ from utils.telegram_sender import send_telegram_sync               # noqa: E402
 logger = logging.getLogger("intraday_check")
 
 DEFAULT_CSV = os.path.join(ROOT, "data", "perf_tracker_v7.csv")
+
+# H3: state anti-duplikat — fingerprint (ticker+entry_price) yang sudah
+# terkirim hari ini; run ganda dengan pesan identik → skip kirim.
+STATE_FILE = os.path.join(ROOT, "data", "intraday_check_state.json")
 
 # ── Parameter klasifikasi pagi ──
 MAX_SIGNAL_AGE_DAYS = 7    # sinyal > 7 hari dianggap basi (bukan untuk entry pagi ini)
@@ -182,28 +187,74 @@ def classify_morning(entry_price: float, open_price: float):
 
 
 def fetch_open_price(provider, ticker):
-    """Ambil harga BUKA terkini via Invezgo. Return float atau None.
+    """Ambil harga BUKA terkini via Invezgo. Return (price, source) atau (None, None).
 
-    Fallback: kalau 'open' kosong (0), pakai 'price' lalu 'close' — sama
-    dengan position_check_intraday.py (SDK Invezgo kadang mengisi price=0
-    di luar jam aktif).
+    source: 'open' (harga buka sesi aktif) | 'price' (harga terkini, open kosong).
+    H4: TIDAK fallback ke 'close' — close bisa data sesi LAMA (mis. 08:45
+    sebelum market buka) dan membuat klasifikasi OK ENTRY palsu. Open &
+    price keduanya kosong → (None, None) → ticker dilewati (data sesi
+    belum tersedia), TIDAK diklasifikasi.
     """
     try:
         data = provider.get_intraday(ticker)
         if not data:
-            return None
+            return None, None
         open_p = float(data.get("open") or 0)
         if open_p > 0:
-            return open_p
+            return open_p, "open"
         price = float(data.get("price") or 0)
         if price > 0:
-            return price
-        close = float(data.get("close") or 0)
-        if close > 0:
-            return close
+            return price, "price"
     except Exception as e:
         logger.debug("get_intraday gagal %s: %s", ticker, e)
-    return None
+    return None, None
+
+
+# ── H3: state anti-duplikat (run ganda jangan kirim 2x) ─────────────
+def _load_state() -> dict:
+    """Baca state anti-duplikat: {date, sent: [fingerprint...]}."""
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            pass
+    return {}
+
+
+def _save_state(state: dict):
+    try:
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+    except Exception:
+        logger.debug("Simpan state intraday_check gagal", exc_info=True)
+
+
+def _fingerprints(results: list) -> list:
+    """Fingerprint per sinyal: ticker + entry_price (identitas sinyal pagi)."""
+    return sorted(f"{r['ticker']}|{r['entry_price']}" for r in results)
+
+
+def _already_sent(now, results: list) -> bool:
+    """True kalau fingerprint SAMA sudah terkirim hari ini (skip kirim)."""
+    state = _load_state()
+    if state.get("date") != now.strftime("%Y-%m-%d"):
+        return False
+    sent = set(state.get("sent", []) or [])
+    if not sent:
+        return False
+    return set(_fingerprints(results)) <= sent
+
+
+def _mark_sent(now, results: list):
+    """Catat fingerprint sinyal yang berhasil terkirim hari ini."""
+    date = now.strftime("%Y-%m-%d")
+    state = _load_state()
+    sent = set(state.get("sent", []) or []) if state.get("date") == date else set()
+    sent |= set(_fingerprints(results))
+    _save_state({"date": date, "sent": sorted(sent)})
 
 
 def format_message(results: list, now_str: str) -> str:
@@ -236,17 +287,25 @@ def run_check(csv_path, fetch_open, dry_run=False, now=None) -> int:
     for cand in candidates:
         ticker = cand["ticker"]
         try:
-            open_price = fetch_open(ticker)
+            raw = fetch_open(ticker)
         except Exception as e:
             logger.debug("fetch gagal %s: %s", ticker, e)
-            open_price = None
+            raw = None
+        # kompatibel: callable lama yang return float polos (dianggap 'open')
+        if isinstance(raw, tuple):
+            open_price, src = raw
+        else:
+            open_price, src = (raw, "open") if raw else (None, None)
         if not open_price or open_price <= 0:
-            print(f"  ⚠️  {ticker}: harga intraday tidak tersedia — dilewati")
+            # H4: open tidak tersedia → TIDAK klasifikasi (bisa close sesi lama)
+            print(f"  ⚠️  {ticker}: data sesi belum tersedia (open kosong) — dilewati")
             continue
         key, gap = classify_morning(cand["entry_price"], open_price)
-        results.append({**cand, "open_price": open_price, "label_key": key, "gap_pct": gap})
+        results.append({**cand, "open_price": open_price, "label_key": key,
+                        "gap_pct": gap, "price_source": src})
+        src_note = "" if src == "open" else f" (sumber: {src})"
         print(f"  {ICONS[key]} {ticker}: open {open_price:,.0f} vs entry {cand['entry_price']:,.0f} "
-              f"({gap:+.1f}%) → {LABELS[key]}")
+              f"({gap:+.1f}%) → {LABELS[key]}{src_note}")
 
     if not results:
         print("Semua harga intraday gagal diambil — tidak kirim Telegram (anti-spam)")
@@ -259,8 +318,15 @@ def run_check(csv_path, fetch_open, dry_run=False, now=None) -> int:
         print("\n[DRY-RUN] Pesan di atas TIDAK dikirim ke Telegram.")
         return 0
 
+    # H3: anti-duplikat — fingerprint sama & tanggal sama → skip kirim
+    # (run ganda cron jangan kirim 2x; dry-run tetap print di atas)
+    if _already_sent(now, results):
+        print("⚠️ Pesan sama sudah dikirim hari ini (state anti-duplikat) — skip kirim")
+        return 0
+
     ok = send_telegram_sync(message)
     if ok:
+        _mark_sent(now, results)
         print(f"✅ Telegram terkirim ({len(results)} sinyal)")
         return 0
     print("❌ Gagal kirim Telegram")

@@ -15,6 +15,7 @@ PRINSIP KRITIS:
 - 1 percobaan, timeout 15 detik.
 """
 import os
+import re
 import logging
 from typing import Dict, List, Optional
 
@@ -136,6 +137,34 @@ def _call_llm_once(backend: dict, messages: List[Dict[str, str]]) -> Optional[st
         return None
 
 
+def _sanitize_narrative(text) -> Optional[str]:
+    """Bersihkan output LLM sebelum dipakai (M2).
+
+    Output LLM dipakai verbatim → bom waktu markdown/format Telegram.
+    Aturan:
+    - strip + normalisasi spasi
+    - buang karakter markdown berbahaya: _ * [ ] ` # > <
+    - potong maks 2 kalimat
+    - tolak kalau tidak masuk akal (terlalu pendek / tanpa huruf) → None
+    """
+    if not text:
+        return None
+    s = str(text).strip()
+    if not s:
+        return None
+    s = s.replace("**", "").replace("__", "").replace("```", "").replace("`", "")
+    s = "".join(ch for ch in s if ch not in "*_[]#><")
+    s = " ".join(s.split())
+    if not s:
+        return None
+    parts = re.split(r"(?<=[.!?])\s+", s)
+    if len(parts) > 2:
+        s = " ".join(parts[:2]).strip()
+    if len(s) < 10 or not any(c.isalpha() for c in s):
+        return None
+    return s
+
+
 def generate_narratives(top_signals: list, sentiment_ihsg: dict) -> Dict[str, str]:
     """
     Generate narasi untuk maks 3 sinyal swing terbaik.
@@ -172,10 +201,11 @@ def generate_narratives(top_signals: list, sentiment_ihsg: dict) -> Dict[str, st
         try:
             messages = _build_prompt(sig, sentiment_ihsg or {})
             text = _call_llm_once(backend, messages)
+            text = _sanitize_narrative(text)  # M2: jangan pakai output LLM verbatim
             if text:
                 narratives[tkr] = text
             else:
-                logger.warning("ai_narrative: tidak ada jawaban untuk %s — dilewati", tkr)
+                logger.warning("ai_narrative: jawaban kosong/tidak valid untuk %s — dilewati", tkr)
         except Exception as e:
             # Safety net: SATU ticker gagal → lewati ticker itu, lanjut ticker lain.
             logger.warning("ai_narrative: gagal untuk %s: %s — dilewati", tkr, e)

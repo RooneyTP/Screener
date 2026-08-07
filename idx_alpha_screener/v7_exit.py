@@ -6,7 +6,37 @@ Intraday (H+1 hingga H+3): fixed TP + tighter SL + time stop
 """
 
 import numpy as np, pandas as pd
+import os, math
 from typing import Optional
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+# L5: SL floor (fraksi harga entry) dari config.yaml — scoring.risk_reward.sl_floor_pct
+# (atau exit_strategy.sl_floor_pct). Fallback 0.92 = perilaku lama (cap kerugian -8%).
+_SL_FLOOR_CACHE: Optional[float] = None
+
+def _sl_floor_from_config() -> float:
+    """Baca sl_floor_pct dari config.yaml sekali per proses. Default 0.92."""
+    global _SL_FLOOR_CACHE
+    if _SL_FLOOR_CACHE is not None:
+        return _SL_FLOOR_CACHE
+    val = 0.92
+    try:
+        _cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+        with open(_cfg_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        cand = (cfg.get("exit_strategy") or {}).get("sl_floor_pct")
+        if cand is None:
+            cand = (cfg.get("scoring") or {}).get("risk_reward", {}).get("sl_floor_pct")
+        if cand:
+            val = float(cand)
+    except Exception:
+        pass
+    _SL_FLOOR_CACHE = val
+    return val
 
 def compute_exit(price: float, atr: float, regime: str = "RANGING", 
                  mode: str = "swing", weekly_trend: str = "BULLISH") -> dict:
@@ -21,9 +51,12 @@ def compute_exit(price: float, atr: float, regime: str = "RANGING",
     mode : str — "swing" atau "intraday"
     weekly_trend : str — weekly trend
     """
-    if price <= 0 or atr <= 0:
-        return {"stop_loss": int(price * 0.95), "take_profit": int(price * 1.05),
-                "trailing_start": int(price * 1.03), "max_hold_days": 5, "rrr": 1.0}
+    # N1: NaN/inf TIDAK boleh lolos — `nan <= 0` bernilai False sehingga
+    # int(nan) memicu ValueError dan sinyal valid di-skip diam-diam.
+    if not math.isfinite(price) or not math.isfinite(atr) or price <= 0 or atr <= 0:
+        base = price if (math.isfinite(price) and price > 0) else 0
+        return {"stop_loss": int(base * 0.95), "take_profit": int(base * 1.05),
+                "trailing_start": int(base * 1.03), "max_hold_days": 5, "rrr": 1.0}
     
     if mode == "intraday":
         # Intraday: tighter stop, faster profit
@@ -49,7 +82,7 @@ def compute_exit(price: float, atr: float, regime: str = "RANGING",
         elif regime == "BEAR":
             sl_mult = 2.0  # SL lebih lebar di bear
     
-    stop_loss = max(int(price * 0.92), int(price - atr * sl_mult))
+    stop_loss = max(int(price * _sl_floor_from_config()), int(price - atr * sl_mult))
     take_profit = int(price + atr * tp_mult)
     trailing_start = int(price + atr * trail_activation)
     rrr = (take_profit - price) / max(price - stop_loss, 1) if price - stop_loss > 0 else 1.0
@@ -108,6 +141,10 @@ def position_sizing(capital: float, price: float, score: float, atr_pct: float) 
     # Vol adjustment
     if atr_pct > 5: base_pct *= 0.5     # volatil = setengah
     elif atr_pct < 1.5: base_pct *= 1.3 # low vol = lebih berani
+
+    # H3: cap 15% berlaku JUGA setelah vol-adjustment (1.3x tidak boleh
+    # menembus MAX_PER_POS — sebelumnya hanya dicek lewat cabang raw_lots==0)
+    base_pct = min(base_pct, MAX_PER_POS / capital)
     
     cost = capital * base_pct
     raw_lots = int(cost / (price * 100))  # 100 saham per lot

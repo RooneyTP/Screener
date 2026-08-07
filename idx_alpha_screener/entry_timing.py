@@ -40,7 +40,9 @@ def recommend_entry(
         condition   : str — kondisi tambahan
         skip_reason : str, optional — alasan skip jika tidak direkomendasikan
     """
-    if price <= 0 or atr <= 0:
+    if (price is None or atr is None
+            or pd.isna(price) or pd.isna(atr)
+            or price <= 0 or atr <= 0):
         return {
             "method": "Tidak bisa entry",
             "price_range": "-",

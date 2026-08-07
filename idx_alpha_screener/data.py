@@ -411,9 +411,13 @@ def fetch_ihsg_cached(period: str = "2y", cache_minutes: int = 1440) -> pd.DataF
 
     # 3) Cache miss — download Yahoo Finance
     logger.info("IHSG cache MISS — download ^JKSE...")
-    idx = yf.download("^JKSE", period=period, progress=False,
-                      auto_adjust=True, multi_level_index=False)
-    if idx.empty:
+    try:
+        idx = yf.download("^JKSE", period=period, progress=False,
+                          auto_adjust=True, multi_level_index=False)
+    except Exception as e:
+        logger.warning("IHSG Yahoo Finance gagal: %s", e)
+        return pd.DataFrame()
+    if idx is None or idx.empty:
         logger.warning("IHSG data kosong")
         return pd.DataFrame()
 

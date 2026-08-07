@@ -16,6 +16,8 @@ Hasil disimpan di data/evaluations_v7.csv + kirim ringkasan ke Telegram.
 Cara pakai:
   python weekly_report.py            # evaluasi + kirim laporan
   python weekly_report.py --no-send  # evaluasi saja, tanpa kirim Telegram
+  python weekly_report.py --dry-run  # PREVIEW: evaluasi TANPA menulis file
+                                     # (CSV/mark) & TANPA kirim Telegram
   python weekly_report.py --roi      # paksa section ROI Invezgo (E3)
 """
 import sys, os, json, csv, argparse
@@ -24,6 +26,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pandas as pd
+import numpy as np
 
 from data_invezgo import InvezgoProvider
 from perf_tracker import load_signals
@@ -151,17 +154,42 @@ def classify_ohlc(df, entry_price: float, sl: float, tp: float) -> dict:
     if highs.empty or lows.empty:
         return empty
 
-    max_high = float(highs.max())
-    min_low = float(lows.min())
     entry = float(entry_price)
-    mfe_pct = (max_high - entry) / entry * 100
-    mae_pct = (min_low - entry) / entry * 100
+    if entry <= 0:
+        return empty
+
+    # R1 (regresi M8): JANGAN drop baris NaN per-kolom — highs.dropna() dan
+    # lows.dropna() terpisah membuat baris TIDAK sejajar: baris yang high-nya
+    # NaN ikut ter-buang dari penentuan urutan TP/SL padahal low-nya valid.
+    # Akibatnya: same-bar NaN → WIN_TP palsu (padahal konservatif LOSS_SL) &
+    # SL kena di baris NaN-nya high → status OPEN (SL hilang). Perbaikan:
+    #   - status ditentukan per-baris UTUH (NaN di satu kolom tidak menghapus
+    #     baris itu dari pengecekan kolom lain);
+    #   - MFE/MAE pakai np.nanmax/np.nanmin; kalau SEMUA high (atau low) NaN
+    #     → kolom itu diabaikan (None → mfe/mae 0.0, bukan 'nan').
+    tp = float(tp)
+    sl = float(sl)
+    high_arr = highs.to_numpy(dtype=float)
+    low_arr = lows.to_numpy(dtype=float)
+    n = len(high_arr)
+
+    if n and not np.isnan(high_arr).all():
+        max_high = float(np.nanmax(high_arr))
+        mfe_pct = (max_high - entry) / entry * 100
+    else:
+        max_high, mfe_pct = None, 0.0
+    if n and not np.isnan(low_arr).all():
+        min_low = float(np.nanmin(low_arr))
+        mae_pct = (min_low - entry) / entry * 100
+    else:
+        min_low, mae_pct = None, 0.0
 
     tp_idx = sl_idx = None
-    for i, (h, l) in enumerate(zip(highs.tolist(), lows.tolist())):
-        if tp_idx is None and h >= tp:
+    for i in range(n):
+        h, l = high_arr[i], low_arr[i]
+        if tp_idx is None and not np.isnan(h) and h >= tp:
             tp_idx = i
-        if sl_idx is None and l <= sl:
+        if sl_idx is None and not np.isnan(l) and l <= sl:
             sl_idx = i
         if tp_idx is not None and sl_idx is not None:
             break
@@ -200,8 +228,14 @@ def _data_missing_row(s: dict, mode: str, today: datetime) -> dict:
     }
 
 
-def evaluate_signals(provider=None) -> list:
-    """Evaluasi sinyal yang belum dievaluasi & sudah cukup umur. Return list hasil."""
+def evaluate_signals(provider=None, dry_run: bool = False) -> list:
+    """Evaluasi sinyal yang belum dievaluasi & sudah cukup umur. Return list hasil.
+
+    dry_run=True (C1): evaluasi dihitung & dikembalikan (untuk preview laporan)
+    tapi TIDAK ada yang ditulis — tidak append evaluations_v7.csv & tidak
+    menandai evaluated_keys.json. Berguna untuk uji coba: sinyal TIDAK
+    ter-mark sebagian, sehingga run berikutnya mengevaluasi ulang dengan benar.
+    """
     signals = load_signals(PERF_CSV)
     if not signals:
         print("Tidak ada sinyal di perf_tracker.")
@@ -245,9 +279,13 @@ def evaluate_signals(provider=None) -> list:
                 results.append(_data_missing_row(s, mode, today))
                 continue
 
-            # Baris sejak tanggal entry (termasuk baris hari entry itu sendiri)
+            # Baris SEJAK entry. Index harian = 00:00 sedangkan timestamp
+            # sinyal > 00:00 → baris hari entry TIDAK ikut (ter-exclude).
+            # M3-doc: guard potong eksplisit (index > waktu sinyal) supaya
+            # konsisten walau format date CSV berubah (dengan/tanpa jam) —
+            # docstring di bawah ini MENYESUAIKAN perilaku tersebut.
             if isinstance(df.index, pd.DatetimeIndex):
-                since = df[df.index >= pd.Timestamp(dt)]
+                since = df[df.index > pd.Timestamp(dt)]
             else:
                 since = df
             if since is None or since.empty:
@@ -257,7 +295,21 @@ def evaluate_signals(provider=None) -> list:
             # Klasifikasi MFE/MAE pakai high/low sejak entry
             res = classify_ohlc(since, entry, sl, tp)
             status = res["status"]
-            close = float(_pick_col(df, "close").iloc[-1])
+            if status == "OPEN":
+                # H2: JANGAN mark/append baris OPEN — kalau di-mark, sinyal
+                # tidak pernah dievaluasi ulang dan WR bias ke bawah. Sinyal
+                # OPEN dievaluasi lagi di run berikutnya sampai selesai.
+                continue
+            # M8: close terakhir NaN/0 → anggap data belum siap (DATA_MISSING),
+            # jangan tulis mfe/mae 'nan%' ke CSV.
+            closes = _pick_col(df, "close").astype(float).dropna()
+            if closes.empty:
+                results.append(_data_missing_row(s, mode, today))
+                continue
+            close = float(closes.iloc[-1])
+            if close <= 0:
+                results.append(_data_missing_row(s, mode, today))
+                continue
             ret_pct = (close - entry) / entry * 100
             row = {
                 "date": s["date"], "ticker": ticker, "mode": mode,
@@ -271,9 +323,13 @@ def evaluate_signals(provider=None) -> list:
                 "eval_date": today.strftime("%Y-%m-%d"),
                 "regime": s.get("regime", "") or "",
             }
-            _append_eval(row)
+            # C1: dry-run TIDAK menulis apa pun — hasil tetap dihitung untuk
+            # preview laporan, tapi CSV & mark keys tidak tersentuh.
+            if not dry_run:
+                _append_eval(row)
             results.append(row)
-            new_marks.append(key)
+            if not dry_run:
+                new_marks.append(key)
         except (ValueError, KeyError, TypeError) as e:
             continue
 
@@ -536,16 +592,23 @@ def build_report(eval_results: list, with_roi: bool = None) -> str:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-send", action="store_true", help="Jangan kirim ke Telegram")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Preview: evaluasi TANPA menulis file (CSV/mark) & TANPA kirim")
     parser.add_argument("--roi", action="store_true",
                         help="Paksa sertakan section ROI Invezgo (default: otomatis kalau awal bulan)")
     args = parser.parse_args()
 
     print(f"[{datetime.now():%Y-%m-%d %H:%M}] Evaluasi sinyal V7...")
-    results = evaluate_signals()
+    # C1: --dry-run = tidak menulis evaluations_v7.csv / evaluated_keys.json
+    # (footgun lama: --no-send tetap menulis → data uji ter-mark sebagian).
+    # --no-send tetap seperti semula: evaluasi ditulis, hanya kirim yang dilewati.
+    results = evaluate_signals(dry_run=args.dry_run)
     report = build_report(results, with_roi=True if args.roi else None)
     print(report)
 
-    if not args.no_send:
+    if args.dry_run:
+        print("\n[dry-run] Tidak ada file yang ditulis & tidak ada pesan dikirim.")
+    elif not args.no_send:
         ok = send_telegram(report)
         print(f"\nTerkirim ke Telegram: {ok}")
 

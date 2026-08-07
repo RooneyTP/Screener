@@ -410,6 +410,22 @@ def analisis_satu_saham(ticker: str, df: Optional[pd.DataFrame] = None,
                 "resistance": 0,
             }
 
+        # ── Slippage model (M4: dihitung SEBELUM return — dulu blok dead
+        # code setelah return yang tidak pernah dieksekusi) ──
+        try:
+            slip_result = slip.get_slippage_pct(
+                ticker=ticker, price=price,
+                volume=volume, mcap=result_fund.get("market_cap", None)
+            )
+            slippage_extra = {
+                "slippage_tier": slip_result["tier"],
+                "slippage_label": slip_result["label"],
+                "total_cost_pct": slip_result["total_roundtrip_pct"],
+                "spread_pct": slip_result["spread_pct"],
+            }
+        except Exception:
+            slippage_extra = {}  # slippage gagal dihitung → jangan crash scan
+
         return {
             "ticker": ticker.replace(".JK", ""),
             "price": int(price),
@@ -453,17 +469,9 @@ def analisis_satu_saham(ticker: str, df: Optional[pd.DataFrame] = None,
             "v5_momentum_delta": v5_result.get("momentum_delta") if v5_engine.is_enabled() and locals().get("v5_result") else None,
             # Fundamental
             **result_fund,
+            # Slippage (M4)
+            **slippage_extra,
         }
-
-        # Add slippage info
-        slip_result = slip.get_slippage_pct(
-            ticker=ticker, price=price,
-            volume=volume, mcap=result_fund.get("market_cap", None)
-        )
-        result["slippage_tier"] = slip_result["tier"]
-        result["slippage_label"] = slip_result["label"]
-        result["total_cost_pct"] = slip_result["total_roundtrip_pct"]
-        result["spread_pct"] = slip_result["spread_pct"]
 
     except requests.exceptions.ConnectionError:
         logger.error("Koneksi gagal untuk %s — retry 1x", ticker)

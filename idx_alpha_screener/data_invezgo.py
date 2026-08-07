@@ -22,9 +22,75 @@ logger = logging.getLogger("invezgo")
 def _to_int(v):
     """Konversi aman ke int (volume Invezgo kadang string dengan ribuan)."""
     try:
-        return int(float(str(v).replace(",", "")))
+        s = str(v).strip()
+        if not s:
+            return 0
+        # NB2: titik ribuan ala Indonesia ('1.234.567') — dulu
+        # float('1.234.567') gagal → volume diam-diam jadi 0 (saham ke-filter).
+        if re.fullmatch(r"\d{1,3}(\.\d{3})+", s):
+            s = s.replace(".", "")
+        else:
+            s = s.replace(",", "")
+        return int(float(s))
     except (TypeError, ValueError):
         return 0
+
+
+def _to_float(v):
+    """Konversi aman ke float — handle format angka Indonesia.
+
+    - '1,5'       → 1.5      (koma desimal)
+    - '1.234.567' → 1234567.0 (titik ribuan, tanpa koma)
+    - '1,234'     → 1234.0   (koma ribuan — 3 digit persis di akhir)
+    - '1.234,5' / '7.000,5' → 1234.5 / 7000.5 (titik ribuan + koma desimal)
+    """
+    try:
+        if v is None:
+            return 0.0
+        s = str(v).strip()
+        if not s:
+            return 0.0
+        if re.fullmatch(r"\d{1,3}(\.\d{3})+", s):
+            s = s.replace(".", "")                      # '1.234.567' -> '1234567'
+        elif re.fullmatch(r"\d{1,3}(\.\d{3})+(,\d+)?", s):
+            s = s.replace(".", "").replace(",", ".")    # '7.000,5' -> '7000.5'
+        elif re.fullmatch(r"\d{1,3}(,\d{3})+", s):
+            s = s.replace(",", "")                      # '1,234' -> '1234'
+        elif "," in s:
+            s = s.replace(",", ".")                     # '1,5' -> '1.5'
+        return float(s)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _to_float_opt(v):
+    """Konversi nilai fundamental API ke float; None kalau bukan angka.
+
+    L7: get_fundamental dulu menyimpan string mentah dari API (format
+    Indonesia '1.234,5' dsb.) → np.isnan(string) TypeError di v7 factor.
+    Bedakan '0'/'0,0' yang sah dari string tak-terparse ('N/A' → None).
+    """
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if not s:
+        return None
+    f = _to_float(v)
+    if f == 0.0 and not re.fullmatch(r"[-+]?\d[\d.,\s]*", s):
+        return None
+    return f
+
+
+def _api_code(code: str) -> str:
+    """Kode utk API Invezgo — uppercase + buang suffix bursa (.JK).
+
+    TIDAK memakai _safe_code (yang menghapus semua karakter non-A-Z0-9):
+    kode 'BBCA.JK' harus tetap 'BBCA' untuk API, bukan 'BBCAJK' (404).
+    Sanitasi ketat tetap dipakai HANYA untuk nama file cache.
+    """
+    return str(code or "").upper().replace(".JK", "")
 
 
 def _safe_code(code: str) -> str:
@@ -109,7 +175,8 @@ class InvezgoProvider:
         -------
         pd.DataFrame dengan kolom: open, high, low, close, volume
         """
-        code = _safe_code(code)
+        api_code = _api_code(code)   # utk API — 'BBCA.JK' -> 'BBCA' (bukan 'BBCAJK')
+        code = _safe_code(code)      # sanitasi ketat HANYA utk nama file cache
 
         # ── Cache harian: simpan per (code, period) dengan TTL 20 jam ──
         if use_cache:
@@ -136,7 +203,7 @@ class InvezgoProvider:
         to_date = today.strftime("%Y-%m-%d")
 
         try:
-            data = self.client.analysis.get_chart_stock(code=code, from_date=from_date, to_date=to_date)
+            data = self.client.analysis.get_chart_stock(code=api_code, from_date=from_date, to_date=to_date)
             if not data:
                 logger.warning("Data kosong untuk %s", code)
                 return pd.DataFrame()
@@ -148,11 +215,11 @@ class InvezgoProvider:
                     continue
                 rows.append({
                     "Date": pd.to_datetime(item.get("date", item.get("Date", ""))),
-                    "Open": float(item.get("open", item.get("Open", 0))),
-                    "High": float(item.get("high", item.get("High", 0))),
-                    "Low": float(item.get("low", item.get("Low", 0))),
-                    "Close": float(item.get("close", item.get("Close", 0))),
-                    "Volume": int(item.get("volume", item.get("Volume", 0))),
+                    "Open": _to_float(item.get("open", item.get("Open", 0))),
+                    "High": _to_float(item.get("high", item.get("High", 0))),
+                    "Low": _to_float(item.get("low", item.get("Low", 0))),
+                    "Close": _to_float(item.get("close", item.get("Close", 0))),
+                    "Volume": _to_int(item.get("volume", item.get("Volume", 0))),
                 })
             
             df = pd.DataFrame(rows)
@@ -198,7 +265,8 @@ class InvezgoProvider:
         -------
         pd.DataFrame dengan kolom open, high, low, close, volume
         """
-        code = _safe_code(code)
+        api_code = _api_code(code)   # utk API — kode indeks (COMPOSITE) tetap utuh
+        code = _safe_code(code)      # sanitasi ketat HANYA utk nama file cache
 
         # ── Cache harian: sama pola dengan get_historical ──
         if use_cache:
@@ -224,7 +292,7 @@ class InvezgoProvider:
         to_date = today.strftime("%Y-%m-%d")
 
         try:
-            data = self.client.analysis.get_chart_index(code=code, from_date=from_date, to_date=to_date)
+            data = self.client.analysis.get_chart_index(code=api_code, from_date=from_date, to_date=to_date)
             if not data:
                 logger.warning("Data kosong untuk indeks %s", code)
                 return pd.DataFrame()
@@ -235,10 +303,12 @@ class InvezgoProvider:
                     continue
                 rows.append({
                     "Date": pd.to_datetime(item.get("date", "")),
-                    "Open": float(item.get("open", 0)),
-                    "High": float(item.get("high", 0)),
-                    "Low": float(item.get("low", 0)),
-                    "Close": float(item.get("close", 0)),
+                    # NB1: pakai _to_float (bukan float() mentah) — string format
+                    # ID '7.000,5' dulu ValueError → IHSG gagal diam-diam ke fallback
+                    "Open": _to_float(item.get("open", 0)),
+                    "High": _to_float(item.get("high", 0)),
+                    "Low": _to_float(item.get("low", 0)),
+                    "Close": _to_float(item.get("close", 0)),
                     "Volume": _to_int(item.get("volume", 0)),
                 })
 
@@ -268,9 +338,10 @@ class InvezgoProvider:
 
     def get_fundamental(self, code: str):
         """Ambil data fundamental (PER, PBV, ROE, dll) dari Invezgo."""
+        api_code = _api_code(code)
         code = _safe_code(code)
         try:
-            keystat = self.client.analysis.get_keystat(code=code, type_period="Q", limit=8)
+            keystat = self.client.analysis.get_keystat(code=api_code, type_period="Q", limit=8)
             if not keystat or "rows" not in keystat:
                 return {}
             
@@ -282,7 +353,11 @@ class InvezgoProvider:
                     latest = values[-1]
                     val = latest.get("amount", None)
                     if val is not None:
-                        result[name] = val
+                        # L7: konversi ke float SEBELUM dikembalikan — string
+                        # mentah API (format ID '1.234,5') tidak boleh lolos ke
+                        # pemakai (np.isnan(string) → TypeError di v7 factor);
+                        # nilai tak-terparse → None (bukan string / 0.0 palsu).
+                        result[name] = _to_float_opt(val)
             return result
         except Exception as e:
             logger.debug("Gagal ambil fundamental %s: %s", code, e)
@@ -290,10 +365,11 @@ class InvezgoProvider:
     
     def get_financial_statement(self, code: str, statement: str = "IS", limit: int = 4):
         """Ambil laporan keuangan: IS (labarugi), BS (neraca), CF (aruskas)."""
+        api_code = _api_code(code)
         code = _safe_code(code)
         try:
             return self.client.analysis.get_financial_statement(
-                code=code, statement=statement, type_period="Q", limit=limit
+                code=api_code, statement=statement, type_period="Q", limit=limit
             )
         except Exception as e:
             logger.debug("Gagal ambil financial %s: %s", code, e)
@@ -301,12 +377,13 @@ class InvezgoProvider:
     
     def get_broker_summary(self, code: str, days: int = 5):
         """Ambil data broker summary & foreign flow."""
+        api_code = _api_code(code)
         code = _safe_code(code)
         try:
             to_date = datetime.now().strftime("%Y-%m-%d")
             from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
             return self.client.analysis.get_summary_stock(
-                code=code, from_date=from_date, to_date=to_date, investor="all", market="RG"
+                code=api_code, from_date=from_date, to_date=to_date, investor="all", market="RG"
             )
         except Exception as e:
             logger.debug("Gagal ambil broker summary %s: %s", code, e)
@@ -314,18 +391,19 @@ class InvezgoProvider:
     
     def get_intraday(self, code: str):
         """Ambil snapshot harga real-time."""
+        api_code = _api_code(code)
         code = _safe_code(code)
         try:
-            data = self.client.analysis.get_intraday_data(code=code, market="RG")
+            data = self.client.analysis.get_intraday_data(code=api_code, market="RG")
             if data and isinstance(data, dict):
                 return {
                     "price": float(data.get("price", 0)),
-                    "change": float(data.get("change", "0%").replace("%", "")),
+                    "change": _to_float((data.get("change", "0%") or "0%").replace("%", "")),
                     "open": float(data.get("open", 0)),
                     "high": float(data.get("high", 0)),
                     "low": float(data.get("low", 0)),
                     "close": float(data.get("close", 0)),
-                    "volume": int(data.get("volume", 0)),
+                    "volume": _to_int(data.get("volume", 0)),
                 }
             return {}
         except Exception as e:

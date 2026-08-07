@@ -10,7 +10,7 @@ Memanfaatkan data eksklusif dari Invezgo yang tidak ada di Yahoo:
 V7 = V4 core scoring + bonus/malus dari data Invezgo
 """
 
-import logging, os, json, re, time, numpy as np
+import logging, os, json, re, time, math, numpy as np
 from typing import Optional, Dict
 
 logger = logging.getLogger("v7")
@@ -149,6 +149,33 @@ def _get_fundamental_cached(code: str):
     _fund_mem_cache[code] = data
     return data
 
+# ── M4: keystat (get_fundamental) dicache 7 hari — tanpa cache, tiap scan memicu
+# 1 request per ticker ke endpoint keystat (~20-40 req/scan) ──
+_keystat_mem_cache: dict = {}
+
+def _get_keystat_cached(code: str):
+    """Ambil get_fundamental() (PER/PBV/ROE/div yield) SEKALI per ticker.
+
+    Cache: data/fundamental_keystat_{code}.json TTL 7 hari (angka fundamental
+    jarang berubah) + memori per run. Pola sama dengan _get_fundamental_cached.
+    """
+    code = _safe_code(code)
+    if code in _keystat_mem_cache:
+        return _keystat_mem_cache[code]
+
+    path = _cache_path(f"fundamental_keystat_{code}.json")
+    data = _load_json_cache(path, ttl_hours=24 * 7)
+    if data is None:
+        provider = get_provider()
+        if not provider:
+            return None
+        data = provider.get_fundamental(code)
+        if data:  # hanya simpan kalau ada isi — hindari cache error transient
+            _save_json_cache(path, data)
+
+    _keystat_mem_cache[code] = data
+    return data
+
 # ── Parsing laporan keuangan Invezgo ──
 # Format: {"rows": [{"name": "...", "level": 0, "values": [{"year":..,"period":"Q1","amount":..}]}]}
 _PERIOD_ORDER = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
@@ -180,6 +207,8 @@ def _parse_fs_series(fs: dict, name_priority: list, exclude: tuple = ()) -> list
         try:
             amt = float(v.get("amount"))
         except (TypeError, ValueError):
+            continue
+        if not math.isfinite(amt):  # H1: NaN/inf dari API jangan dipakai (skor jadi -25/-15 palsu)
             continue
         period = str(v.get("period", ""))
         try:
@@ -231,7 +260,11 @@ def factor_broker_flow(code: str) -> dict:
                 sell = int(b.get("sell_value", 0))
                 net = buy - sell
                 broker_nets.append({"code": b.get("code","??"), "net": net, "buy": buy, "sell": sell})
-            except: pass
+            except (TypeError, ValueError) as e:
+                # N8: nilai broker tidak valid → lewati broker ini (dulu bare
+                # except: pass — drop senyap tanpa jejak di log).
+                logger.debug("Broker %s nilai tidak valid (%s): %s",
+                             b.get("code", "??"), e, b)
         
         # Sort by net (descending)
         broker_nets.sort(key=lambda x: x["net"], reverse=True)
@@ -298,6 +331,25 @@ def factor_foreign_flow(code: str) -> dict:
         return {"score": 40, "detail": "error"}
 
 
+def _to_float(value):
+    """Konversi nilai fundamental ke float. None/non-numerik/NaN/inf → None.
+
+    L7: API Invezgo kadang mengembalikan angka sebagai STRING ('12.5') —
+    np.isnan(string) memicu TypeError yang ditangkap except luar → seluruh
+    faktor jadi 40 'error' diam-diam walau data valid. Nilai invalid → None
+    (netral: sub-skornya dilewati, bukan 'error').
+    """
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v):
+        return None
+    return v
+
+
 def factor_fundamental_quality(code: str) -> dict:
     """
     Fundamental Quality Factor — PER, PBV, ROE, dividend.
@@ -309,40 +361,37 @@ def factor_fundamental_quality(code: str) -> dict:
       Div Yield: >3%
     """
     try:
-        provider = get_provider()
-        if not provider: return {"score": 40, "detail": "no_data"}
-        
-        fund = provider.get_fundamental(code)
+        fund = _get_keystat_cached(code)  # M4: dicache 7 hari (data/fundamental_keystat_{code}.json)
         if not fund or not isinstance(fund, dict):
             return {"score": 40, "detail": "no_data"}
         
-        per = fund.get("PER", fund.get("per", None))
-        pbv = fund.get("PBV", fund.get("pbv", None))
-        roe = fund.get("ROE", fund.get("roe", None))
-        div = fund.get("Dividend Yield", fund.get("dividend_yield", None))
+        per = _to_float(fund.get("PER", fund.get("per", None)))
+        pbv = _to_float(fund.get("PBV", fund.get("pbv", None)))
+        roe = _to_float(fund.get("ROE", fund.get("roe", None)))
+        div = _to_float(fund.get("Dividend Yield", fund.get("dividend_yield", None)))
         
         score = 50
         
         # PER: ideal 8-15
-        if per is not None and not np.isnan(per):
+        if per is not None:
             if 8 <= per <= 15: score += 20
             elif 5 <= per < 8: score += 10
             elif 15 < per <= 20: score += 5
             elif per > 30: score -= 10
         
         # PBV: ideal 1-3
-        if pbv is not None and not np.isnan(pbv):
+        if pbv is not None:
             if 1 <= pbv <= 3: score += 15
             elif 0.5 <= pbv < 1: score += 8
         
         # ROE: ideal >15%
-        if roe is not None and not np.isnan(roe):
+        if roe is not None:
             if roe > 20: score += 15
             elif roe > 15: score += 10
             elif roe > 10: score += 5
         
         # Dividend yield
-        if div is not None and not np.isnan(div) and div > 0:
+        if div is not None and div > 0:
             if div > 5: score += 10
             elif div > 3: score += 5
         
@@ -354,6 +403,8 @@ def factor_fundamental_quality(code: str) -> dict:
 
 
 def _growth_score(g: float) -> int:
+    if not math.isfinite(g):  # H1: NaN/inf = data tidak valid → netral, bukan -25
+        return 0
     if g > 0.20: return 25
     if g > 0.10: return 18
     if g > 0.05: return 12
@@ -365,6 +416,8 @@ def _growth_score(g: float) -> int:
     return -25
 
 def _margin_score(t: float) -> int:
+    if not math.isfinite(t):  # H1: NaN/inf = data tidak valid → netral, bukan -15
+        return 0
     if t > 0.02: return 15
     if t > 0.005: return 8
     if t >= -0.005: return 0
@@ -372,6 +425,8 @@ def _margin_score(t: float) -> int:
     return -15
 
 def _de_score(de: float) -> int:
+    if not math.isfinite(de):  # H1: NaN/inf = data tidak valid → netral, bukan -10
+        return 0
     if de < 0.5: return 10
     if de < 1.0: return 6
     if de < 1.5: return 0
@@ -392,7 +447,7 @@ def factor_earnings_momentum(code: str) -> dict:
     try:
         data = _get_fundamental_cached(code)
         if not data:
-            return {"score": 0, "detail": "no_data"}
+            return {"score": 40, "detail": "no_data"}  # H2: netral, bukan 0 (konsisten faktor lain)
 
         rev_rows = _parse_fs_series(data.get("IS"), _REV_PRIORITY, _REV_EXCLUDE)
         profit_rows = _parse_fs_series(data.get("IS"), _PROFIT_PRIORITY, _PROFIT_EXCLUDE)
@@ -429,12 +484,27 @@ def factor_earnings_momentum(code: str) -> dict:
             margin_trend = margin_latest - margin_base
 
         # ── 3. D/E dari neraca (nilai terbaru) ──
+        # N3: ekuitas <= 0 (ekuitas negatif) → D/E tidak valid — JANGAN dihitung
+        # (dulu D/E negatif dapat skor TERBAIK +10 di _de_score).
+        # L8: samakan PERIODE liabilitas & ekuitas (pola common seperti margin);
+        # fallback ke indeks terakhir masing-masing bila tidak ada periode sama.
         de = None
-        if liab_rows and equity_rows and equity_rows[-1]["amount"]:
-            de = liab_rows[-1]["amount"] / equity_rows[-1]["amount"]
+        if liab_rows and equity_rows:
+            liab_map = {f"{v['year']}{v['period']}": v["amount"] for v in liab_rows}
+            eq_map = {f"{v['year']}{v['period']}": v["amount"] for v in equity_rows}
+            common_de = sorted(k for k in liab_map if k in eq_map)
+            if common_de:
+                k = common_de[-1]
+                eq = eq_map[k]
+                if eq > 0:
+                    de = liab_map[k] / eq
+            else:
+                eq = equity_rows[-1]["amount"]
+                if eq > 0:
+                    de = liab_rows[-1]["amount"] / eq
 
         if growth is None and margin_trend is None and de is None:
-            return {"score": 0, "detail": "no_data"}
+            return {"score": 40, "detail": "no_data"}  # H2: netral, bukan 0 (konsisten faktor lain)
 
         score = 50
         parts = []
@@ -452,7 +522,7 @@ def factor_earnings_momentum(code: str) -> dict:
 
     except Exception as e:
         logger.debug("Earnings momentum error %s: %s", code, e)
-        return {"score": 0, "detail": "error"}
+        return {"score": 40, "detail": "error"}  # H2: netral saat error (konsisten faktor lain)
 
 
 # ═══════════════════════════════════════════════════════════════

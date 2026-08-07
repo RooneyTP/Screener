@@ -55,7 +55,13 @@ class PositionTracker:
         if ticker is None or not ticker.strip() or entry_price <= 0:
             return False
         data = self._load()
-        data[ticker.upper()] = {
+        key = ticker.upper()
+        if key in data:
+            # M6: JANGAN timpa posisi existing diam-diam — pertahankan yang
+            # sudah ada (paling aman), beri warning + tolak add baru.
+            logger.warning("Position %s sudah ada — add ditolak, pertahankan existing", key)
+            return False
+        data[key] = {
             "entry_price": float(entry_price),
             "lots": int(lots),
             "stop_loss": float(stop_loss) if stop_loss > 0 else round(entry_price * 0.95, 2),
@@ -105,7 +111,7 @@ class PositionTracker:
             self._save()
         return True
 
-    def check_positions(self, price_getter) -> list:
+    def check_positions(self, price_getter, mutate: bool = True) -> list:
         """
         Cek semua posisi terhadap harga terkini.
 
@@ -113,6 +119,11 @@ class PositionTracker:
         ----------
         price_getter : callable(ticker) -> float
             Fungsi untuk ambil harga terbaru. Return 0 jika gagal.
+        mutate : bool
+            True (default) → perilaku normal cron: update highest/trailing,
+            tutup posisi yang kena SL/TP/trailing/time-stop, simpan ke DB.
+            False → evaluasi SAJA (dry-run): tidak ada update harga, tidak
+            ada penutupan posisi, tidak ada penulisan file.
 
         Returns
         -------
@@ -125,6 +136,15 @@ class PositionTracker:
             try:
                 price = float(price_getter(ticker) or 0)
                 if price <= 0:
+                    # M7: time-stop dievaluasi TERPISAH — tetap dicek walau
+                    # harga gagal diambil (posisi basi tetap harus EXIT).
+                    if self._time_stop_hit(pos, today):
+                        alerts.append({"ticker": ticker, "level": "EXIT",
+                                       "message": f"TIME STOP! {ticker} sudah {self._days_held(pos, today)} hari "
+                                                  f"(max {self._max_hold(pos)}) — EXIT"})
+                        if mutate:
+                            self.close_position(ticker)
+                        continue
                     alerts.append({"ticker": ticker, "level": "INFO",
                                    "message": f"Tidak bisa ambil harga {ticker}"})
                     continue
@@ -132,24 +152,26 @@ class PositionTracker:
                 entry = pos["entry_price"]
                 sl = pos["stop_loss"]
                 tp = pos["take_profit"]
-                mode = pos.get("mode", "swing")
-                max_hold = 20 if mode == "swing" else 3
 
-                # Update highest & trailing
-                self.update_price(ticker, price)
+                # Update highest & trailing (hanya mode mutate — dry-run tidak
+                # boleh mengubah state positions.json)
+                if mutate:
+                    self.update_price(ticker, price)
 
                 # 1. Stop loss kena
                 if price <= sl:
                     alerts.append({"ticker": ticker, "level": "EXIT",
                                    "message": f"SL KENA! {ticker} di {price:,.0f} <= SL {sl:,.0f} — EXIT SEKARANG"})
-                    self.close_position(ticker)
+                    if mutate:
+                        self.close_position(ticker)
                     continue
 
                 # 2. Take profit kena
                 if price >= tp:
                     alerts.append({"ticker": ticker, "level": "EXIT",
                                    "message": f"TP KENA! {ticker} di {price:,.0f} >= TP {tp:,.0f} — AMBIL PROFIT"})
-                    self.close_position(ticker)
+                    if mutate:
+                        self.close_position(ticker)
                     continue
 
                 # 3. Trailing stop
@@ -157,25 +179,22 @@ class PositionTracker:
                 if pos.get("trailing_active") and trailing > 0 and price <= trailing:
                     alerts.append({"ticker": ticker, "level": "EXIT",
                                    "message": f"TRAILING KENA! {ticker} di {price:,.0f} <= trail {trailing:,.0f} — EXIT"})
-                    self.close_position(ticker)
+                    if mutate:
+                        self.close_position(ticker)
                     continue
 
                 # 4. Time stop
-                entry_date = pos.get("entry_date", "")
-                try:
-                    dt_entry = datetime.strptime(entry_date, "%Y-%m-%d")
-                    days_held = (today - dt_entry).days
-                except (ValueError, TypeError):
-                    days_held = 0
-                if days_held >= max_hold:
+                if self._time_stop_hit(pos, today):
                     alerts.append({"ticker": ticker, "level": "EXIT",
-                                   "message": f"TIME STOP! {ticker} sudah {days_held} hari (max {max_hold}) — EXIT"})
-                    self.close_position(ticker)
+                                   "message": f"TIME STOP! {ticker} sudah {self._days_held(pos, today)} hari "
+                                              f"(max {self._max_hold(pos)}) — EXIT"})
+                    if mutate:
+                        self.close_position(ticker)
                     continue
 
                 # 5. Status hold biasa (hanya info ringkas)
                 pct = (price - entry) / entry * 100
-                remaining = max_hold - days_held
+                remaining = self._max_hold(pos) - self._days_held(pos, today)
                 alerts.append({"ticker": ticker, "level": "HOLD",
                                "message": f"{ticker} {pct:+.1f}% (entry {entry:,.0f}) | SL {sl:,.0f} | TP {tp:,.0f} | hold {remaining}d lagi"})
 
@@ -184,6 +203,24 @@ class PositionTracker:
                 continue
 
         return alerts
+
+    @staticmethod
+    def _max_hold(pos: dict) -> int:
+        """Max hari hold: swing 20 hari, mode lain (intraday) 3 hari."""
+        return 20 if pos.get("mode", "swing") == "swing" else 3
+
+    @staticmethod
+    def _days_held(pos: dict, today: datetime) -> int:
+        """Lama hari posisi dipegang (0 kalau entry_date tidak valid)."""
+        try:
+            dt_entry = datetime.strptime(pos.get("entry_date", ""), "%Y-%m-%d")
+            return (today - dt_entry).days
+        except (ValueError, TypeError):
+            return 0
+
+    def _time_stop_hit(self, pos: dict, today: datetime) -> bool:
+        """True kalau posisi sudah melewati max hold."""
+        return self._days_held(pos, today) >= self._max_hold(pos)
 
     def clean_old(self, max_days: int = 60):
         """Hapus posisi yang sudah ditutup terlalu lama (safety)."""

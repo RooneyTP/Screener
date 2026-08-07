@@ -165,7 +165,7 @@ def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
             "fresh": 1 if fresh else 0,
             "regime": regime if regime else "unknown",
         }
-        new_file = not os.path.exists(csv_path)
+        new_file = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0  # L10: file 0 byte = baru → header wajib
         _ensure_header(csv_path)  # migrasi header kalau CSV lama (no-op jika sudah lengkap)
         with open(csv_path, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=FIELDS)
@@ -238,16 +238,21 @@ def weekly_stats(csv_path: str) -> str:
     if not signals:
         return "Belum ada sinyal tercatat."
 
-    # Filter 7 hari terakhir
+    # Filter 7 hari terakhir — L9: pakai _parse_date (2 format: '%Y-%m-%d %H:%M'
+    # dan '%Y-%m-%d'), dulu cuma 1 format → baris berformat lain di-skip diam-diam.
     cutoff = datetime.now()
     recent = []
     for s in signals:
-        try:
-            dt = datetime.strptime(s["date"], "%Y-%m-%d %H:%M")
-            if (cutoff - dt).days <= 7:
-                recent.append(s)
-        except (ValueError, KeyError):
+        dt = _parse_date(s.get("date"))
+        if dt is None:
             continue
+        if (cutoff - dt).days <= 7:
+            recent.append(s)
+
+    # L9: hanya sinyal BARU (fresh='1') yang dihitung — sinyal lanjutan
+    # (fresh=0) adalah duplikat <14 hari, bukan sinyal baru; dulu ikut
+    # dihitung sehingga statistik mingguan overstate.
+    recent = [s for s in recent if str(s.get("fresh", "1")).strip() == "1"]
 
     if not recent:
         return f"7 hari terakhir: 0 sinyal (total {len(signals)} tercatat)."

@@ -2,7 +2,7 @@
 v7_scan.py — V7 Dual Mode Scanner (Invezgo ONLY)
 Data 100% dari Invezgo. Output ke Telegram via cron + formatted.
 """
-import sys, os, warnings, yaml, traceback
+import sys, os, warnings, yaml, traceback, math
 warnings.filterwarnings('ignore')
 ROOT = r'C:\Hermes_Workspace\Screener\idx_alpha_screener'
 sys.path.insert(0, ROOT)
@@ -34,7 +34,7 @@ from entry_timing import recommend_entry
 from telegram_formatter import format_message
 from signal_manager import CooldownTracker
 from position_tracker import PositionTracker, format_position_alerts
-from perf_tracker import dedup_and_log_batch, weekly_stats
+from perf_tracker import dedup_and_log_batch
 
 # ── Group mapping untuk label konglomerat ──
 GROUP_NAMES = {
@@ -126,9 +126,14 @@ def enforce_group_concentration_guard(swing: list, intra: list,
             sz["lots"] = new_lots
             sz["cost"] = new_cost
             sz["pct_modal"] = round(new_cost / capital * 100, 1)
+            # L3: risk_amount ikut di-scale proporsional (5% dari cost baru) —
+            # sebelumnya tidak diupdate → risiko di ringkasan Telegram overstate
+            sz["risk_amount"] = int(new_cost * 0.05)
             _update_logged_sizing(logged_signals, s.get("tkr", ""), mode,
                                   new_lots, new_cost)
-            details.append(f"{s.get('tkr')} {old_lots}→{new_lots} lot")
+            # L1: label mode di detail — ticker yang muncul di swing & intraday
+            # sebelumnya tampil dobel tanpa pembeda (mis. "BRPT 15→13 lot")
+            details.append(f"{s.get('tkr')}({mode}) {old_lots}→{new_lots} lot")
         new_total = sum(
             float((s.get("sizing") or {}).get("cost", 0) or 0)
             for _m, s in all_signals if group_of(s.get("tkr", "")) == g
@@ -183,7 +188,8 @@ def main():
     if disabled:
         logger.info("Watchlist disabled (WR rendah): %s", ", ".join(sorted(disabled)))
     CAPITAL = 20_000_000
-    v7_engine.enabled = True
+    # M3: enabled dibaca dari config.yaml (v7.enabled), bukan hardcode True
+    v7_engine.enabled = bool(CONFIG.get("v7", {}).get("enabled", True))
     # F1: override threshold/bobot V7 dari config.yaml (kosong = default hardcode engine)
     v7_engine.configure(CONFIG.get("v7", {}))
 
@@ -199,6 +205,16 @@ def main():
         df_ihsg = fetch_ihsg_cached(period="2y")
     except Exception as e:
         logger.warning("Gagal ambil IHSG: %s", e)
+        df_ihsg = pd.DataFrame()
+    # H4: IHSG gagal/kosong → JANGAN diam-diam jadi 0 sinyal (align_to_market
+    # mengisi idx_close NaN → dropna() membuang SEMUA baris). Scan tetap lanjut
+    # tanpa align market; kolom idx diisi 0.0 (scoring punya fallback .get).
+    # N5: IHSG non-kosong tapi <21 baris juga masuk jalur ini — pct_change(20)
+    # (data.py:463) butuh 21 baris; <21 → idx_ret_20d NaN → dropna() → 0 sinyal.
+    if df_ihsg is None or df_ihsg.empty or len(df_ihsg) < 21:
+        logger.warning(
+            "IHSG kosong/tidak tersedia — scan LANJUT tanpa align market "
+            "(idx_close=0.0, sinyal tetap diproses; scoring pakai fallback)")
         df_ihsg = pd.DataFrame()
 
     # ── Market regime — compute ONCE from IHSG ──
@@ -260,18 +276,28 @@ def main():
         try:
             # Cooldown check
             if cooldown.is_on_cooldown(tkr):
-                logger.debug("Cooldown: %s", tkr)
+                logger.warning("Cooldown: %s", tkr)  # M1: level warning (debug tidak tampil di level WARNING)
                 continue
 
             df = ip.get_historical(tkr, period="1y")
             if df.empty or len(df) < 60:
+                logger.warning("Skip %s: data harga kosong/<60 baris", tkr)  # M1
                 continue
             df = compute_all_indicators(df)
-            df = align_to_market(df, df_ihsg=df_ihsg).dropna()
+            if df_ihsg is not None and not df_ihsg.empty:
+                df = align_to_market(df, df_ihsg=df_ihsg).dropna()
+            else:
+                # H4: IHSG tidak tersedia → SKIP align (hindari idx_close NaN →
+                # dropna() → 0 sinyal diam-diam). Kolom idx diisi netral 0.0.
+                df["idx_close"] = 0.0
+                df["idx_ret_20d"] = 0.0
+                df["idx_volatility"] = 0.0
             if len(df) < 30:
+                logger.warning("Skip %s: baris tersisa <30 setelah align", tkr)  # M1
                 continue
             row = df.iloc[-1]
             if pd.isna(row.get("rsi")):
+                logger.warning("Skip %s: RSI NaN di baris terakhir", tkr)  # M1
                 continue
 
             v4s = compute_total_score(row, regime)
@@ -287,12 +313,19 @@ def main():
             ff = v7r["factors"].get("foreign_detail", "")
             earn = v7r["factors"].get("earnings_detail", "")
             vol_ratio = float(row.get("vol_ratio", 1) or 1)
+            # N4: vol_ratio NaN lolos guard lama (`nan or 1` → nan truthy) →
+            # `vol_ratio >= 1.0` selalu False → sinyal intraday hilang diam-diam.
+            # NaN/inf → default 1.0 + jejak debug.
+            if not math.isfinite(vol_ratio):
+                logger.debug("vol_ratio tidak valid (%s) → default 1.0", vol_ratio)
+                vol_ratio = 1.0
             weekly = row.get("weekly_trend", "NO_DATA")
             brokers_raw = v7r["factors"].get("brokers", "")
 
             swing_score = v7r["score"]
             if "akumulasi" in bf and v7r["score"] >= 48:
                 swing_score += 5
+            swing_score = min(100, swing_score)  # L6: bonus +5 tidak boleh >100
 
             # ── Swing filter (independent) ──
             swing_ok = False
@@ -302,8 +335,16 @@ def main():
                     if not (swing_score < 55 and nn):
                         swing_ok = True
 
-            if swing_ok:
+            # ── Intraday filter (independent of swing) ──
+            intra_ok = v7r["score"] >= 48 and vol_ratio >= 1.0
+
+            # L12: recommend_entry dipanggil SEKALI per ticker (sebelumnya 2x
+            # untuk ticker yang lolos swing+intraday — hasilnya identik).
+            entry_rec = None
+            if swing_ok or intra_ok:
                 entry_rec = recommend_entry(tkr, price, atr, row, v7r, sentiment)
+
+            if swing_ok:
                 ex = compute_exit(price, atr, regime, "swing", weekly)
                 sz = position_sizing(CAPITAL, price, swing_score, atr_pct)
                 swing.append({
@@ -322,16 +363,13 @@ def main():
                     "regime": regime,
                 })
 
-            # ── Intraday filter (independent of swing) ──
-            intra_ok = v7r["score"] >= 48 and vol_ratio >= 1.0
             if intra_ok:
                 ex2 = compute_exit(price, atr, regime, "intraday", weekly)
                 sz2 = position_sizing(CAPITAL, price, v7r["score"], atr_pct)
-                entry_rec2 = recommend_entry(tkr, price, atr, row, v7r, sentiment)
                 intra.append({
                     "tkr": tkr, "score": v7r["score"], "price": price,
                     "exit": ex2, "sizing": sz2, "bf": bf, "ff": ff, "earn": earn, "vol": vol_ratio,
-                    "entry_rec": entry_rec2, "group": group_of(tkr),
+                    "entry_rec": entry_rec, "group": group_of(tkr),
                 })
                 logged_signals.append({
                     "ticker": tkr, "mode": "intraday", "score": v7r["score"],
@@ -346,7 +384,7 @@ def main():
                 cooldown.record(tkr, v7r["signal"], {"score": swing_score})
 
         except Exception as e:
-            logger.debug("Skip %s: %s", tkr, e)
+            logger.warning("Skip %s: %s", tkr, e)  # M1: level warning (debug tidak tampil di level WARNING)
             continue
 
     swing.sort(key=lambda x: x["score"], reverse=True)
@@ -368,7 +406,14 @@ def main():
         concentration_warnings = []
 
     # ── Log performa sinyal ke CSV (dedup persistén: ±1% harga & <14 hari) ──
-    perf_csv = os.path.join(ROOT, "data", "perf_tracker_v7.csv")
+    # N7: path dibaca dari config.yaml perf_tracker.csv_path (dulu hardcode
+    # perf_tracker_v7.csv walau config menyediakan path). Fallback ke nama
+    # lama kalau config kosong — perilaku tidak berubah untuk config kosong.
+    pt_path = (CONFIG.get("perf_tracker") or {}).get("csv_path", "") or ""
+    if pt_path:
+        perf_csv = pt_path if os.path.isabs(pt_path) else os.path.join(ROOT, pt_path)
+    else:
+        perf_csv = os.path.join(ROOT, "data", "perf_tracker_v7.csv")
     dedup_results = dedup_and_log_batch(perf_csv, logged_signals)
     logged = sum(1 for r in dedup_results if r["logged"])
     if logged:
@@ -401,18 +446,18 @@ def main():
         narratives = {}
 
     # ── Format & print ──
-    output_message = format_message(swing, intra, sentiment, CAPITAL,
-                                    narratives=narratives,
-                                    concentration_warnings=concentration_warnings)
-
-    # Tambah posisi alerts + sector line ke output
+    # M2: extra_parts (alert posisi, sektor) diintegrasikan SEBELUM truncate
+    # 3500 di format_message — di-append SETELAH truncate (lama) membuat
+    # output >4096 karakter → pesan di-drop Telegram.
     extra_parts = []
     if position_alerts:
         extra_parts.append(format_position_alerts(position_alerts))
     if sector_line:
         extra_parts.append(sector_line)
-    if extra_parts:
-        output_message = output_message + "\n\n" + "\n\n".join(extra_parts)
+    output_message = format_message(swing, intra, sentiment, CAPITAL,
+                                    narratives=narratives,
+                                    concentration_warnings=concentration_warnings,
+                                    extra_parts=extra_parts)
 
     print(output_message)
 

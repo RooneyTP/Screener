@@ -18,7 +18,9 @@ def _fmt_price(val) -> str:
 
 def _fmt_brokers_short(brokers_raw: str) -> str:
     """Ringkas broker string jadi 🔵 / 🔴 per broker."""
-    if not brokers_raw or "🔵" not in brokers_raw:
+    # L4: kalau hanya ada seller (🔴), info jual tetap ditampilkan —
+    # sebelumnya return "" saat tanpa 🔵 → info distribusi hilang dari pesan.
+    if not brokers_raw or ("🔵" not in brokers_raw and "🔴" not in brokers_raw):
         return ""
     parts = brokers_raw.split("|")
     buys, sells = "", ""
@@ -35,8 +37,8 @@ def _fmt_brokers_short(brokers_raw: str) -> str:
         result += "🔵 " + " ".join(items)
     if sells:
         items = sells.split()[:2]
-        result += " 🔴 " + " ".join(items)
-    return result
+        result += (" 🔴 " if buys else "🔴 ") + " ".join(items)
+    return result.strip()
 
 
 def format_message(
@@ -47,6 +49,7 @@ def format_message(
     summary: Optional[dict] = None,
     narratives: Optional[Dict[str, str]] = None,
     concentration_warnings: Optional[List[str]] = None,
+    extra_parts: Optional[List[str]] = None,
 ) -> str:
     """
     Format pesan Telegram lengkap untuk V7 screener.
@@ -67,6 +70,10 @@ def format_message(
     concentration_warnings : list[str], optional — baris peringatan C2
         (guard konsentrasi grup konglomerat) dari v7_scan. Default None =
         tidak ada peringatan → format output TIDAK berubah untuk pemanggil lama.
+    extra_parts : list[str], optional — bagian tambahan (mis. alert posisi,
+        ringkasan sektor) yang diintegrasikan SEBELUM truncate 3500 (M2).
+        Dipakai v7_scan supaya output final tidak melebihi 4096 karakter
+        Telegram (sebelumnya di-append setelah truncate → pesan ke-drop).
 
     Returns
     -------
@@ -241,8 +248,28 @@ def format_message(
 
     result = "\n".join(lines)
 
-    # Truncate to 3500 chars (Telegram-friendly)
-    if len(result) > 3500:
-        result = result[:3490] + "\n…(truncated)"
+    # M2: extra_parts (alert posisi, sektor) diintegrasikan SEBELUM truncate —
+    # kalau di-append setelah truncate, output bisa >4096 dan Telegram drop.
+    # Bagian utama dipotong LEBIH DULU dengan budget yang menyisakan ruang
+    # untuk extra_parts, jadi alert posisi/sektor TETAP tampil dan total ≤ 3500.
+    MAX_LEN = 3500
+    TRUNC_MARKER = "\n…(truncated)"
+    if extra_parts:
+        extra_text = "\n\n" + "\n\n".join(extra_parts)
+        # N2: extra_parts sendiri juga di-truncate (budget terpisah ~300 chars)
+        # — sebelumnya extra tidak pernah dipotong sehingga total bisa >4096
+        # (Telegram drop) walau bagian utama sudah di-truncate.
+        if len(extra_text) > 300:
+            extra_text = extra_text[: 300 - len(TRUNC_MARKER)] + TRUNC_MARKER
+        budget = MAX_LEN - len(extra_text)
+        if len(result) > budget:
+            cut = max(budget - len(TRUNC_MARKER), 100)
+            result = result[:cut] + TRUNC_MARKER
+        result = result + extra_text
+    else:
+        # Truncate ke 3500 chars (Telegram-friendly) — perilaku lama tanpa extra_parts
+        # L11: potong ke 3487 + marker (13 chars) = 3500 ≤ 3500 (dulu 3490+13=3503).
+        if len(result) > MAX_LEN:
+            result = result[: MAX_LEN - len(TRUNC_MARKER)] + TRUNC_MARKER
 
     return result

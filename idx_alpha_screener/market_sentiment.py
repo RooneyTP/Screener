@@ -121,7 +121,8 @@ def predict_market_sentiment(df_ihsg: pd.DataFrame, invezgo_provider=None) -> di
         IHSG historical data from fetch_ihsg_cached().
         Expected columns: open, high, low, close, volume
     invezgo_provider : InvezgoProvider, optional
-        Untuk ambil data foreign flow IHSG via get_broker_summary()
+        TIDAK DIPAKAI — endpoint broker Invezgo (get_summary_stock) menolak
+        kode indeks (422), jadi foreign flow IHSG tidak tersedia.
 
     Returns
     -------
@@ -131,7 +132,9 @@ def predict_market_sentiment(df_ihsg: pd.DataFrame, invezgo_provider=None) -> di
         reason    : str — 1-2 kalimat deskripsi
         details   : list[str] — faktor-faktor yang dianalisis
     """
-    if df_ihsg.empty or len(df_ihsg) < 50:
+    # L2: guard None konsisten dengan compute_ihsg_key_levels (L86) — dulu
+    # df_ihsg=None → AttributeError di .empty (crash scan).
+    if df_ihsg is None or df_ihsg.empty or len(df_ihsg) < 50:
         return {
             "sentiment": "YELLOW",
             "label": "Netral",
@@ -200,33 +203,14 @@ def predict_market_sentiment(df_ihsg: pd.DataFrame, invezgo_provider=None) -> di
         else:
             details.append(f"Volume {vol_ratio:.1f}x avg")
 
-    # ── 6. Foreign flow on IHSG ──
+    # ── 6. Foreign flow pada IHSG ──
+    # Jujur: endpoint broker Invezgo (get_summary_stock) hanya menerima kode
+    # saham (maks 7 karakter). Kode indeks IHSG ("COMPOSITE") ditolak API —
+    # diverifikasi langsung ke API Invezgo: 422 "Stock code must be at most
+    # 7 characters" (2026-08-07). Jadi data asing IHSG tidak tersedia dari
+    # sumber ini; foreign_net dibiarkan 0 (tidak memicu kondisi RED/GREEN).
     foreign_net = 0
-    if invezgo_provider is not None:
-        try:
-            summary = invezgo_provider.get_broker_summary("IHSG", days=3)
-            if summary and isinstance(summary, list) and len(summary) > 0:
-                foreign_codes = ["AG", "RG", "DB", "GS", "ML", "CS", "UBS"]
-                for item in summary:
-                    code = item.get("code", "")
-                    if code in foreign_codes:
-                        buy = int(item.get("buy_value", 0))
-                        sell = int(item.get("sell_value", 0))
-                        foreign_net += (buy - sell)
-
-                if foreign_net > 50_000_000_000:
-                    details.append(f"Asing beli Rp{foreign_net/1e9:.0f}B")
-                elif foreign_net < -50_000_000_000:
-                    details.append(f"Asing jual Rp{abs(foreign_net)/1e9:.0f}B")
-                else:
-                    details.append(f"Asing netral ({foreign_net/1e9:+.1f}B)")
-            else:
-                details.append("Data asing IHSG N/A")
-        except Exception as e:
-            logger.debug("Gagal ambil foreign flow IHSG: %s", e)
-            details.append("Foreign flow IHSG error")
-    else:
-        details.append("Foreign flow IHSG N/A")
+    details.append("Data asing IHSG tidak tersedia")
 
     # ── 7. 3-day return ──
     ret_3d = row.get("ret_3d", np.nan)
