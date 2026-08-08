@@ -281,9 +281,14 @@ slippage:
 # ═══════════════════════════════════════════════════════════════
 # PERFORMANCE TRACKER — Log sinyal + evaluasi mingguan
 # ═══════════════════════════════════════════════════════════════
-perf_tracker:
-  enabled: true
-  csv_path: data/perf_tracker.csv        # Lokasi database sinyal
-  weekly_report: true                    # Generate report mingguan
-  auto_close_positions: false            # Otomatis close via exit strategy
-  min_signals_for_report: 5              # Minimal sinyal untuk laporan mingguan
+# LEGACY — v7 selalu pakai data/perf_tracker_v7.csv (hardcode di
+# v7_scan.py & perf_tracker.py). Section ini TIDAK dibaca v7_scan
+# maupun main.py. Key 'csv_path' di bawah ini pernah menyesatkan
+# v7_scan menulis ke data/perf_tracker.csv (BUG N7, 08/08) — seluruh
+# section dikomentari supaya tidak ada kode yang terpancing membacanya.
+# perf_tracker:
+#   enabled: true
+#   csv_path: data/perf_tracker.csv        # Lokasi database sinyal
+#   weekly_report: true                    # Generate report mingguan
+#   auto_close_positions: false            # Otomatis close via exit strategy
+#   min_signals_for_report: 5              # Minimal sinyal untuk laporan mingguan

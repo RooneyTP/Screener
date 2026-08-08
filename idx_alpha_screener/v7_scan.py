@@ -406,14 +406,14 @@ def main():
         concentration_warnings = []
 
     # ── Log performa sinyal ke CSV (dedup persistén: ±1% harga & <14 hari) ──
-    # N7: path dibaca dari config.yaml perf_tracker.csv_path (dulu hardcode
-    # perf_tracker_v7.csv walau config menyediakan path). Fallback ke nama
-    # lama kalau config kosong — perilaku tidak berubah untuk config kosong.
-    pt_path = (CONFIG.get("perf_tracker") or {}).get("csv_path", "") or ""
-    if pt_path:
-        perf_csv = pt_path if os.path.isabs(pt_path) else os.path.join(ROOT, pt_path)
-    else:
-        perf_csv = os.path.join(ROOT, "data", "perf_tracker_v7.csv")
+    # N7-FIX: path SELALU data/perf_tracker_v7.csv (hardcode, sama seperti
+    # sebelum regresi N7). Key config 'perf_tracker.csv_path' TIDAK dibaca —
+    # itu key LEGACY untuk main.py lama dan pernah menyesatkan path ke
+    # data/perf_tracker.csv (file terpisah yang tidak dipakai perf_tracker /
+    # factor_analysis / weekly_report). Section perf_tracker di config.yaml
+    # sudah dikomentari dengan catatan legacy (lihat config.yaml). JANGAN
+    # menghidupkan kembali pembacaan key ini.
+    perf_csv = os.path.join(ROOT, "data", "perf_tracker_v7.csv")
     dedup_results = dedup_and_log_batch(perf_csv, logged_signals)
     logged = sum(1 for r in dedup_results if r["logged"])
     if logged:
