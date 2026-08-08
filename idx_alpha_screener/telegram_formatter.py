@@ -3,7 +3,31 @@ telegram_formatter.py — Format output V7 untuk Telegram readable
 =================================================================
 Mengganti semua print() di v7_scan.py dengan format pesan yang ringkas.
 Gunakan Markdown sederhana, batasi ~3500 karakter.
+
+Format PASS 2 (lebih ringkas & readable — target ~700 chars utk skenario
+3 swing + 2 intraday + 2 narrative + extra_parts):
+- SATU baris per saham (swing & intraday):
+  swing : `1. BUMI [Barito] 66.2 | 187 | 🎯 179-187 | SL 172/TP 213 📈 Rev+8% ⚡`
+  intra : `ASII 55.0 | 5,200 | Vol 1.8x | SL 5,000/TP 5,600`
+- Entry langsung range (kata Limit/GTC dihapus); SL/TP digabung `SL x/TP y`;
+  RRR dihapus; mode ganda cukup `⚡` di akhir (tanpa '+intra'); earnings
+  suffix pendek `📈 Rev+8%`; grup `[Barito]` dipertahankan.
+- Sentimen + IHSG digabung 1 baris: `🔮 Waspada | IHSG 6,409 S 6,350/R 6,480`
+  (RED→Bahaya, GREEN→Aman, selainnya→Waspada).
+- Separator hanya 1 (sebelum ringkasan); baris 🛡 EXIT boilerplate dihapus;
+  disclaimer 1 baris pendek: `⚠️ Alat bantu, bukan rekomendasi`.
+- Ringkasan 1 baris tanpa kata RINGKASAN:
+  `Swing 3 · Intra 1 · Alokasi 4.8jt · Risiko 240rb` (Rp ringkas: 4.8jt/240rb).
+- Legenda lanjutan pendek (hanya kalau ada label lanjutan):
+  `🔄 lanjutan = sinyal <14 hari`.
+- Narrative AI tetap (user suka konteks) — maks 2 sinyal terbaik (└ 📝 ...).
+- Ticker yang lolos swing DAN intraday tampil SEKALI di section SWING
+  dengan penanda `⚡` di akhir (dulu muncul 2x dengan lot/entry beda → user
+  mengira 2 sinyal berbeda). Kedua sinyal tetap di-log ke perf CSV.
+- Broker flow hanya tampil saat EKSTREM (akumulasi_masif / distribusi)
+  sebagai suffix pendek 🔵+45B / 🔴-8B di baris yang sama.
 """
+import re
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -14,6 +38,62 @@ def _fmt_price(val) -> str:
         return f"Rp{int(val):,}"
     except (ValueError, TypeError):
         return f"Rp{int(0):,}"
+
+
+def _fmt_num(val) -> str:
+    """Format harga PADAT tanpa prefix Rp (mis. 187 / 1,870) untuk baris sinyal."""
+    try:
+        return f"{int(val):,}"
+    except (ValueError, TypeError):
+        return "0"
+
+
+def _fmt_rp_short(val) -> str:
+    """Format Rupiah RINGKAS: 4_800_000 → '4.8jt', 240_000 → '240rb', 2e9 → '2M'."""
+    try:
+        v = float(val)
+    except (ValueError, TypeError):
+        v = 0.0
+    if v >= 1e9:
+        return f"{v / 1e9:.1f}".rstrip("0").rstrip(".") + "M"
+    if v >= 1e6:
+        return f"{v / 1e6:.1f}".rstrip("0").rstrip(".") + "jt"
+    if v >= 1e3:
+        return f"{v / 1e3:.0f}" + "rb"
+    return f"{int(v)}"
+
+
+def _fmt_range(price_range: str) -> str:
+    """Padatkan rentang entry: 'Rp168,000 - Rp187,000' → '168000-187000'.
+    Kosong / '-' → '' (tidak ditampilkan)."""
+    if not price_range or price_range == "-":
+        return ""
+    return price_range.replace("Rp", "").replace(",", "").replace(" ", "")
+
+
+def _fmt_bf_extreme(bf: str) -> str:
+    """Suffix broker flow EKSTREM: 'akumulasi_masif_45B' → '🔵+45B',
+    'distribusi_8B' → '🔴-8B'. Netral/net_buy/akumulasi biasa → '' (tidak tampil)."""
+    if not bf:
+        return ""
+    m = re.search(r"(\d+(?:\.\d+)?)B", bf)
+    num = m.group(1) if m else ""
+    if "akumulasi_masif" in bf:
+        return f"🔵+{num}B"
+    if "distribusi" in bf:
+        return f"🔴-{num}B"
+    return ""
+
+
+def _fmt_earn_short(earn: str) -> str:
+    """Suffix earnings pendek: 'Rev +8% YoY | margin ...' → '📈 Rev+8%'.
+    Return '' kalau tidak ada data / tidak ada potongan Rev."""
+    if not earn or earn in ("no_data", "error"):
+        return ""
+    m = re.search(r"Rev\s*[+-]?\d+(?:\.\d+)?%", earn)
+    if not m:
+        return ""
+    return f"📈 {m.group(0).replace(' ', '')}"
 
 
 def _fmt_brokers_short(brokers_raw: str) -> str:
@@ -52,7 +132,7 @@ def format_message(
     extra_parts: Optional[List[str]] = None,
 ) -> str:
     """
-    Format pesan Telegram lengkap untuk V7 screener.
+    Format pesan Telegram lengkap untuk V7 screener (PASS 2 — ringkas).
 
     Parameters
     ----------
@@ -67,6 +147,7 @@ def format_message(
     narratives : dict[str, str], optional — {ticker: kalimat naratif} dari
         ai_narrative.generate_narratives(). Default None/kosong = kompatibel
         dengan pemanggil lama; sinyal tanpa narrative tetap diformat seperti biasa.
+        Hanya 2 sinyal terbaik yang ditampilkan (└ 📝 ...).
     concentration_warnings : list[str], optional — baris peringatan C2
         (guard konsentrasi grup konglomerat) dari v7_scan. Default None =
         tidak ada peringatan → format output TIDAK berubah untuk pemanggil lama.
@@ -83,131 +164,104 @@ def format_message(
     lines = []
     narratives = narratives or {}
 
-    # ── HEADER ──
-    lines.append(f"📊 SCREENER V7 — {now} WIB")
-    lines.append("─" * 25)
+    # ── Dedup mode ganda (R6) ──
+    # Ticker yang lolos SWING & INTRADAY → tampil SEKALI di section SWING
+    # dengan penanda '⚡' di akhir; TIDAK diulang di section INTRADAY (dulu muncul
+    # 2x dengan lot/entry beda → user mengira 2 sinyal berbeda). Kedua sinyal
+    # tetap di-log ke perf CSV (mode berbeda, WR per mode tetap akurat).
+    swing_disp = list(swing_list[:5])          # maks 5 ditampilkan
+    intra_disp_all = list(intra_list[:5])
+    swing_tickers = {s.get("tkr") for s in swing_disp}
+    dual_tickers = {s.get("tkr") for s in swing_disp
+                    if any(x.get("tkr") == s.get("tkr") for x in intra_list)}
+    intra_disp = [s for s in intra_disp_all if s.get("tkr") not in swing_tickers]
 
-    # ── MARKET SENTIMENT ──
+    # ── HEADER (1 baris) ──
+    lines.append(f"📊 SCREENER V7 — {now}")
+
+    # ── SENTIMEN + IHSG (1 baris gabungan) ──
     if market_sentiment:
-        reason = market_sentiment.get("reason", "")
-        lines.append(f"🔮 BESOK: {reason}")
-        # 1-line simplification from details
-        det = market_sentiment.get("details", [])
-        if det:
-            # Pick 2-3 most important factors
-            key_factors = [d for d in det if "merah" in d or "jual" in d or "beli" in d or "ADX" in d or "tur" in d]
-            if not key_factors:
-                key_factors = det[:2]
-            lines.append(", ".join(key_factors[:3]))
-        # Entry advice based on sentiment
         sent = market_sentiment.get("sentiment", "YELLOW")
-        if sent == "RED":
-            lines.append("→ Limit harga diskon, jangan kejar")
-        elif sent == "GREEN":
-            lines.append("→ Bisa open entry, trailing longgar")
-        else:
-            lines.append("→ Harga limit, jangan kejar")
-        # IHSG key levels
+        label = {"RED": "Bahaya", "GREEN": "Aman"}.get(sent, "Waspada")
+        line = f"🔮 {label}"
         kl = market_sentiment.get("key_levels")
         if kl and kl.get("current", 0) > 0:
-            lines.append(
-                f"📊 IHSG {kl['current']:,.0f} | Support {kl['support']:,.0f} | "
-                f"Resist {kl['resistance']:,.0f}"
-            )
-        lines.append("")
+            line += (f" | IHSG {kl['current']:,.0f} "
+                     f"S {kl['support']:,.0f}/R {kl['resistance']:,.0f}")
+        lines.append(line)
+    lines.append("")
 
-    # ── SWING ──
-    if swing_list:
+    # ── SWING (1 baris per saham, paling kompak) ──
+    if swing_disp:
         lines.append("🏆 SWING (urut skor)")
-        for i, s in enumerate(swing_list[:5]):  # max 5
+        for i, s in enumerate(swing_disp):
             tkr = s["tkr"]
-            score = s["score"]
-            price = s["price"]
             exit_d = s.get("exit", {})
             sl = exit_d.get("stop_loss", 0)
             tp = exit_d.get("take_profit", 0)
-            rrr = exit_d.get("rrr", 0)
-            entry_rec = s.get("entry_rec", {})
+            entry_range = _fmt_range(s.get("entry_rec", {}).get("price_range", ""))
 
-            # Entry method
-            entry_method = entry_rec.get("method", "")
-            entry_range = entry_rec.get("price_range", "")
-
-            # Line 1: ticker, score, price, entry timing
-            entry_info = f"🎯 {entry_method}"
-            if entry_range and entry_range != "-":
-                entry_info += f" {entry_range}"
-
-            wk = " ⚠️ BEAR" if s.get("weekly") == "BEARISH" else ""
             grp = f" [{s.get('group')}]" if s.get("group") else ""
+            wk = " ⚠️ BEAR" if s.get("weekly") == "BEARISH" else ""
             cont = s.get("continuation")
-            cont_label = f" (lanjutan - sinyal {cont})" if cont else ""
-            lines.append(f"{i+1}. {tkr}{grp} {score:.1f} | {_fmt_price(price)} | {entry_info}{wk}{cont_label}")
+            cont_label = f" 🔄 {cont}" if cont else ""
+            dual = " ⚡" if tkr in dual_tickers else ""
 
-            # Line 2: SL / TP / RRR
-            lines.append(f"   SL {_fmt_price(sl)} | TP {_fmt_price(tp)} | RRR {rrr}")
+            parts = [f"{i+1}. {tkr}{grp} {s['score']:.1f}", _fmt_num(s["price"])]
+            if entry_range:
+                parts.append(f"🎯 {entry_range}")
+            parts.append(f"SL {_fmt_num(sl)}/TP {_fmt_num(tp)}")
+            line = " | ".join(parts)
 
-            # Line 3: broker flow (compact) — only if interesting
-            brokers = _fmt_brokers_short(s.get("brokers", ""))
-            if brokers:
-                lines.append(f"   {brokers}")
-            elif s.get("bf") and s["bf"] not in ("netral", "no_data"):
-                # Show broker detail briefly
-                bf_short = s["bf"].replace("akumulasi_masif_", "🔵 ").replace("akumulasi_", "🔵 ").replace("distribusi_", "🔴 ").replace("_", " ")
-                if len(bf_short) > 20:
-                    bf_short = bf_short[:20]
-                lines.append(f"   {bf_short}")
+            # Suffix pendek di baris yang sama (bukan baris terpisah)
+            if wk:
+                line += wk
+            bf_sfx = _fmt_bf_extreme(s.get("bf", ""))
+            if bf_sfx:
+                line += f" {bf_sfx}"
+            earn_sfx = _fmt_earn_short(s.get("earn", ""))
+            if earn_sfx and len(line) + len(earn_sfx) <= 150:
+                line += f" {earn_sfx}"
+            line += cont_label + dual
+            lines.append(line)
 
-            # Line 3b: earnings momentum (B1) — 1 baris, hanya kalau ada data
-            earn = s.get("earn", "")
-            if earn and earn not in ("no_data", "error"):
-                lines.append(f"   📈 {earn}")
-
-            # Line 4 (optional): AI narrative — konteks tambahan, bukan prediksi
+            # Narrative AI — maks 2 sinyal terbaik (user suka konteks singkat)
             nar = narratives.get(tkr)
-            if nar:
-                lines.append(f"   └ 📝 {nar}")
+            if nar and i < 2:
+                lines.append(f"└ 📝 {nar}")
 
         lines.append("")
 
-    # ── INTRADAY ──
-    if intra_list:
+    # ── INTRADAY (1 baris per saham; ticker dobel mode sudah di section SWING) ──
+    if intra_disp:
         lines.append("⚡ INTRADAY (H+3)")
-        for s in intra_list[:5]:  # max 5
+        for s in intra_disp:
             tkr = s["tkr"]
-            score = s["score"]
-            price = s["price"]
             exit_d = s.get("exit", {})
             sl = exit_d.get("stop_loss", 0)
             tp = exit_d.get("take_profit", 0)
             vol = s.get("vol", 1)
-            entry_rec = s.get("entry_rec", {})
-
-            entry_method = entry_rec.get("method", "")
-            entry_range = entry_rec.get("price_range", "")
-
-            # Entry timing on same line
-            entry_info = f"🎯 {entry_method}"
-            if entry_range and entry_range != "-":
-                entry_info += f" {entry_range}"
-
             cont = s.get("continuation")
-            cont_label = f" (lanjutan - sinyal {cont})" if cont else ""
-            lines.append(f"{tkr} {score:.1f} | {_fmt_price(price)} | Vol {vol:.1f}x{cont_label}")
-            lines.append(f"   SL {_fmt_price(sl)} | TP {_fmt_price(tp)} | {entry_info}")
-            earn = s.get("earn", "")
-            if earn and earn not in ("no_data", "error"):
-                lines.append(f"   📈 {earn}")
+            cont_label = f" 🔄 {cont}" if cont else ""
+
+            line = (f"{tkr} {s['score']:.1f} | {_fmt_num(s['price'])} | "
+                    f"Vol {vol:.1f}x | SL {_fmt_num(sl)}/TP {_fmt_num(tp)}")
+            bf_sfx = _fmt_bf_extreme(s.get("bf", ""))
+            if bf_sfx:
+                line += f" {bf_sfx}"
+            earn_sfx = _fmt_earn_short(s.get("earn", ""))
+            if earn_sfx and len(line) + len(earn_sfx) <= 150:
+                line += f" {earn_sfx}"
+            line += cont_label
+            lines.append(line)
         lines.append("")
 
-    # ── SUMMARY ──
-    lines.append("─" * 25)
-    lines.append("📋 RINGKASAN")
+    # ── RINGKASAN (1 baris, tanpa kata RINGKASAN) — separator tunggal ──
+    lines.append("─" * 9)
+    n_swing = len(swing_disp)
+    n_intra = len(intra_disp)
 
-    n_swing = len(swing_list)
-    n_intra = len(intra_list)
-
-    # Hitung alokasi (top 3 deduplicate — same ticker may appear in both)
+    # Alokasi (top 3, deduplicate — ticker yang muncul di kedua mode dihitung sekali)
     alloc = 0
     total_risk = 0
     counted_tickers = set()
@@ -228,23 +282,26 @@ def format_message(
         alloc += cost
         total_risk += s.get("sizing", {}).get("risk_amount", int(cost * 0.05))
 
-    lines.append(f"Swing {n_swing} | Intra {n_intra} | Alokasi {_fmt_price(alloc)}")
-    lines.append(f"Modal {_fmt_price(capital)} | Risiko {_fmt_price(total_risk)} ({(total_risk/capital*100) if capital>0 else 0:.0f}%)")
+    lines.append(
+        f"Swing {n_swing} · Intra {n_intra} · Alokasi {_fmt_rp_short(alloc)} · "
+        f"Risiko {_fmt_rp_short(total_risk)}"
+    )
+
+    # ── Legenda lanjutan (hanya kalau ada label lanjutan di pesan) ──
+    any_cont = any(s.get("continuation") for s in swing_disp) or any(
+        s.get("continuation") for s in intra_disp
+    )
+    if any_cont:
+        lines.append("🔄 lanjutan = sinyal <14 hari")
 
     # ── C2: peringatan konsentrasi grup (opsional — tidak muncul saat normal) ──
     if concentration_warnings:
         lines.append("")
         lines.extend(concentration_warnings)
 
-    # ── EXIT STRATEGY ──
-    any_cont = any(s.get("continuation") for s in swing_list) or any(
-        s.get("continuation") for s in intra_list
-    )
-    if any_cont:
-        lines.append("🔄 (lanjutan) = sinyal sama sudah muncul <14 hari lalu")
+    # ── Disclaimer singkat (1 baris) ──
     lines.append("")
-    lines.append("🛡 EXIT: SL jika tutup <SL | Trailing aktif +3%")
-    lines.append("⚠️ Data Invezgo | Keputusan trader")
+    lines.append("⚠️ Alat bantu, bukan rekomendasi")
 
     result = "\n".join(lines)
 
@@ -268,7 +325,6 @@ def format_message(
         result = result + extra_text
     else:
         # Truncate ke 3500 chars (Telegram-friendly) — perilaku lama tanpa extra_parts
-        # L11: potong ke 3487 + marker (13 chars) = 3500 ≤ 3500 (dulu 3490+13=3503).
         if len(result) > MAX_LEN:
             result = result[: MAX_LEN - len(TRUNC_MARKER)] + TRUNC_MARKER
 

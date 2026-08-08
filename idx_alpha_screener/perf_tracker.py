@@ -13,10 +13,15 @@ Kolom: date, ticker, mode, score, signal, entry_price, sl, tp, lots, cost, fresh
     Dipakai weekly_report (E2) untuk tabel WR per regime market.
 
 DEDUP PERSISTEN (A1):
-Sebelum menulis sinyal baru, riwayat CSV dicek. Jika ticker + mode yang sama
-sudah ada dengan entry_price dalam toleransi ±1% DAN usia sinyal < 14 hari,
-sinyal TIDAK di-log sebagai sinyal baru — dicatat dengan fresh=0 agar bisa
-dilabel '(lanjutan)' di Telegram. Logika cooldown (signal_manager) tetap jalan
+Sebelum menulis sinyal baru, riwayat CSV dicek. Sinyal dianggap SAMA
+(lanjutan) jika ticker + mode yang sama:
+  A. entry_price dalam toleransi ±1% DAN usia sinyal < 14 hari (aturan lama), ATAU
+  B. ada sinyal BARU (fresh=1) berusia < 7 hari, APAPUN beda harganya (aturan R6).
+     Mencegah saham yang naik >1%/hari (mis. BUMI 168→179→187 dalam 4 hari)
+     tampil sebagai 'sinyal baru' setiap malam — label '(lanjutan - sinyal dd/mm)'
+     mengacu tanggal sinyal baru terakhir.
+Sinyal tersebut TIDAK di-log sebagai sinyal baru — dicatat dengan fresh=0 agar
+bisa dilabel '(lanjutan)' di Telegram. Logika cooldown (signal_manager) tetap jalan
 sebagai lapisan terpisah; dedup ini lapisan tambahan di sisi logging, bukan
 pengganti cooldown.
 """
@@ -36,6 +41,8 @@ FIELD_DEFAULTS = {"fresh": "1", "regime": "unknown"}
 # ── Parameter dedup ──
 DEDUP_TOLERANCE = 0.01      # toleransi entry_price ±1%
 DEDUP_MAX_AGE_DAYS = 14     # sinyal lama < 14 hari dianggap masih "sama"
+FRESH_MAX_AGE_DAYS = 7      # anchor sinyal BARU (fresh=1) < 7 hari → lanjutan,
+                            # apapun beda harganya (aturan R6)
 
 DATE_FORMATS = ("%Y-%m-%d %H:%M", "%Y-%m-%d")
 
@@ -90,13 +97,18 @@ def _ensure_header(csv_path):
 def find_previous_signal(csv_path, ticker, mode, entry_price,
                          tolerance=DEDUP_TOLERANCE,
                          max_age_days=DEDUP_MAX_AGE_DAYS,
+                         fresh_max_age_days=FRESH_MAX_AGE_DAYS,
                          rows=None):
     """Cari sinyal lama yang dianggap sama dengan sinyal baru.
 
-    Kriteria match:
-      - ticker + mode sama
-      - entry_price dalam toleransi ±tolerance (default ±1%)
-      - usia sinyal < max_age_days (default 14 hari)
+    Kriteria match (ticker + mode sama):
+      A. entry_price dalam toleransi ±tolerance (default ±1%) DAN usia sinyal
+         < max_age_days (default 14 hari) — aturan lama (termasuk baris fresh=0).
+      B. Anchor sinyal BARU (fresh=1 di CSV) berusia < fresh_max_age_days
+         (default 7 hari), APAPUN beda harganya — aturan R6. Mencegah saham
+         yang naik >1%/hari (mis. BUMI 168→179→187) tampil sebagai 'sinyal
+         baru' setiap malam. Baris fresh=0 (lanjutan) BUKAN anchor — kalau
+         tidak, label lanjutan tidak akan pernah berakhir.
 
     rows : list[dict], optional — snapshot riwayat dari load_signals().
     Jika diberikan, dipakai langsung (hindari membandingkan dengan baris
@@ -125,12 +137,19 @@ def find_previous_signal(csv_path, ticker, mode, entry_price,
             continue
         if old_price <= 0:
             continue
-        if abs(entry_price - old_price) / old_price > tolerance:
-            continue
         dt = _parse_date(row.get("date"))
         if dt is None:
             continue
         if now - dt >= timedelta(days=max_age_days):
+            continue
+        # A: harga dalam toleransi ±1% (aturan lama)
+        price_match = abs(entry_price - old_price) / old_price <= tolerance
+        # B: anchor sinyal BARU (fresh=1) berusia < 7 hari → lanjutan apapun
+        # beda harganya. Baris lama tanpa kolom fresh dianggap fresh=1
+        # (konsisten dengan backfill load_signals).
+        is_fresh_anchor = str(row.get("fresh") or "1").strip() == "1"
+        fresh_match = is_fresh_anchor and (now - dt) < timedelta(days=fresh_max_age_days)
+        if not (price_match or fresh_match):
             continue
         if best_dt is None or dt > best_dt:
             best_dt = dt
@@ -182,8 +201,9 @@ def dedup_and_log_batch(csv_path, signals) -> list:
     """Log batch sinyal DENGAN dedup persistén (lapisan tambahan di atas cooldown).
 
     Untuk tiap sinyal:
-      1. Cek riwayat CSV (find_previous_signal): ticker+mode sama, entry_price ±1%,
-         usia < 14 hari → fresh=False (lanjutan), kalau tidak → fresh=True.
+      1. Cek riwayat CSV (find_previous_signal): ticker+mode sama, entry ±1% &
+         usia < 14 hari ATAU anchor fresh=1 < 7 hari (aturan R6) → fresh=False
+         (lanjutan), kalau tidak → fresh=True.
       2. Tetap tulis baris ke CSV (sinyal tetap tercatat, tapi ditandai fresh).
 
     Return list of dict per sinyal:

@@ -2,7 +2,8 @@
 test_v7.py — Test Suite F2 untuk modul V7 (IDX Alpha Screener)
 ================================================================
 Mencakup fitur v7 yang sebelumnya tidak punya test sama sekali:
-  TEST 1  perf_tracker  : dedup sinyal (±1%, <14 hari), kolom fresh
+  TEST 1  perf_tracker  : dedup sinyal (±1%/<14 hari ATAU anchor fresh <7 hari),
+                          kolom fresh
   TEST 2  weekly_report : classify_ohlc (WIN_TP / LOSS_SL / OPEN / same-bar),
                           evaluate_signals dengan provider mock
   TEST 3  position_tracker : SL/TP/trailing/time-stop, tanpa posisi → aman
@@ -201,15 +202,25 @@ class TestPerfTrackerDedup(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual([r["fresh"] for r in rows], ["1", "0"])
 
-    # ── Sinyal beda harga (> ±1%) → tetap di-log sebagai fresh=1 ──
-    def test_different_price_logged_as_fresh(self):
-        dedup_and_log_batch(self.csv, [_mk_signal(entry_price=10000.0)])
-        r2 = dedup_and_log_batch(self.csv, [_mk_signal(entry_price=11000.0)])  # +10%
-        self.assertTrue(r2[0]["fresh"], "beda harga >±1% bukan duplikat")
-        self.assertIsNone(r2[0]["ref_date"])
+    # ── R6: beda harga > ±1% TAPI anchor fresh=1 < 7 hari → tetap lanjutan ──
+    # Skenario BUMI 168→179→187: harga naik >1%/hari sehingga dedup ±1% lama
+    # tidak memblokir. Aturan baru: sinyal fresh=1 (baru) berusia <7 hari = anchor
+    # → sinyal berikutnya fresh=0, tidak tampil 'sinyal baru' setiap malam.
+    def test_price_diff_but_fresh_anchor_7d_is_continuation(self):
+        fixed_now = datetime(2026, 8, 5, 21, 0, 0)
+        with mock.patch("perf_tracker.datetime") as mdt:
+            mdt.now.return_value = fixed_now
+            mdt.strptime.side_effect = datetime.strptime
+            dedup_and_log_batch(self.csv, [_mk_signal(entry_price=10000.0)])
+            # Harga +10% (di luar ±1%) — dulu fresh=1, sekarang fresh=0
+            r2 = dedup_and_log_batch(self.csv, [_mk_signal(entry_price=11000.0)])
+        self.assertFalse(r2[0]["fresh"],
+                         "anchor fresh=1 <7 hari → lanjutan apapun beda harga (+10%)")
+        self.assertEqual(r2[0]["ref_date"], fixed_now.strftime("%d/%m"))
+        self.assertTrue(r2[0]["logged"], "sinyal lanjutan TETAP di-log (fresh=0)")
         rows = load_signals(self.csv)
         self.assertEqual(len(rows), 2)
-        self.assertEqual([r["fresh"] for r in rows], ["1", "1"])
+        self.assertEqual([r["fresh"] for r in rows], ["1", "0"])
 
     # ── Mode berbeda (swing vs intraday) → bukan duplikat ──
     def test_different_mode_not_duplicate(self):
@@ -236,22 +247,36 @@ class TestPerfTrackerDedup(unittest.TestCase):
         self.assertFalse(is_dup2, "sinyal berusia >= 14 hari TIDAK dianggap duplikat")
         self.assertIsNone(ref2)
 
-    # ── find_previous_signal: toleransi harga & ticker ──
+    # ── find_previous_signal: toleransi harga, ticker & aturan anchor 7 hari ──
     def test_find_previous_signal_tolerance(self):
         now = datetime.now()
         rows = [{
             "date": now.strftime("%Y-%m-%d %H:%M"),
             "ticker": "BBCA", "mode": "swing", "entry_price": "10000",
         }]
-        # Di luar toleransi ±1%
-        is_dup, _ = find_previous_signal(self.csv, "BBCA", "swing", 10200, rows=rows)
-        self.assertFalse(is_dup, "+2% harus di luar toleransi")
-        # Ticker berbeda
+        # Dalam toleransi ±1% → duplikat (aturan harga)
+        is_dup, _ = find_previous_signal(self.csv, "BBCA", "swing", 10050, rows=rows)
+        self.assertTrue(is_dup)
+        # R6: di luar ±1% TAPI anchor fresh < 7 hari → tetap duplikat
+        is_dup4, _ = find_previous_signal(self.csv, "BBCA", "swing", 10200, rows=rows)
+        self.assertTrue(is_dup4, "+2% tapi anchor fresh <7 hari → lanjutan (R6)")
+        # Ticker berbeda → bukan duplikat
         is_dup2, _ = find_previous_signal(self.csv, "BBRI", "swing", 10050, rows=rows)
         self.assertFalse(is_dup2, "ticker berbeda bukan duplikat")
         # Entry invalid → aman, bukan duplikat
         is_dup3, _ = find_previous_signal(self.csv, "BBCA", "swing", "abc", rows=rows)
         self.assertFalse(is_dup3)
+        # Baris fresh=0 (lanjutan) BUKAN anchor → +2% = sinyal baru
+        cont = [dict(rows[0], fresh="0")]
+        is_dup5, _ = find_previous_signal(self.csv, "BBCA", "swing", 10200, rows=cont)
+        self.assertFalse(is_dup5, "fresh=0 bukan anchor 7 hari")
+        # Anchor fresh=1 TAPI berusia > 7 hari → +2% = sinyal baru
+        old = [{
+            "date": (now - timedelta(days=8)).strftime("%Y-%m-%d %H:%M"),
+            "ticker": "BBCA", "mode": "swing", "entry_price": "10000", "fresh": "1",
+        }]
+        is_dup6, _ = find_previous_signal(self.csv, "BBCA", "swing", 10200, rows=old)
+        self.assertFalse(is_dup6, "anchor >7 hari + >±1% → sinyal baru")
 
     # ── Header CSV selalu punya kolom fresh (migrasi aman) ──
     def test_csv_header_has_fresh_column(self):
@@ -812,29 +837,54 @@ class TestTelegramFormatter(unittest.TestCase):
         return [_mk_intra(tkr=f"IN{i}", score=52 - i) for i in range(n)]
 
     def test_message_under_3500_chars(self):
-        msg = telegram_formatter.format_message(self._swing_list(5), self._intra_list(5))
+        swing = self._swing_list(5)
+        intra = self._intra_list(5)
+        intra[0]["tkr"] = "SW0"  # SW0 lolos swing & intraday → mode ganda
+        msg = telegram_formatter.format_message(swing, intra)
         self.assertLess(len(msg), 3500, f"pesan terlalu panjang: {len(msg)} chars")
         self.assertIn("SCREENER V7", msg)
+        # R6: ticker dobel mode tampil SEKALI di SWING (penanda ⚡ di akhir),
+        # TIDAK diulang di section INTRADAY
+        self.assertEqual(msg.count("SW0"), 1, "ticker dobel hanya muncul 1x")
+        swing_sec = msg.split("⚡ INTRADAY")[0]
+        self.assertIn("⚡", swing_sec, "penanda mode ganda (⚡) di baris SWING")
+        intra_sec = msg.split("⚡ INTRADAY")[1] if "⚡ INTRADAY" in msg else ""
+        self.assertNotIn("SW0", intra_sec, "ticker dobel tidak diulang di INTRADAY")
 
     def test_continuation_label(self):
         swing = self._swing_list(2)
         swing[0]["continuation"] = "05/08"
         msg = telegram_formatter.format_message(swing, self._intra_list(1))
-        self.assertIn("(lanjutan - sinyal 05/08)", msg)
-        self.assertIn("🔄 (lanjutan)", msg, "legend lanjutan harus muncul")
+        self.assertIn("🔄 05/08", msg)
+        self.assertIn("🔄 lanjutan = sinyal <14 hari", msg, "legend lanjutan harus muncul")
 
-    def test_narrative_included(self):
+    def test_narrative_and_compact_suffixes(self):
         swing = self._swing_list(2)
+        swing[0]["bf"] = "akumulasi_masif_45B"
+        swing[0]["earn"] = "Rev +8% YoY | margin 45->47%"
         narratives = {"SW0": "Konteks netral: akumulasi broker naik."}
         msg = telegram_formatter.format_message(swing, self._intra_list(1),
                                                 narratives=narratives)
         self.assertIn("📝 Konteks netral: akumulasi broker naik.", msg)
+        # R6: suffix pendek di baris yang sama — broker ekstrem & earnings
+        self.assertIn("🔵+45B", msg, "broker flow ekstrem → suffix 🔵+45B")
+        self.assertIn("📈 Rev+8%", msg, "earnings dipadatkan → 📈 Rev+8%")
+        self.assertNotIn("margin", msg, "string earnings panjang tidak tampil")
+        # bf netral / akumulasi biasa → tanpa suffix broker
+        swing[0]["bf"] = "netral"
+        msg2 = telegram_formatter.format_message(swing, self._intra_list(1),
+                                                 narratives=narratives)
+        self.assertNotIn("🔵+45B", msg2, "bf netral → suffix broker tidak tampil")
+        # distribusi → suffix 🔴-8B
+        swing[0]["bf"] = "distribusi_8B"
+        msg3 = telegram_formatter.format_message(swing, self._intra_list(1))
+        self.assertIn("🔴-8B", msg3, "distribusi → suffix 🔴-8B")
 
     def test_no_narratives_param_no_crash(self):
         # Panggilan lama tanpa narratives → harus tetap jalan
         msg = telegram_formatter.format_message(self._swing_list(3), self._intra_list(2))
-        self.assertIn("RINGKASAN", msg)
-        self.assertIn("Swing 3 | Intra 2", msg)
+        self.assertIn("Swing 3 · Intra 2", msg)
+        self.assertIn("Alokasi", msg)
 
     def test_market_sentiment_section(self):
         sentiment = {
@@ -845,8 +895,8 @@ class TestTelegramFormatter(unittest.TestCase):
         }
         msg = telegram_formatter.format_message(self._swing_list(2), self._intra_list(1),
                                                 market_sentiment=sentiment)
-        self.assertIn("🔮 BESOK", msg)
-        self.assertIn("IHSG 7,000", msg)
+        self.assertIn("🔮 Aman", msg)
+        self.assertIn("IHSG 7,000 S 6,800/R 7,200", msg)
 
     def test_long_message_truncated(self):
         # Narrative panjang × 5 sinyal → pesan >3500 → di-truncate + marker
