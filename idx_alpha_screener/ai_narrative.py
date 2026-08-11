@@ -12,7 +12,11 @@ PRINSIP KRITIS:
   (model dari .env: MODEL / OPENCODE_ZEN_MODEL). TIDAK memakai model mahal.
 - API key TIDAK di-hardcode — dibaca dari .env (folder root repo), reuse
   variabel env yang sama dengan ai_agent.py.
-- 1 percobaan, timeout 15 detik.
+- Fallback backend berjenjang (maks 2 percobaan per sinyal): coba PRIMARY
+  (OpenCodeZen — OPENCODE_ZEN_API_KEY), kalau gagal/timeout coba SECONDARY
+  (DeepSeek — DEEPSEEK_API_KEY). Hanya backend yang key-nya ADA yang
+  dipakai (kalau hanya 1, ya 1 percobaan). Timeout: 25s percobaan pertama,
+  20s percobaan kedua — total budget per sinyal ≤ 45s.
 """
 import os
 import re
@@ -27,30 +31,44 @@ load_dotenv(os.path.join(_ROOT, ".env"))
 
 logger = logging.getLogger("ai_narrative")
 
-NARRATIVE_TIMEOUT = 15          # detik — 1 percobaan
+FIRST_TRY_TIMEOUT = 25          # detik — percobaan pertama (primary backend)
+SECOND_TRY_TIMEOUT = 20         # detik — percobaan kedua (secondary backend)
+MAX_ATTEMPTS = 2                # maks 2 percobaan per sinyal (25+20 = 45s ≤ budget)
 MAX_SIGNALS = 3                 # top 3 sinyal swing
 MAX_TOKENS = 160
 
-# ── Backend murah: prefer DeepSeek, fallback OpenCodeZen ────────────────────
-def _pick_backend() -> Optional[dict]:
-    """Pilih backend LLM murah dari .env. Return None kalau tidak ada key sama sekali."""
-    deepseek_key = os.getenv("DEEPSEEK_API_KEY")
-    if deepseek_key:
-        return {
-            "name": "deepseek",
-            "api_key": deepseek_key,
-            "base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-            "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
-        }
+# ── Backend murah: OpenCodeZen (primary) → DeepSeek (secondary) ─────────────
+def _pick_backends() -> List[dict]:
+    """Daftar backend LLM murah dari .env, urut: OpenCodeZen lalu DeepSeek.
+
+    Hanya backend yang API key-nya ADA yang masuk daftar — kalau hanya 1
+    key, daftar berisi 1 backend (tidak ada fallback). Return [] kalau
+    tidak ada key sama sekali.
+    """
+    backends = []
     zen_key = os.getenv("OPENCODE_ZEN_API_KEY")
     if zen_key:
-        return {
+        backends.append({
             "name": "opencode_zen",
             "api_key": zen_key,
             "base_url": os.getenv("OPENCODE_ZEN_BASE_URL", "https://opencode.ai/zen/v1"),
             "model": os.getenv("OPENCODE_ZEN_MODEL") or os.getenv("MODEL", "deepseek-v4-flash-free"),
-        }
-    return None
+        })
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+    if deepseek_key:
+        backends.append({
+            "name": "deepseek",
+            "api_key": deepseek_key,
+            "base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+            "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        })
+    return backends
+
+
+def _pick_backend() -> Optional[dict]:
+    """Kompatibilitas pemanggil lama — backend PRIMARY (pertama) atau None."""
+    backends = _pick_backends()
+    return backends[0] if backends else None
 
 
 def _fmt_flow(raw: str) -> str:
@@ -76,10 +94,16 @@ def _build_prompt(signal: dict, sentiment_ihsg: dict) -> List[Dict[str, str]]:
     sent_details = sentiment_ihsg.get("details") or []
     sent_detail_str = "; ".join(str(d) for d in sent_details[:3])
 
+    # Konteks trend mingguan eksplisit — sinyal BEARISH harus dibaca netral
+    # sebagai risiko, bukan momentum (V7 akurasi)
+    wk_ctx = {"BULLISH": "mendukung (trend mingguan naik)",
+              "BEARISH": "kontra — waspada (trend mingguan turun)"}.get(
+        str(weekly).upper(), "netral / tidak ada data")
+
     data_block = (
         f"Ticker: {tkr}\n"
         f"Score: {score}\n"
-        f"Weekly trend: {weekly}\n"
+        f"Weekly trend: {weekly} — {wk_ctx}\n"
         f"RSI: {rsi}\n"
         f"Grup konglomerat: {group}\n"
         f"Broker flow: {bf}\n"
@@ -111,9 +135,10 @@ def _build_prompt(signal: dict, sentiment_ihsg: dict) -> List[Dict[str, str]]:
     ]
 
 
-def _call_llm_once(backend: dict, messages: List[Dict[str, str]]) -> Optional[str]:
+def _call_llm_once(backend: dict, messages: List[Dict[str, str]],
+                   timeout: float = FIRST_TRY_TIMEOUT) -> Optional[str]:
     """
-    Satu panggilan LLM (1 percobaan, timeout 15 detik).
+    Satu panggilan LLM (timeout sesuai percobaan: 25s pertama, 20s kedua).
     Return teks jawaban, atau None jika gagal — TIDAK PERNAH melempar exception.
     """
     try:
@@ -121,7 +146,7 @@ def _call_llm_once(backend: dict, messages: List[Dict[str, str]]) -> Optional[st
         client = OpenAI(
             api_key=backend["api_key"],
             base_url=backend["base_url"],
-            timeout=NARRATIVE_TIMEOUT,
+            timeout=timeout,
         )
         resp = client.chat.completions.create(
             model=backend["model"],
@@ -182,16 +207,17 @@ def generate_narratives(top_signals: list, sentiment_ihsg: dict) -> Dict[str, st
     if not top_signals:
         return {}
 
-    backend = _pick_backend()
-    if backend is None:
+    backends = _pick_backends()
+    if not backends:
         logger.warning(
-            "ai_narrative: tidak ada API key DeepSeek/OpenCodeZen di .env — "
+            "ai_narrative: tidak ada API key OpenCodeZen/DeepSeek di .env — "
             "narrative dilewati, scan tetap normal"
         )
         return {}
 
-    logger.info("ai_narrative: backend=%s model=%s untuk %d sinyal",
-                backend["name"], backend["model"], min(len(top_signals), MAX_SIGNALS))
+    logger.info("ai_narrative: backend=%s (%d) untuk %d sinyal",
+                [b["name"] for b in backends], len(backends),
+                min(len(top_signals), MAX_SIGNALS))
 
     narratives: Dict[str, str] = {}
     for sig in top_signals[:MAX_SIGNALS]:
@@ -200,12 +226,23 @@ def generate_narratives(top_signals: list, sentiment_ihsg: dict) -> Dict[str, st
             continue
         try:
             messages = _build_prompt(sig, sentiment_ihsg or {})
-            text = _call_llm_once(backend, messages)
+            # Fallback berjenjang: primary → secondary (maks 2 percobaan,
+            # timeout 25s lalu 20s — total budget per sinyal ≤ 45s).
+            text = None
+            for i, backend in enumerate(backends[:MAX_ATTEMPTS]):
+                timeout = FIRST_TRY_TIMEOUT if i == 0 else SECOND_TRY_TIMEOUT
+                text = _call_llm_once(backend, messages, timeout=timeout)
+                if text:
+                    break
+                logger.warning("ai_narrative: backend %s gagal untuk %s — "
+                               "coba backend berikutnya", backend.get("name"), tkr)
             text = _sanitize_narrative(text)  # M2: jangan pakai output LLM verbatim
             if text:
                 narratives[tkr] = text
             else:
-                logger.warning("ai_narrative: jawaban kosong/tidak valid untuk %s — dilewati", tkr)
+                logger.warning(
+                    "ai_narrative: semua backend gagal/jawaban tidak valid "
+                    "untuk %s — dilewati", tkr)
         except Exception as e:
             # Safety net: SATU ticker gagal → lewati ticker itu, lanjut ticker lain.
             logger.warning("ai_narrative: gagal untuk %s: %s — dilewati", tkr, e)

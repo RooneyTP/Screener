@@ -29,6 +29,14 @@ _V7_DEFAULT_WEIGHTS = {
 }
 _V7_WEIGHTS = dict(_V7_DEFAULT_WEIGHTS)
 
+# ── V7 akurasi: weekly trend masuk scoring (post-adjustment) ──
+# Penalty/bonus DI LUAR weighted sum — bobot faktor tetap total 1.0.
+#   BEARISH : -12 (tengah rentang kalibrasi -10..-15) + cap sinyal maks BUY
+#   BULLISH : +5
+#   NO_DATA / lain : 0 (netral)
+WEEKLY_BEARISH_PENALTY = 12
+WEEKLY_BULLISH_BONUS = 5
+
 # Dir cache JSON (data/ sejajar dengan screener.log) — fundamental TTL 7 hari, broker flow 1 hari
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
@@ -531,23 +539,32 @@ def factor_earnings_momentum(code: str) -> dict:
 
 # _V7_WEIGHTS dikelola di atas (L23-30 via _V7_DEFAULT_WEIGHTS) — dup, jangan hardcode ulang
 
-def compute(code: str, v4_score: float, regime: str) -> dict:
+def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -> dict:
     """
     Hitung V7 score dengan data Invezgo.
-    
+
     Parameters
     ----------
     code : str — kode saham tanpa .JK
     v4_score : float — skor dari V4 engine
     regime : str — market regime
-    
+    weekly_trend : str, optional — trend mingguan dari baris data
+        ("BULLISH" / "BEARISH" / "NO_DATA"; None/absent = netral).
+        Masuk scoring sebagai POST-ADJUSTMENT DI LUAR weighted sum sehingga
+        bobot faktor TETAP total 1.0:
+          - BEARISH → skor -12 (tengah rentang kalibrasi -10..-15) DAN
+            sinyal di-cap maksimum BUY (STRONG_BUY diturunkan ke BUY —
+            tidak ada pasangan STRONG_BUY + weekly BEARISH di output).
+          - BULLISH → skor +5.
+          - NO_DATA/lain/None → 0 (netral).
+
     Returns
     -------
     dict dengan score, signal, detail
     """
     if not enabled:
         return {"score": v4_score, "signal": "HOLD", "factors": {}}
-    
+
     # Ambil faktor Invezgo
     bf = factor_broker_flow(code)
     ff = factor_foreign_flow(code)
@@ -563,8 +580,21 @@ def compute(code: str, v4_score: float, regime: str) -> dict:
         fq["score"] * w["fundamental"] +
         em["score"] * w["earnings_momentum"]
     )
+
+    # ── V7 akurasi: weekly trend — post-adjustment di luar weighted sum ──
+    # Bobot faktor tidak diubah (total tetap 1.0); penyesuaian diterapkan
+    # SETELAH agregasi, SEBELUM penentuan sinyal.
+    weekly = str(weekly_trend or "NO_DATA").strip().upper()
+    if weekly == "BEARISH":
+        v7_score -= WEEKLY_BEARISH_PENALTY
+        weekly_note = f"weekly_bearish_-{WEEKLY_BEARISH_PENALTY}"
+    elif weekly == "BULLISH":
+        v7_score += WEEKLY_BULLISH_BONUS
+        weekly_note = f"weekly_bullish_+{WEEKLY_BULLISH_BONUS}"
+    else:
+        weekly_note = "weekly_neutral"
     v7_score = round(max(0, min(100, v7_score)), 1)
-    
+
     # Signal dari threshold
     th = THRESHOLDS.get(regime, THRESHOLDS["RANGING"])
     if v7_score >= th[0]: signal = "STRONG_BUY"
@@ -572,7 +602,11 @@ def compute(code: str, v4_score: float, regime: str) -> dict:
     elif v7_score >= th[2]: signal = "WEAK_BUY"
     elif v7_score >= th[3]: signal = "HOLD"
     else: signal = "SELL"
-    
+
+    # Cap: weekly BEARISH → maksimum BUY (STRONG_BUY tidak boleh lolos)
+    if weekly == "BEARISH" and signal == "STRONG_BUY":
+        signal = "BUY"
+
     return {
         "score": v7_score,
         "signal": signal,
@@ -587,5 +621,7 @@ def compute(code: str, v4_score: float, regime: str) -> dict:
             "earnings_momentum": em["score"],
             "earnings_detail": em["detail"],
             "brokers": bf.get("brokers", ""),
+            "weekly_trend": weekly,
+            "weekly_adjustment": weekly_note,
             }
     }

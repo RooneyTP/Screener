@@ -238,12 +238,17 @@ def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     low = df["low"]
     volume = df["volume"]
 
-    # ── RSI (14) ──
+    # ── RSI (14) — Wilder smoothing (bukan Cutler/SMA) ──
     delta = close.diff()
-    gain = delta.where(delta > 0, 0.0).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
-    rs = gain / loss.replace(0, np.nan)
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta.where(delta < 0, 0.0))
+    avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi = 100 - (100 / (1 + rs))
+    # Edge case Wilder: avg_loss == 0 (14 hari naik semua) → RSI = 100, bukan NaN
+    rsi = rsi.where(avg_loss != 0, 100.0)
+    rsi = rsi.where(avg_gain != 0, 0.0)
     df["rsi"] = rsi.shift(1)
 
     # ── MACD (12, 26, 9) ──
@@ -260,14 +265,15 @@ def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["ema12"] = close.ewm(span=12, adjust=False).mean().shift(1)
     df["ema50"] = close.ewm(span=50, adjust=False).mean().shift(1)
 
-    # ── ADX (14) ──
+    # ── ADX (14) — Wilder smoothing penuh ──
     # True Range
     prev_close = close.shift(1)
     tr1 = high - low
     tr2 = (high - prev_close).abs()
     tr3 = (low - prev_close).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = tr.rolling(14).mean()
+    # Wilder SMMA untuk ATR (alpha = 1/14 ≈ 0.0714, bukan SMA14)
+    atr = tr.ewm(alpha=1/14, adjust=False).mean()
 
     # +DM dan -DM
     up_move = high.diff()
@@ -275,21 +281,23 @@ def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     plus_dm = ((up_move > down_move) & (up_move > 0)).astype(float) * up_move
     minus_dm = ((down_move > up_move) & (down_move > 0)).astype(float) * down_move
 
-    plus_di = 100 * (plus_dm.ewm(span=14, adjust=False).mean() / atr.replace(0, np.nan))
-    minus_di = 100 * (minus_dm.ewm(span=14, adjust=False).mean() / atr.replace(0, np.nan))
+    # Smoothing +DM/-DM pakai Wilder (alpha 1/14), bukan ewm span=14 (alpha 0.1333)
+    plus_di = 100 * (plus_dm.ewm(alpha=1/14, adjust=False).mean() / atr.replace(0, np.nan))
+    minus_di = 100 * (minus_dm.ewm(alpha=1/14, adjust=False).mean() / atr.replace(0, np.nan))
 
     dx = 100 * ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
-    adx = dx.rolling(14).mean()
+    # DX dirata-rata dengan Wilder smoothing, bukan SMA14
+    adx = dx.ewm(alpha=1/14, adjust=False).mean()
 
     df["adx"] = adx.shift(1)
     df["plus_di"] = plus_di.shift(1)
     df["minus_di"] = minus_di.shift(1)
 
-    # ── ATR ──
+    # ── ATR (14) — Wilder SMMA (konsisten; dipakai untuk SL/TP) ──
     df["atr"] = atr.shift(1)
 
-    # ── Volume Ratio (vs 20-day avg) ──
-    vol_avg20 = volume.rolling(20).mean()
+    # ── Volume Ratio (vs 20-day avg, EXCLUDE hari ini — konsisten dgn detect_volume_breakout) ──
+    vol_avg20 = volume.shift(1).rolling(20).mean()
     df["vol_ratio"] = (volume / vol_avg20.replace(0, np.nan)).shift(1)
     
     # ── Average Daily Volume (60 hari) ──
@@ -347,10 +355,14 @@ def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["rel_volume"] = (volume / volume.rolling(60).mean().replace(0, np.nan)).shift(1)
 
     # ── Weekly Trend Alignment ──
-    # Resample ke weekly, hitung EMA12/50, forward-fill ke daily, shift 1 week
+    # Resample ke weekly, hitung EMA12/50, forward-fill ke daily.
+    # Warmup seragam dgn compute_weekly_trend(): butuh >= 50 minggu (EMA50 weekly).
+    # Lag: shift(5) mengkompensasi lookahead intra-minggu (close Jumat belum final
+    # saat sinyal dibuat di tengah minggu) → lag efektif ~1,5 minggu trading,
+    # TANPA look-ahead (aman).
     try:
         weekly_close = close.resample("W-FRI").last()
-        if len(weekly_close) > 15:
+        if len(weekly_close) >= 50:
             weekly_ema12 = weekly_close.ewm(span=12, adjust=False).mean()
             weekly_ema50 = weekly_close.ewm(span=50, adjust=False).mean()
             weekly_trend = (weekly_ema12 > weekly_ema50).astype(int)

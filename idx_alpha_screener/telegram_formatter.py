@@ -20,6 +20,12 @@ Format PASS 2 (lebih ringkas & readable — target ~700 chars utk skenario
   `Swing 3 · Intra 1 · Alokasi 4.8jt · Risiko 240rb` (Rp ringkas: 4.8jt/240rb).
 - Legenda lanjutan pendek (hanya kalau ada label lanjutan):
   `🔄 lanjutan = sinyal <14 hari`.
+- Section LANJUTAN (V7 akurasi): sinyal swing yang merupakan lanjutan
+  (<14 hari) TIDAK tampil di SWING — dipindah ke section
+  `🔄 LANJUTAN (masih valid)` di bawah SWING, 1 baris per saham tanpa
+  narrative: `BUMI 69.2 | 187 | SL 171/TP 213 🔄 08/08`. Intraday tetap
+  1 section dengan penanda 🔄 di baris yang sama. Ringkasan & alokasi
+  menghitung SEMUA sinyal (fresh + lanjutan).
 - Narrative AI tetap (user suka konteks) — maks 2 sinyal terbaik (└ 📝 ...).
 - Ticker yang lolos swing DAN intraday tampil SEKALI di section SWING
   dengan penanda `⚡` di akhir (dulu muncul 2x dengan lot/entry beda → user
@@ -169,7 +175,15 @@ def format_message(
     # dengan penanda '⚡' di akhir; TIDAK diulang di section INTRADAY (dulu muncul
     # 2x dengan lot/entry beda → user mengira 2 sinyal berbeda). Kedua sinyal
     # tetap di-log ke perf CSV (mode berbeda, WR per mode tetap akurat).
-    swing_disp = list(swing_list[:5])          # maks 5 ditampilkan
+    # ── Section LANJUTAN (V7 akurasi) ──
+    # SWING hanya menampilkan sinyal FRESH (continuation kosong). Sinyal swing
+    # yang merupakan LANJUTAN (<14 hari, punya continuation) dipindah ke section
+    # 'LANJUTAN (masih valid)' di bawah SWING — 1 baris per saham TANPA narrative.
+    # Intraday tetap 1 section (label 🔄 di baris yang sama).
+    swing_fresh = [s for s in swing_list if not s.get("continuation")]
+    swing_cont = [s for s in swing_list if s.get("continuation")]
+    swing_disp = list(swing_fresh[:5])            # SWING: hanya fresh, maks 5
+    swing_cont_disp = list(swing_cont[:5])        # LANJUTAN: maks 5 baris
     intra_disp_all = list(intra_list[:5])
     swing_tickers = {s.get("tkr") for s in swing_disp}
     dual_tickers = {s.get("tkr") for s in swing_disp
@@ -225,11 +239,28 @@ def format_message(
             line += cont_label + dual
             lines.append(line)
 
-            # Narrative AI — maks 2 sinyal terbaik (user suka konteks singkat)
+            # Narrative AI — maks 2 sinyal terbaik (user suka konteks singkat).
+            # Hanya untuk sinyal FRESH di SWING — baris LANJUTAN tanpa narrative.
             nar = narratives.get(tkr)
             if nar and i < 2:
                 lines.append(f"└ 📝 {nar}")
 
+        lines.append("")
+
+    # ── LANJUTAN (masih valid) — sinyal swing continuation (<14 hari) ──
+    # 1 baris per saham TANPA narrative: 'BUMI 69.2 | 187 | SL 171/TP 213 🔄 08/08'
+    if swing_cont_disp:
+        lines.append("🔄 LANJUTAN (masih valid)")
+        for s in swing_cont_disp:
+            tkr = s["tkr"]
+            exit_d = s.get("exit", {})
+            sl = exit_d.get("stop_loss", 0)
+            tp = exit_d.get("take_profit", 0)
+            cont = s.get("continuation")
+            lines.append(
+                f"{tkr} {s['score']:.1f} | {_fmt_num(s['price'])} | "
+                f"SL {_fmt_num(sl)}/TP {_fmt_num(tp)} 🔄 {cont}"
+            )
         lines.append("")
 
     # ── INTRADAY (1 baris per saham; ticker dobel mode sudah di section SWING) ──
@@ -258,8 +289,10 @@ def format_message(
 
     # ── RINGKASAN (1 baris, tanpa kata RINGKASAN) — separator tunggal ──
     lines.append("─" * 9)
-    n_swing = len(swing_disp)
-    n_intra = len(intra_disp)
+    # V7 akurasi: ringkasan menghitung SEMUA sinyal (fresh + lanjutan) —
+    # sinyal yang pindah ke section LANJUTAN tetap dihitung & dialokasikan.
+    n_swing = len(swing_list)
+    n_intra = len(intra_list)
 
     # Alokasi (top 3, deduplicate — ticker yang muncul di kedua mode dihitung sekali)
     alloc = 0
@@ -288,7 +321,9 @@ def format_message(
     )
 
     # ── Legenda lanjutan (hanya kalau ada label lanjutan di pesan) ──
-    any_cont = any(s.get("continuation") for s in swing_disp) or any(
+    # Semua sinyal swing (fresh+lanjutan) & intraday ikut dicek — lanjutan
+    # swing tampil di section LANJUTAN, lanjutan intraday di section intraday.
+    any_cont = any(s.get("continuation") for s in swing_list) or any(
         s.get("continuation") for s in intra_disp
     )
     if any_cont:

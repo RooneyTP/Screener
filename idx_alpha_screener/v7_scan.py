@@ -36,18 +36,45 @@ from signal_manager import CooldownTracker
 from position_tracker import PositionTracker, format_position_alerts
 from perf_tracker import dedup_and_log_batch
 
-# ── Group mapping untuk label konglomerat ──
-GROUP_NAMES = {
-    "BRPT": "Barito", "DSSA": "Barito", "BUMI": "Barito", "ENRG": "Barito",
-    "BNBR": "Bakrie", "VBID": "Bakrie", "ELTY": "Bakrie",
-    "INDF": "Salim", "ICBP": "Salim", "KLBF": "Salim", "HMSP": "Salim", "BISI": "Salim",
-    "ASII": "Astra", "UNTR": "Astra", "AKRA": "Astra", "CPIN": "Astra", "ISAT": "Astra",
-}
+# ── Group mapping konglomerat — SINGLE SOURCE: config.yaml section 'groups' ──
+# (sebelumnya hardcode GROUP_NAMES di sini + duplikat di factor_analysis.py
+# & weekly_report.py = 4 sumber drift; sekarang semua baca dari config.yaml
+# via groups_config.py — fallback {} kalau config gagal, label kosong)
+from groups_config import load_groups, group_of
+
+GROUP_NAMES = load_groups()  # {TICKER: nama_grup}
 
 
 def group_of(ticker: str) -> str:
     """Label grup konglomerat untuk ticker."""
     return GROUP_NAMES.get(ticker.upper(), "")
+
+
+def _signal_from_score(score: float, regime: str, weekly: str) -> str:
+    """Label sinyal dari score FINAL — konsisten dengan v7.compute().
+
+    R3: kolom score & signal di perf CSV harus berasal dari perhitungan yang
+    SAMA. Sebelumnya signal diambil dari v7r['signal'] (sebelum bonus
+    akumulasi +5) sedangkan score = swing_score (sesudah +5) → inkonsisten
+    (contoh: score 63 dilabel BUY padahal >= 60 di RANGING harusnya
+    STRONG_BUY). Threshold dibaca dari v7_engine.THRESHOLDS (sudah di-override
+    config.yaml via v7_engine.configure) + cap weekly BEARISH → STRONG_BUY
+    menjadi BUY — persis logika v7.compute().
+    """
+    th = v7_engine.THRESHOLDS.get(regime, v7_engine.THRESHOLDS["RANGING"])
+    if score >= th[0]:
+        sig = "STRONG_BUY"
+    elif score >= th[1]:
+        sig = "BUY"
+    elif score >= th[2]:
+        sig = "WEAK_BUY"
+    elif score >= th[3]:
+        sig = "HOLD"
+    else:
+        sig = "SELL"
+    if str(weekly).strip().upper() == "BEARISH" and sig == "STRONG_BUY":
+        sig = "BUY"
+    return sig
 
 
 def _update_logged_sizing(logged_signals: list, ticker: str, mode: str,
@@ -274,9 +301,11 @@ def main():
 
     for tkr in WATCHLIST:
         try:
-            # Cooldown check
-            if cooldown.is_on_cooldown(tkr):
-                logger.warning("Cooldown: %s", tkr)  # M1: level warning (debug tidak tampil di level WARNING)
+            # Cooldown check — R3 per MODE: skip cepat hanya kalau KEDUA mode
+            # sedang cooldown; gate per-mode dilakukan setelah sinyal dihitung
+            # (record swing tidak boleh memblokir intraday, dan sebaliknya).
+            if cooldown.is_on_cooldown(tkr, "swing") and cooldown.is_on_cooldown(tkr, "intraday"):
+                logger.warning("Cooldown: %s (swing & intraday)", tkr)  # M1: level warning (debug tidak tampil di level WARNING)
                 continue
 
             df = ip.get_historical(tkr, period="1y")
@@ -300,8 +329,11 @@ def main():
                 logger.warning("Skip %s: RSI NaN di baris terakhir", tkr)  # M1
                 continue
 
+            weekly = row.get("weekly_trend", "NO_DATA")
             v4s = compute_total_score(row, regime)
-            v7r = v7_engine.compute(tkr, v4s, regime)
+            # V7 akurasi: weekly trend masuk scoring (BEARISH -12 + cap
+            # STRONG_BUY→BUY, BULLISH +5) — post-adjustment di v7.compute()
+            v7r = v7_engine.compute(tkr, v4s, regime, weekly_trend=weekly)
 
             if v7r["signal"] not in allowed_signals:
                 continue
@@ -319,7 +351,6 @@ def main():
             if not math.isfinite(vol_ratio):
                 logger.debug("vol_ratio tidak valid (%s) → default 1.0", vol_ratio)
                 vol_ratio = 1.0
-            weekly = row.get("weekly_trend", "NO_DATA")
             brokers_raw = v7r["factors"].get("brokers", "")
 
             swing_score = v7r["score"]
@@ -337,6 +368,16 @@ def main():
 
             # ── Intraday filter (independent of swing) ──
             intra_ok = v7r["score"] >= 48 and vol_ratio >= 1.0
+
+            # R3: cooldown per MODE — record swing tidak memblokir intraday
+            # (dan sebaliknya). Dulu 1 slot ticker-level → record intraday
+            # menimpa swing & swing memblokir intraday.
+            if swing_ok and cooldown.is_on_cooldown(tkr, "swing"):
+                logger.warning("Cooldown: %s (swing)", tkr)
+                swing_ok = False
+            if intra_ok and cooldown.is_on_cooldown(tkr, "intraday"):
+                logger.warning("Cooldown: %s (intraday)", tkr)
+                intra_ok = False
 
             # L12: recommend_entry dipanggil SEKALI per ticker (sebelumnya 2x
             # untuk ticker yang lolos swing+intraday — hasilnya identik).
@@ -357,7 +398,10 @@ def main():
                 })
                 logged_signals.append({
                     "ticker": tkr, "mode": "swing", "score": swing_score,
-                    "signal": v7r["signal"], "entry_price": price,
+                    # R3: signal dihitung dari score FINAL (swing_score sudah
+                    # termasuk bonus +5) — konsisten dengan kolom score.
+                    "signal": _signal_from_score(swing_score, regime, weekly),
+                    "entry_price": price,
                     "sl": ex["stop_loss"], "tp": ex["take_profit"],
                     "lots": sz.get("lots", 0), "cost": sz.get("cost", 0),
                     "regime": regime,
@@ -373,15 +417,22 @@ def main():
                 })
                 logged_signals.append({
                     "ticker": tkr, "mode": "intraday", "score": v7r["score"],
-                    "signal": v7r["signal"], "entry_price": price,
+                    # R3: konsisten — label dari score yang sama dengan kolom score.
+                    "signal": _signal_from_score(v7r["score"], regime, weekly),
+                    "entry_price": price,
                     "sl": ex2["stop_loss"], "tp": ex2["take_profit"],
                     "lots": sz2.get("lots", 0), "cost": sz2.get("cost", 0),
                     "regime": regime,
                 })
 
-            # Record cooldown if ANY signal passed
-            if swing_ok or intra_ok:
-                cooldown.record(tkr, v7r["signal"], {"score": swing_score})
+            # Record cooldown per MODE yang lolos (R3) — key (ticker, mode),
+            # label sinyal dari score final mode tsb.
+            if swing_ok:
+                cooldown.record(tkr, _signal_from_score(swing_score, regime, weekly),
+                                {"score": swing_score}, mode="swing")
+            if intra_ok:
+                cooldown.record(tkr, _signal_from_score(v7r["score"], regime, weekly),
+                                {"score": v7r["score"]}, mode="intraday")
 
         except Exception as e:
             logger.warning("Skip %s: %s", tkr, e)  # M1: level warning (debug tidak tampil di level WARNING)

@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import Optional, List
 import pandas as pd
 import numpy as np
+import yfinance as yf  # R3: /gate memakai yf.download — dulu tidak di-import → NameError
 
 # ── Path setup ────────────────────────────────────────────────────
 ROOT = os.path.dirname(os.path.abspath(__file__))

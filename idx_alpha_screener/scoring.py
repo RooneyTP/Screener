@@ -159,18 +159,19 @@ def score_volume(row: pd.Series) -> float:
             return 25  # volume terlalu kecil untuk trading
     
     # ── Volume + Price confirmation ──
+    # ret_20d dalam FRAKSI (0.05 = 5%) → konstanta dibandingkan juga dalam fraksi
     if not pd.isna(ret_20d):
-        if vol_ratio > 1.5 and ret_20d > 0:
+        if vol_ratio > 1.5 and ret_20d > 0.03:
+            return 80  # kuat, masih ada upside (ret > 3%)
+        elif vol_ratio > 1.5 and ret_20d > 0:
             return 75  # volume surge + harga naik (tapi cap 75)
-        elif vol_ratio > 1.5 and ret_20d > 3:
-            return 80  # kuat, masih ada upside
         elif vol_ratio > 1.2 and ret_20d > 0:
             return 65  # moderate
         elif vol_ratio > 1.0 and ret_20d > 0:
             return 55  # slight
-        elif vol_ratio > 1.5 and ret_20d < -3:
+        elif vol_ratio > 1.5 and ret_20d < -0.03:
             return 15  # distribution — heavy selling
-        elif vol_ratio > 1.0 and ret_20d < -3:
+        elif vol_ratio > 1.0 and ret_20d < -0.03:
             return 30  # selling pressure
         elif vol_ratio > 1.0 and ret_20d < 0:
             return 40  # mild selling
@@ -201,28 +202,28 @@ def score_ihsg_relative(row: pd.Series) -> float:
         return 40
     
     if pd.isna(idx_ret_20d) or idx_ret_20d == 0:
-        # Fallback: pakai absolute return sebagai proxy
-        if ret_20d > 5:
+        # Fallback: pakai absolute return sebagai proxy (fraksi: 0.05 = 5%)
+        if ret_20d > 0.05:
             return 60
         elif ret_20d > 0:
             return 50
         else:
             return 30
-    
-    # Relative strength = stock return - market return
+
+    # Relative strength = stock return - market return (keduanya fraksi)
     relative = ret_20d - idx_ret_20d
-    
-    if relative > 8:
+
+    if relative > 0.08:
         return 90  # strongly outperforming
-    elif relative > 5:
+    elif relative > 0.05:
         return 80
-    elif relative > 3:
+    elif relative > 0.03:
         return 70
     elif relative > 0:
         return 60  # outperforming
-    elif relative > -3:
+    elif relative > -0.03:
         return 45  # slightly underperforming
-    elif relative > -8:
+    elif relative > -0.08:
         return 30  # underperforming
     else:
         return 15  # severely underperforming
@@ -432,9 +433,9 @@ def compute_total_score(row: pd.Series, regime: str = "RANGING") -> float:
             total = 55 + (total - 55) * 0.3  # compress
     
     # ── IHSG Bear Market Penalty ──
-    # Jika IHSG sedang bearish, turunkan score
+    # Jika IHSG sedang bearish, turunkan score (idx_ret_20d fraksi: -0.03 = -3%)
     idx_ret_20d = row.get("idx_ret_20d", 0)
-    if not pd.isna(idx_ret_20d) and idx_ret_20d < -3:
+    if not pd.isna(idx_ret_20d) and idx_ret_20d < -0.03:
         total -= 5
     
     # ── Contradiction Detection ──
@@ -447,14 +448,14 @@ def compute_total_score(row: pd.Series, regime: str = "RANGING") -> float:
         if not pd.isna(vol_ratio) and vol_ratio > 1.5:
             total -= 5  # falling knife dengan volume = distribusi
         
-        if not pd.isna(ret_20d) and ret_20d < -5:
-            total -= 4  # sudah turun banyak
+        if not pd.isna(ret_20d) and ret_20d < -0.05:
+            total -= 4  # sudah turun banyak (fraksi: -0.05 = -5%)
     
     # ── Price Extended Penalty ──
     # Jika harga sudah naik > 15% dalam 20 hari, risiko pullback tinggi
-    if not pd.isna(ret_20d) and ret_20d > 15:
+    if not pd.isna(ret_20d) and ret_20d > 0.15:
         total -= 4
-    elif not pd.isna(ret_20d) and ret_20d > 10:
+    elif not pd.isna(ret_20d) and ret_20d > 0.10:
         total -= 2
 
     # ── Conviction bonus (spiky profile) ──

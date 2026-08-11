@@ -52,6 +52,7 @@ from perf_tracker import (                                  # noqa: E402
     log_signal,
 )
 from position_tracker import PositionTracker                # noqa: E402
+from signal_manager import CooldownTracker                  # noqa: E402
 import ai_narrative                                         # noqa: E402
 import telegram_formatter                                   # noqa: E402
 import position_check_intraday as pci                       # noqa: E402
@@ -758,11 +759,39 @@ class TestAiNarrative(unittest.TestCase):
         return {"name": "fake", "api_key": "k", "base_url": "http://x", "model": "m"}
 
     def test_llm_success_narrative_present(self):
-        with mock.patch.object(ai_narrative, "_pick_backend", return_value=self._backend()), \
+        with mock.patch.object(ai_narrative, "_pick_backends",
+                               return_value=[self._backend()]), \
              mock.patch.object(ai_narrative, "_call_llm_once",
                                return_value="Konteks netral: broker akumulasi."):
             narratives = ai_narrative.generate_narratives([self.SIG], {})
         self.assertEqual(narratives, {"BBCA": "Konteks netral: broker akumulasi."})
+
+    def test_fallback_backend2_when_backend1_fails(self):
+        """V7 akurasi — backend primary gagal → coba secondary (maks 2
+        percobaan per sinyal; timeout 25s lalu 20s)."""
+        b2 = dict(self._backend(), name="deepseek")
+        with mock.patch.object(ai_narrative, "_pick_backends",
+                               return_value=[self._backend(), b2]), \
+             mock.patch.object(ai_narrative, "_call_llm_once",
+                               side_effect=[None, "narasi dari backend kedua"]) as llm:
+            narratives = ai_narrative.generate_narratives([self.SIG], {})
+        self.assertEqual(narratives, {"BBCA": "narasi dari backend kedua"},
+                         "backend1 gagal → fallback ke backend2 harus sukses")
+        self.assertEqual(llm.call_count, 2, "backend1 gagal → tepat 1 percobaan lagi")
+        self.assertEqual(llm.call_args_list[0].kwargs.get("timeout"),
+                         ai_narrative.FIRST_TRY_TIMEOUT, "percobaan 1: timeout 25s")
+        self.assertEqual(llm.call_args_list[1].kwargs.get("timeout"),
+                         ai_narrative.SECOND_TRY_TIMEOUT, "percobaan 2: timeout 20s")
+
+    def test_single_backend_no_fallback(self):
+        """Hanya 1 key di .env → 1 percobaan (tidak ada backend kedua)."""
+        with mock.patch.object(ai_narrative, "_pick_backends",
+                               return_value=[self._backend()]), \
+             mock.patch.object(ai_narrative, "_call_llm_once",
+                               return_value=None) as llm:
+            narratives = ai_narrative.generate_narratives([self.SIG], {})
+        self.assertEqual(narratives, {})
+        self.assertEqual(llm.call_count, 1, "1 backend → maks 1 percobaan")
 
     def test_sanitize_strips_markdown_and_limits_sentences(self):
         """M2: output LLM di-strip — markdown berbahaya dibuang, maks 2
@@ -777,32 +806,36 @@ class TestAiNarrative(unittest.TestCase):
 
     def test_generate_sanitizes_llm_output(self):
         """M2: generate_narratives memakai output yang SUDAH di-sanitasi."""
-        with mock.patch.object(ai_narrative, "_pick_backend", return_value=self._backend()), \
+        with mock.patch.object(ai_narrative, "_pick_backends",
+                               return_value=[self._backend()]), \
              mock.patch.object(ai_narrative, "_call_llm_once",
                                return_value="**Bold** teks. `code`. Kalimat ketiga."):
             narratives = ai_narrative.generate_narratives([self.SIG], {})
         self.assertEqual(narratives, {"BBCA": "Bold teks. code."})
 
     def test_llm_exception_returns_empty_no_crash(self):
-        with mock.patch.object(ai_narrative, "_pick_backend", return_value=self._backend()), \
+        with mock.patch.object(ai_narrative, "_pick_backends",
+                               return_value=[self._backend()]), \
              mock.patch.object(ai_narrative, "_call_llm_once",
                                side_effect=Exception("API timeout")):
             narratives = ai_narrative.generate_narratives([self.SIG], {})
         self.assertEqual(narratives, {}, "LLM exception → {} tanpa crash")
 
     def test_llm_returns_none_skipped(self):
-        with mock.patch.object(ai_narrative, "_pick_backend", return_value=self._backend()), \
+        with mock.patch.object(ai_narrative, "_pick_backends",
+                               return_value=[self._backend()]), \
              mock.patch.object(ai_narrative, "_call_llm_once", return_value=None):
             narratives = ai_narrative.generate_narratives([self.SIG], {})
         self.assertEqual(narratives, {})
 
     def test_no_key_returns_empty(self):
-        with mock.patch.object(ai_narrative, "_pick_backend", return_value=None):
+        with mock.patch.object(ai_narrative, "_pick_backends", return_value=[]):
             narratives = ai_narrative.generate_narratives([self.SIG], {})
         self.assertEqual(narratives, {}, "tanpa API key → {} (scan tetap jalan)")
 
     def test_empty_signals_returns_empty(self):
-        with mock.patch.object(ai_narrative, "_pick_backend", return_value=self._backend()):
+        with mock.patch.object(ai_narrative, "_pick_backends",
+                               return_value=[self._backend()]):
             narratives = ai_narrative.generate_narratives([], {})
         self.assertEqual(narratives, {})
 
@@ -816,12 +849,36 @@ class TestAiNarrative(unittest.TestCase):
     def test_generate_caps_at_max_signals(self):
         sigs = [{"tkr": f"T{i}", "score": 60 - i, "weekly": "BULLISH", "rsi": 60,
                  "group": "", "bf": "", "ff": ""} for i in range(6)]
-        with mock.patch.object(ai_narrative, "_pick_backend", return_value=self._backend()), \
+        with mock.patch.object(ai_narrative, "_pick_backends",
+                               return_value=[self._backend()]), \
              mock.patch.object(ai_narrative, "_call_llm_once",
                                return_value="narasi netral singkat") as llm:
             narratives = ai_narrative.generate_narratives(sigs, {})
         self.assertEqual(llm.call_count, ai_narrative.MAX_SIGNALS, "maks 3 sinyal")
         self.assertEqual(len(narratives), ai_narrative.MAX_SIGNALS)
+
+    def test_pick_backends_order_zen_then_deepseek(self):
+        """V7 akurasi — urutan backend: OpenCodeZen (primary) lalu DeepSeek
+        (secondary); hanya yang key-nya ADA yang masuk daftar."""
+        with mock.patch.dict(os.environ,
+                             {"OPENCODE_ZEN_API_KEY": "z",
+                              "DEEPSEEK_API_KEY": "d"}, clear=False):
+            bs = ai_narrative._pick_backends()
+        self.assertEqual([b["name"] for b in bs], ["opencode_zen", "deepseek"])
+        with mock.patch.dict(os.environ,
+                             {"OPENCODE_ZEN_API_KEY": "", "DEEPSEEK_API_KEY": "d"},
+                             clear=False):
+            bs1 = ai_narrative._pick_backends()
+        self.assertEqual([b["name"] for b in bs1], ["deepseek"], "hanya DeepSeek")
+        with mock.patch.dict(os.environ,
+                             {"OPENCODE_ZEN_API_KEY": "z", "DEEPSEEK_API_KEY": ""},
+                             clear=False):
+            bs2 = ai_narrative._pick_backends()
+        self.assertEqual([b["name"] for b in bs2], ["opencode_zen"], "hanya Zen")
+        with mock.patch.dict(os.environ,
+                             {"OPENCODE_ZEN_API_KEY": "", "DEEPSEEK_API_KEY": ""},
+                             clear=False):
+            self.assertEqual(ai_narrative._pick_backends(), [])
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -855,8 +912,48 @@ class TestTelegramFormatter(unittest.TestCase):
         swing = self._swing_list(2)
         swing[0]["continuation"] = "05/08"
         msg = telegram_formatter.format_message(swing, self._intra_list(1))
+        # V7 akurasi: swing continuation pindah ke section LANJUTAN (1 baris
+        # tanpa narrative), TIDAK lagi tampil di section SWING.
+        self.assertIn("🔄 LANJUTAN (masih valid)", msg)
         self.assertIn("🔄 05/08", msg)
+        self.assertNotIn("SW0", msg.split("🔄 LANJUTAN (masih valid)")[0],
+                         "sinyal lanjutan tidak boleh tampil di SWING")
         self.assertIn("🔄 lanjutan = sinyal <14 hari", msg, "legend lanjutan harus muncul")
+
+    def test_lanjutan_section_split_fresh_vs_continuation(self):
+        """V7 akurasi — campuran fresh + lanjutan: fresh di SWING (dengan
+        narrative), lanjutan di section 'LANJUTAN (masih valid)' (1 baris
+        tanpa narrative); ringkasan menghitung SEMUA sinyal."""
+        swing = self._swing_list(3)            # SW0, SW1, SW2
+        swing[0]["continuation"] = "05/08"     # lanjutan
+        swing[1]["continuation"] = "04/08"     # lanjutan
+        intra = self._intra_list(1)
+        intra[0]["continuation"] = "03/08"     # intraday lanjutan → tetap di intra
+        narratives = {"SW2": "narasi netral untuk sinyal fresh."}
+        msg = telegram_formatter.format_message(swing, intra, narratives=narratives)
+
+        self.assertIn("🔄 LANJUTAN (masih valid)", msg)
+        swing_sec = msg.split("🔄 LANJUTAN (masih valid)")[0]
+        self.assertIn("SW2", swing_sec, "fresh tetap di SWING")
+        self.assertNotIn("SW0", swing_sec, "lanjutan TIDAK di SWING")
+        self.assertNotIn("SW1", swing_sec, "lanjutan TIDAK di SWING")
+        # Format baris lanjutan: 'BUMI 69.2 | 187 | SL 171/TP 213 🔄 08/08'
+        self.assertIn("SW0 60.0 | 10,000 | SL 9,500/TP 11,000 🔄 05/08", msg)
+        # Narrative hanya untuk fresh
+        self.assertIn("📝 narasi netral untuk sinyal fresh.", msg)
+        self.assertNotIn("📝", msg.split("🔄 LANJUTAN (masih valid)")[1].split("⚡ INTRADAY")[0],
+                         "section LANJUTAN tanpa narrative")
+        # Intraday lanjutan tetap di section intraday dengan 🔄
+        intra_sec = msg.split("⚡ INTRADAY")[1] if "⚡ INTRADAY" in msg else ""
+        self.assertIn("🔄 03/08", intra_sec)
+        # Ringkasan menghitung SEMUA sinyal (3 swing + 1 intraday)
+        self.assertIn("Swing 3 · Intra 1", msg)
+
+    def test_no_lanjutan_section_when_no_continuation(self):
+        """V7 akurasi — tanpa sinyal lanjutan → section LANJUTAN tidak muncul."""
+        msg = telegram_formatter.format_message(self._swing_list(2), self._intra_list(1))
+        self.assertNotIn("LANJUTAN (masih valid)", msg)
+        self.assertNotIn("🔄 lanjutan = sinyal <14 hari", msg)
 
     def test_narrative_and_compact_suffixes(self):
         swing = self._swing_list(2)
@@ -925,6 +1022,146 @@ class TestTelegramFormatter(unittest.TestCase):
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# TEST 5c — mapping grup SINGLE SOURCE dari config.yaml (V7 akurasi)
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestGroupMappingConfig(unittest.TestCase):
+    """V7 akurasi — mapping grup final dibaca dari config.yaml section
+    'groups' (via groups_config), konsisten di v7_scan / factor_analysis /
+    weekly_report — TIDAK ada lagi hardcode GROUP_NAMES (4 sumber drift)."""
+
+    def test_load_groups_final_mapping(self):
+        from groups_config import load_groups
+        g = load_groups()
+        self.assertEqual(g["BRPT"], "Barito")
+        self.assertEqual(g["TPIA"], "Barito")
+        self.assertEqual(g["DSSA"], "Sinar Mas")
+        self.assertEqual(g["BUMI"], "Bakrie")
+        self.assertEqual(g["ENRG"], "Bakrie")
+        self.assertEqual(g["BNBR"], "Bakrie")
+        self.assertEqual(g["ELTY"], "Bakrie")
+        self.assertEqual(g["INDF"], "Salim")
+        self.assertEqual(g["ICBP"], "Salim")
+        self.assertEqual(g["KLBF"], "Kalbe")
+        self.assertEqual(g["HMSP"], "Philip Morris")
+        self.assertEqual(g["ASII"], "Astra")
+        self.assertEqual(g["UNTR"], "Astra")
+        self.assertEqual(g["CPIN"], "Charoen Pokphand")
+        self.assertEqual(g["ISAT"], "Ooredoo")
+
+    def test_unlabeled_tickers_empty_label(self):
+        from groups_config import group_of
+        for t in ("BISI", "AKRA", "ALII", "CUAN", "MPPA", "VBID"):
+            self.assertEqual(group_of(t), "", f"{t} belum terverifikasi → label kosong")
+        self.assertEqual(group_of(""), "")
+        self.assertEqual(group_of(None), "")
+
+    def test_all_three_modules_read_same_config_mapping(self):
+        """Verifikasi konsistensi: GROUP_NAMES di v7_scan, factor_analysis,
+        dan weekly_report SEMUA berasal dari config.yaml yang sama."""
+        from groups_config import load_groups
+        expected = load_groups()
+
+        class _NullHandler:
+            level = 1000
+            def setFormatter(self, *a, **k):
+                return None
+        with mock.patch("logging.FileHandler", _NullHandler):
+            import v7_scan
+        self.assertEqual(v7_scan.GROUP_NAMES, expected,
+                         "v7_scan harus baca mapping dari config.yaml")
+        import factor_analysis
+        self.assertEqual(factor_analysis.GROUP_NAMES, expected,
+                         "factor_analysis harus baca mapping dari config.yaml")
+        if weekly_report_mod is not None:
+            self.assertEqual(weekly_report_mod.GROUP_NAMES, expected,
+                             "weekly_report harus baca mapping dari config.yaml")
+
+    def test_group_of_case_insensitive_and_missing(self):
+        import factor_analysis
+        self.assertEqual(factor_analysis.group_of("dssa"), "Sinar Mas")
+        self.assertEqual(factor_analysis.group_of("TpIa"), "Barito")
+        self.assertEqual(factor_analysis.group_of("ZZZZ"), "")
+
+    def test_load_groups_fallback_empty_on_bad_path(self):
+        from groups_config import load_groups
+        self.assertEqual(load_groups("C:/tidak/ada/config.yaml"), {},
+                         "config hilang → mapping kosong (fallback aman)")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TEST 5d — weekly trend masuk scoring V7 (V7 akurasi)
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestV7WeeklyTrendScoring(unittest.TestCase):
+    """V7 akurasi — weekly_trend masuk scoring sebagai post-adjustment DI
+    LUAR weighted sum (bobot faktor tetap total 1.0):
+      BEARISH -12 + cap maksimum BUY | BULLISH +5 | NO_DATA/lain 0.
+    Tidak boleh ada pasangan STRONG_BUY + weekly BEARISH di output."""
+
+    def setUp(self):
+        self._old_enabled = v7_engine.enabled
+        v7_engine.enabled = True
+        self._patchers = [
+            mock.patch.object(v7_engine, "factor_broker_flow",
+                              return_value={"score": 80, "detail": "x"}),
+            mock.patch.object(v7_engine, "factor_foreign_flow",
+                              return_value={"score": 80, "detail": "x"}),
+            mock.patch.object(v7_engine, "factor_fundamental_quality",
+                              return_value={"score": 80, "detail": "x"}),
+            mock.patch.object(v7_engine, "factor_earnings_momentum",
+                              return_value={"score": 80, "detail": "x"}),
+        ]
+        for p in self._patchers:
+            p.start()
+
+    def tearDown(self):
+        for p in self._patchers:
+            p.stop()
+        v7_engine.enabled = self._old_enabled
+
+    def _base_score(self, v4):
+        """Weighted sum tanpa adjustment weekly (bobot config/default 1.0)."""
+        w = v7_engine._V7_WEIGHTS
+        return v4 * w["v4_score"] + 80.0 * (1.0 - w["v4_score"])
+
+    def test_bearish_penalty_12_and_strong_buy_capped_to_buy(self):
+        # v4=90 + faktor 80 → base 84; BEARISH -12 → 72 → threshold BULL
+        # [62,...] masih STRONG_BUY → harus di-cap ke BUY.
+        r = v7_engine.compute("BBCA", 90.0, "BULL", weekly_trend="BEARISH")
+        self.assertAlmostEqual(r["score"], self._base_score(90.0) - 12, places=1)
+        self.assertNotEqual(r["signal"], "STRONG_BUY",
+                            "tidak boleh ada STRONG_BUY + weekly BEARISH")
+        self.assertEqual(r["signal"], "BUY")
+        self.assertEqual(r["factors"]["weekly_trend"], "BEARISH")
+        self.assertIn("weekly_bearish_-12", r["factors"]["weekly_adjustment"])
+
+    def test_bullish_bonus_5(self):
+        r = v7_engine.compute("BBCA", 90.0, "BULL", weekly_trend="BULLISH")
+        self.assertAlmostEqual(r["score"], self._base_score(90.0) + 5, places=1)
+        self.assertEqual(r["signal"], "STRONG_BUY", "BULLISH tidak di-cap")
+        self.assertIn("weekly_bullish_+5", r["factors"]["weekly_adjustment"])
+
+    def test_no_data_and_missing_param_neutral(self):
+        r1 = v7_engine.compute("BBCA", 90.0, "BULL", weekly_trend="NO_DATA")
+        r2 = v7_engine.compute("BBCA", 90.0, "BULL")  # param opsional
+        self.assertAlmostEqual(r1["score"], self._base_score(90.0), places=1)
+        self.assertAlmostEqual(r2["score"], self._base_score(90.0), places=1)
+        self.assertEqual(r1["factors"]["weekly_adjustment"], "weekly_neutral")
+        self.assertEqual(r2["factors"]["weekly_adjustment"], "weekly_neutral")
+
+    def test_bearish_lower_score_drops_signal_level(self):
+        # base 72 - 12 = 60 → di bawah STRONG_BUY (62) → BUY (bukan SB)
+        r = v7_engine.compute("BBCA", 60.0, "BULL", weekly_trend="BEARISH")
+        self.assertAlmostEqual(r["score"], self._base_score(60.0) - 12, places=1)
+        self.assertEqual(r["signal"], "BUY")
+
+    def test_weights_total_stays_1_point_0(self):
+        self.assertAlmostEqual(sum(v7_engine._V7_WEIGHTS.values()), 1.0, places=6,
+                               msg="bobot faktor harus tetap total 1.0")
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # TEST 5b — C2 guard konsentrasi grup konglomerat (v7_scan)
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -967,17 +1204,19 @@ class TestC2ConcentrationGuard(unittest.TestCase):
         price = 2000.0
         lots = int(CAP * 0.15 / (price * 100))  # 15 lot = 15% modal per sinyal
         self.assertEqual(lots, 15)
-        swing = [self._sig("BRPT", price, lots, "Barito"),
-                 self._sig("BUMI", price, lots, "Barito"),
-                 self._sig("DSSA", price, lots, "Barito")]  # total 45% > 40%
-        logged = self._logged(["BRPT", "BUMI", "DSSA"], lots=lots, price=price)
+        # Ticker grup SAMA per mapping FINAL config.yaml: BUMI/ENRG/BNBR = Bakrie
+        # (BRPT/TPIA = Barito hanya 2 ticker; DSSA = Sinar Mas — bukan Barito)
+        swing = [self._sig("BUMI", price, lots, "Bakrie"),
+                 self._sig("ENRG", price, lots, "Bakrie"),
+                 self._sig("BNBR", price, lots, "Bakrie")]  # total 45% > 40%
+        logged = self._logged(["BUMI", "ENRG", "BNBR"], lots=lots, price=price)
 
         warns = self.v7s.enforce_group_concentration_guard(
             swing, [], logged, CAP, max_pct=40.0)
 
-        self.assertEqual(len(warns), 1, "satu peringatan untuk grup Barito")
+        self.assertEqual(len(warns), 1, "satu peringatan untuk grup Bakrie")
         self.assertIn("KONSENTRASI", warns[0])
-        self.assertIn("Barito", warns[0])
+        self.assertIn("Bakrie", warns[0])
         self.assertIn("45% > 40%", warns[0])
         self.assertIn("lot dikurangi", warns[0])
         # Lot benar-benar diturunkan (15 → 13) & total cost ≤ 40% modal
@@ -991,7 +1230,7 @@ class TestC2ConcentrationGuard(unittest.TestCase):
         msg = telegram_formatter.format_message(swing, [], capital=CAP,
                                                 concentration_warnings=warns)
         self.assertIn("⚠️ KONSENTRASI", msg)
-        self.assertIn("Barito", msg)
+        self.assertIn("Bakrie", msg)
 
     def test_1_signal_15pct_normal_no_change_no_warning(self):
         CAP = 20_000_000
@@ -1013,17 +1252,17 @@ class TestC2ConcentrationGuard(unittest.TestCase):
         CAP = 20_000_000
         price = 2000.0
         lots = int(CAP * 0.15 / (price * 100))
-        swing = [self._sig("BRPT", price, lots, "Barito"),   # 15%
-                 self._sig("BUMI", price, lots, "Barito"),   # 15%
-                 self._sig("DSSA", price, lots, "Barito"),   # 15% → 45% Barito
+        swing = [self._sig("BUMI", price, lots, "Bakrie"),   # 15%
+                 self._sig("ENRG", price, lots, "Bakrie"),   # 15%
+                 self._sig("BNBR", price, lots, "Bakrie"),   # 15% → 45% Bakrie
                  self._sig("ASII", price, lots, "Astra")]    # 15% Astra — normal
-        logged = self._logged(["BRPT", "BUMI", "DSSA", "ASII"], lots=lots, price=price)
+        logged = self._logged(["BUMI", "ENRG", "BNBR", "ASII"], lots=lots, price=price)
 
         warns = self.v7s.enforce_group_concentration_guard(
             swing, [], logged, CAP, max_pct=40.0)
 
-        self.assertEqual(len(warns), 1, "hanya Barito yang melanggar")
-        self.assertIn("Barito", warns[0])
+        self.assertEqual(len(warns), 1, "hanya Bakrie yang melanggar")
+        self.assertIn("Bakrie", warns[0])
         astra = swing[3]
         self.assertEqual(astra["sizing"]["lots"], lots, "grup normal tidak disentuh")
 
@@ -1037,21 +1276,21 @@ class TestC2ConcentrationGuard(unittest.TestCase):
         CAP = 20_000_000
         price = 2000.0
         lots = int(CAP * 0.15 / (price * 100))  # 15 lot = 15% per sinyal
-        swing = [self._sig("BRPT", price, lots, "Barito"),
-                 self._sig("BUMI", price, lots, "Barito")]
-        intra = [self._sig("DSSA", price, lots, "Barito")]  # total 45% > 40%
+        swing = [self._sig("BUMI", price, lots, "Bakrie"),
+                 self._sig("ENRG", price, lots, "Bakrie")]
+        intra = [self._sig("BNBR", price, lots, "Bakrie")]  # total 45% > 40%
         for s in swing + intra:
             s["sizing"]["risk_amount"] = 999_999_999  # nilai lama (overstate)
-        logged = (self._logged(["BRPT", "BUMI"], mode="swing", lots=lots, price=price)
-                  + self._logged(["DSSA"], mode="intraday", lots=lots, price=price))
+        logged = (self._logged(["BUMI", "ENRG"], mode="swing", lots=lots, price=price)
+                  + self._logged(["BNBR"], mode="intraday", lots=lots, price=price))
 
         warns = self.v7s.enforce_group_concentration_guard(
             swing, intra, logged, CAP, max_pct=40.0)
 
         self.assertEqual(len(warns), 1)
-        self.assertIn("BRPT(swing)", warns[0], "L1: label mode di detail")
         self.assertIn("BUMI(swing)", warns[0], "L1: label mode di detail")
-        self.assertIn("DSSA(intraday)", warns[0], "L1: label mode di detail")
+        self.assertIn("ENRG(swing)", warns[0], "L1: label mode di detail")
+        self.assertIn("BNBR(intraday)", warns[0], "L1: label mode di detail")
         # L3: risk_amount = 5% dari cost BARU (di-scale proporsional)
         for s in swing + intra:
             new_cost = s["sizing"]["cost"]
@@ -1894,6 +2133,306 @@ class TestTelegramSenderCrossLoop(unittest.TestCase):
             ok = telegram_sender.send_telegram_sync("sync")
         self.assertTrue(ok)
         self.assertEqual(bot.send_message.await_count, 2)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TEST 8 — R3: weekly_report return_pct di harga EXIT + dedup evaluasi
+# ══════════════════════════════════════════════════════════════════════════
+
+def _eval_setup(tmp, perf_rows, sig_date, highs, lows):
+    """Tulis perf CSV + buat provider mock; patch path weekly_report."""
+    tmp = tmp.name if hasattr(tmp, "name") else tmp
+    perf_csv = os.path.join(tmp, "perf_tracker_v7.csv")
+    eval_csv = os.path.join(tmp, "evaluations_v7.csv")
+    mark_json = os.path.join(tmp, "evaluated_keys.json")
+    with open(perf_csv, "w", newline="", encoding="utf-8") as f:
+        f.write("date,ticker,mode,score,signal,entry_price,sl,tp,lots,cost,fresh\n")
+        for row in perf_rows:
+            f.write(row + "\n")
+    df = _ohlc(highs=highs, lows=lows, start=sig_date.date())
+    return perf_csv, eval_csv, mark_json, MockProvider(df=df)
+
+
+class TestWeeklyReportR3(unittest.TestCase):
+    """R3 — return_pct berbasis harga EXIT & evaluator dedup.
+
+    Bukti audit: INDF LOSS_SL tampil +4.2% (close 7450 vs entry 7150)
+    padahal rugi; ISAT WIN_TP tampil +11.86% padahal TP cuma +3.9%;
+    BUMI intraday 04/08 & 05/08 (entry 168 sama) dievaluasi 2×.
+    """
+
+    def test_win_tp_return_at_tp_not_close(self):
+        """WIN_TP: return_pct = (tp-entry)/entry & exit_price = TP, bukan
+        return-to-now dari close terakhir (close bisa jatuh di bawah entry)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        sig_date = datetime.now() - timedelta(days=11)
+        row = (f"{sig_date.strftime('%Y-%m-%d %H:%M')},BBCA,swing,55.4,BUY,"
+               f"100,90,110,2,20000000,1\n")
+        # TP kena hari ke-2 (high 115), close terakhir jatuh ke 95 (< entry)
+        highs = [105, 115, 108, 107, 106, 105, 104, 103, 102, 101, 100]
+        lows = [95, 96, 97, 98, 99, 100, 99, 98, 97, 96, 95]
+        closes = [100, 112, 108, 107, 106, 105, 104, 103, 102, 101, 95]
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, [row], sig_date, highs, lows)
+        # pakai closes yang dibuat khusus
+        provider._df["Close"] = closes
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json):
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "WIN_TP")
+        self.assertEqual(results[0]["exit_price"], 110.0)
+        self.assertAlmostEqual(results[0]["return_pct"], 10.0, places=4)
+        self.assertEqual(results[0]["close_price"], 95.0,
+                         "close_price tetap konteks, bukan dasar return")
+        with open(eval_csv, encoding="utf-8") as f:
+            eval_rows = list(csv_reader(f))
+        self.assertEqual(len(eval_rows), 1)
+        self.assertEqual(eval_rows[0]["exit_price"], "110.0",
+                         "kolom exit_price terisi di CSV")
+
+    def test_loss_sl_return_at_sl_negative(self):
+        """LOSS_SL: return_pct negatif = (sl-entry)/entry & exit_price = SL
+        (dulu close terakhir bisa positif → LOSS tampil untung)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        sig_date = datetime.now() - timedelta(days=11)
+        row = (f"{sig_date.strftime('%Y-%m-%d %H:%M')},BBCA,swing,55.4,BUY,"
+               f"100,90,110,2,20000000,1\n")
+        # Baris ke-2: TP (115) & SL (88) kena SAMA BARIS → konservatif LOSS_SL
+        highs = [105, 115, 112, 111, 110, 109, 108, 107, 106, 105, 104]
+        lows = [95, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97]
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, [row], sig_date, highs, lows)
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json):
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "LOSS_SL")
+        self.assertEqual(results[0]["exit_price"], 90.0)
+        self.assertAlmostEqual(results[0]["return_pct"], -10.0, places=4)
+
+    def test_eval_csv_schema_migration_exit_price(self):
+        """CSV evaluasi lama (tanpa kolom exit_price) dimigrasi: header
+        ditambah, baris lama exit_price kosong, baris baru terisi."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        eval_csv = os.path.join(tmp.name, "evaluations_v7.csv")
+        old_header = ("date,ticker,mode,score,signal,entry_price,sl,tp,lots,cost,"
+                      "status,close_price,return_pct,mfe_pct,mae_pct,eval_date,regime")
+        with open(eval_csv, "w", newline="", encoding="utf-8") as f:
+            f.write(old_header + "\n")
+            f.write("2026-07-01 09:00,TLKM,swing,50.0,BUY,4000,3800,4200,1,400000,"
+                    "WIN_TP,4200,5.0,5.0,-5.0,2026-07-15,unknown\n")
+
+        sig_date = datetime.now() - timedelta(days=11)
+        row = (f"{sig_date.strftime('%Y-%m-%d %H:%M')},BBCA,swing,55.4,BUY,"
+               f"100,90,110,2,20000000,1\n")
+        highs = [105, 115, 108, 107, 106, 105, 104, 103, 102, 101, 100]
+        lows = [95, 96, 97, 98, 99, 100, 99, 98, 97, 96, 95]
+        perf_csv, _, mark_json, provider = _eval_setup(
+            tmp, [row], sig_date, highs, lows)
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json):
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+        self.assertEqual(len(results), 1)
+
+        with open(eval_csv, encoding="utf-8") as f:
+            eval_rows = list(csv_reader(f))
+        self.assertEqual(len(eval_rows), 2)
+        self.assertIn("exit_price", eval_rows[0],
+                      "header CSV lama harus dimigrasi + exit_price")
+        self.assertEqual(eval_rows[0]["exit_price"], "",
+                         "baris lama: exit_price kosong")
+        self.assertEqual(eval_rows[1]["exit_price"], "110.0",
+                         "baris baru: exit_price = TP")
+
+    def test_evaluate_dedup_same_signal_single_eval(self):
+        """Dedup dalam satu run: 2 baris BUMI intraday entry sama (±1%,
+        jarak 1 hari) → hanya baris TERBARU dievaluasi, 1 duplikat di-skip
+        & key-nya di-mark (run berikutnya tidak muncul lagi)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = datetime.now()
+        d_a = (base - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
+        d_b = (base - timedelta(days=4)).strftime("%Y-%m-%d %H:%M")
+        rows = [
+            f"{d_a},BUMI,intraday,60.5,STRONG_BUY,168.0,158.0,182.0,41,688800,1",
+            f"{d_b},BUMI,intraday,60.5,STRONG_BUY,168.0,158.0,182.0,41,688800,0",
+        ]
+        highs = [170, 182, 180, 179, 178]
+        lows = [165, 166, 167, 168, 169]
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, rows, base - timedelta(days=5), highs, lows)
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json):
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+            self.assertEqual(len(results), 1, "satu sinyal unik → satu evaluasi")
+            self.assertEqual(results[0]["date"], d_b,
+                             "baris TERBARU yang dipilih dievaluasi")
+            self.assertEqual(results[0]["status"], "WIN_TP")
+            self.assertEqual(weekly_report_mod._LAST_EVAL_SKIPPED, 1,
+                             "1 baris duplikat di-skip")
+            # kedua key di-mark → run berikutnya tidak mengevaluasi apa pun
+            results2 = weekly_report_mod.evaluate_signals(provider=provider)
+        self.assertEqual(results2, [], "duplikat tidak muncul lagi")
+        with open(eval_csv, encoding="utf-8") as f:
+            self.assertEqual(len(list(csv_reader(f))), 1)
+        with open(mark_json, encoding="utf-8") as f:
+            marked = json.load(f)
+        self.assertEqual(len(marked), 2, "key baris yang dievaluasi + duplikat di-mark")
+
+    def test_evaluate_dedup_cross_run_already_evaluated(self):
+        """Dedup lintas run: sinyal sudah dievaluasi di run 1; baris duplikat
+        (entry sama) yang baru cukup umur di run 2 TIDAK dievaluasi ulang —
+        persis kasus BUMI intraday 04/08 (dievaluasi 08/07) & 05/08."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = datetime.now()
+        d_a = (base - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
+        d_b = (base - timedelta(days=4)).strftime("%Y-%m-%d %H:%M")
+        row_a = f"{d_a},BUMI,intraday,60.5,STRONG_BUY,168.0,158.0,182.0,41,688800,1"
+        highs = [170, 182, 180, 179, 178]
+        lows = [165, 166, 167, 168, 169]
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, [row_a], base - timedelta(days=5), highs, lows)
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json):
+            r1 = weekly_report_mod.evaluate_signals(provider=provider)
+            self.assertEqual(len(r1), 1, "run 1: sinyal pertama dievaluasi")
+            # run 2: baris duplikat (entry sama) muncul belakangan
+            with open(perf_csv, "a", newline="", encoding="utf-8") as f:
+                f.write(f"{d_b},BUMI,intraday,60.5,STRONG_BUY,168.0,158.0,182.0,41,688800,0\n")
+            r2 = weekly_report_mod.evaluate_signals(provider=provider)
+            self.assertEqual(r2, [],
+                             "duplikat yang sudah dievaluasi run lalu TIDAK dievaluasi ulang")
+            self.assertEqual(weekly_report_mod._LAST_EVAL_SKIPPED, 1)
+            r3 = weekly_report_mod.evaluate_signals(provider=provider)
+        self.assertEqual(r3, [], "semua key sudah di-mark")
+        with open(eval_csv, encoding="utf-8") as f:
+            self.assertEqual(len(list(csv_reader(f))), 1,
+                             "hanya 1 baris evaluasi untuk 1 sinyal unik")
+
+    def test_dedup_price_gap_not_duplicate(self):
+        """Entry beda > ±1% (BUMI 168 vs 179) = sinyal berbeda → keduanya
+        dievaluasi, bukan duplikat."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = datetime.now()
+        d_a = (base - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
+        d_b = (base - timedelta(days=4)).strftime("%Y-%m-%d %H:%M")
+        rows = [
+            f"{d_a},BUMI,intraday,60.5,STRONG_BUY,168.0,158.0,182.0,41,688800,1",
+            f"{d_b},BUMI,intraday,62.7,STRONG_BUY,179.0,168.0,194.0,66,1181400,1",
+        ]
+        highs = [170, 182, 190, 195, 198]
+        lows = [165, 166, 167, 168, 169]
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, rows, base - timedelta(days=5), highs, lows)
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json):
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+        self.assertEqual(len(results), 2,
+                         "entry beda > ±1% → 2 sinyal unik, keduanya dievaluasi")
+        self.assertEqual(weekly_report_mod._LAST_EVAL_SKIPPED, 0)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TEST 9 — R3: signal_manager cooldown PER MODE (swing vs intraday)
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestCooldownPerMode(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.db = os.path.join(self._tmp.name, "cooldown.json")
+        self.tr = CooldownTracker(self.db, cooldown_days=5)
+
+    def test_swing_record_does_not_block_intraday(self):
+        """R3 inti: record swing → intraday ticker sama TIDAK kena cooldown."""
+        self.tr.record("BBCA", "STRONG_BUY", {"score": 70.0}, mode="swing")
+        self.assertTrue(self.tr.is_on_cooldown("BBCA", "swing"))
+        self.assertFalse(self.tr.is_on_cooldown("BBCA", "intraday"),
+                         "record swing tidak boleh memblokir intraday")
+
+    def test_intraday_record_does_not_overwrite_swing(self):
+        """Record intraday → slot swing tetap utuh (dulu 1 slot ticker-level
+        → record intraday MENIMPA swing)."""
+        self.tr.record("BBCA", "STRONG_BUY", {"score": 70.0}, mode="swing")
+        self.tr.record("BBCA", "BUY", {"score": 55.0}, mode="intraday")
+        self.assertTrue(self.tr.is_on_cooldown("BBCA", "swing"))
+        self.assertTrue(self.tr.is_on_cooldown("BBCA", "intraday"))
+        info = self.tr.cooldown_info("BBCA", "swing")
+        self.assertEqual(info["last_signal"], "STRONG_BUY",
+                         "slot swing tidak tertimpa record intraday")
+
+    def test_record_without_mode_backward_compat(self):
+        """Pemanggil lama (mode=None, mis. main.py) tetap key level-ticker:
+        is_on_cooldown(ticker) & is_on_cooldown(ticker, mode) tidak tercampur."""
+        self.tr.record("BBCA", "BUY", {"score": 55.0})
+        self.assertTrue(self.tr.is_on_cooldown("BBCA"))
+        self.assertFalse(self.tr.is_on_cooldown("BBCA", "swing"))
+        self.assertFalse(self.tr.is_on_cooldown("BBCA", "intraday"))
+        # DB lama (key level-ticker) tetap terbaca oleh cek tanpa mode
+        info = self.tr.cooldown_info("BBCA")
+        self.assertEqual(info["last_signal"], "BUY")
+
+    def test_cooldown_expiry_per_mode(self):
+        """Masa cooldown berjalan per mode: mode yang lain tidak ikut
+        kedaluwarsa/di-blokir oleh record mode lain."""
+        self.tr.record("BBCA", "STRONG_BUY", mode="swing")
+        self.assertTrue(self.tr.is_on_cooldown("BBCA", "swing"))
+        self.assertFalse(self.tr.is_on_cooldown("BBCA", "intraday"))
+        self.tr.record("BBCA", "STRONG_BUY", mode="intraday")
+        self.assertTrue(self.tr.is_on_cooldown("BBCA", "intraday"))
+        self.assertTrue(self.tr.is_on_cooldown("BBCA", "swing"))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TEST 10 — R3: v7_scan label signal konsisten dengan score FINAL
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestV7ScanLabelConsistency(unittest.TestCase):
+    """R3 — kolom score & signal di perf CSV harus dari perhitungan yang
+    SAMA: signal dihitung ulang dari score FINAL (sesudah bonus +5) dengan
+    threshold v7_engine yang sama (termasuk override config + cap BEARISH)."""
+
+    def _helper(self):
+        import v7_scan as vs  # import berat → lazy, hanya saat dibutuhkan
+        return vs._signal_from_score
+
+    def test_score_63_ranging_is_strong_buy(self):
+        with mock.patch.dict(v7_engine.THRESHOLDS,
+                             {"RANGING": [60, 50, 42, 35, 28]}):
+            sig = self._helper()
+            self.assertEqual(sig(63, "RANGING", "NO_DATA"), "STRONG_BUY",
+                             "score 58+5=63 → label harus STRONG_BUY (>=60), bukan BUY")
+            self.assertEqual(sig(58, "RANGING", "NO_DATA"), "BUY",
+                             "score pre-bonus 58 → BUY (konsisten)")
+
+    def test_bearish_cap_matches_compute(self):
+        with mock.patch.dict(v7_engine.THRESHOLDS,
+                             {"RANGING": [60, 50, 42, 35, 28]}):
+            sig = self._helper()
+            self.assertEqual(sig(63, "RANGING", "BEARISH"), "BUY",
+                             "weekly BEARISH → STRONG_BUY di-cap ke BUY (sama dgn compute)")
+            self.assertEqual(sig(52, "RANGING", "BULLISH"), "BUY")
+
+    def test_unknown_regime_falls_back_ranging(self):
+        with mock.patch.dict(v7_engine.THRESHOLDS,
+                             {"RANGING": [60, 50, 42, 35, 28]}):
+            sig = self._helper()
+            self.assertEqual(sig(63, "REGIME_ANEH", "NO_DATA"), "STRONG_BUY")
 
 
 if __name__ == "__main__":

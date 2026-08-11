@@ -7,8 +7,8 @@ pivot win rate per faktor:
 
   - mode             : swing / intraday
   - score band       : >=65 / 55-64 / <55
-  - grup konglomerat : Barito / Bakrie / Salim / Astra / lainnya
-                       (mapping konsisten dengan v7_scan.py GROUP_NAMES)
+  - grup konglomerat : Barito / Sinar Mas / Bakrie / Salim / Kalbe / dll.
+                       (mapping SINGLE SOURCE dari config.yaml section groups)
   - broker_detail    : detail faktor broker flow Invezgo (jika tercatat)
   - foreign_detail   : detail faktor foreign flow Invezgo (jika tercatat)
   - fundamental_detail: detail faktor fundamental Invezgo (jika tercatat)
@@ -42,14 +42,13 @@ DEFAULT_EVAL = os.path.join(DATA_DIR, "evaluations_v7.csv")
 
 MIN_SAMPLE = 30  # A2: n < 30 → belum bisa disimpulkan
 
-# Mapping grup konglomerat — HARUS konsisten dengan v7_scan.py GROUP_NAMES.
-# Ticker di luar mapping ini dikategorikan "lainnya".
-GROUP_NAMES = {
-    "BRPT": "Barito", "DSSA": "Barito", "BUMI": "Barito", "ENRG": "Barito",
-    "BNBR": "Bakrie", "VBID": "Bakrie", "ELTY": "Bakrie",
-    "INDF": "Salim", "ICBP": "Salim", "KLBF": "Salim", "HMSP": "Salim", "BISI": "Salim",
-    "ASII": "Astra", "UNTR": "Astra", "AKRA": "Astra", "CPIN": "Astra", "ISAT": "Astra",
-}
+# Mapping grup konglomerat — SINGLE SOURCE: config.yaml section 'groups'
+# (dibaca via groups_config.load_groups(); dulu hardcode GROUP_NAMES di sini
+# + duplikat di v7_scan.py & weekly_report.py = 4 sumber drift).
+# Ticker di luar mapping dikategorikan "lainnya".
+from groups_config import load_groups
+
+GROUP_NAMES = load_groups()  # {TICKER: nama_grup} — fallback {} kalau config gagal
 
 CLOSED_STATUSES = ("WIN_TP", "LOSS_SL")
 

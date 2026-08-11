@@ -11,6 +11,26 @@
 #   - Exit strategy (max hold, flat exit, hard stop)
 #   - Portfolio heat management (max positions, per sector)
 
+# ═══════════════════════════════════════════════════════════════
+# GRUP KONGLOMERAT — SINGLE SOURCE mapping label grup (V7 akurasi)
+# ═══════════════════════════════════════════════════════════════
+# Mapping FINAL terverifikasi (08/2026). Dibaca oleh groups_config.py
+# dan dipakai v7_scan.py / factor_analysis.py / weekly_report.py — JANGAN
+# hardcode mapping di file python (sebelumnya 4 sumber drift: 3 dict
+# GROUP_NAMES + section watchlist di bawah).
+# Ticker yang BELUM terverifikasi TIDAK dicantumkan di sini → label
+# grup KOSONG di pesan: BISI, AKRA, ALII, CUAN, MPPA, VBID.
+groups:
+  Barito: [BRPT, TPIA]               # Barito (Prajogo Pangestu)
+  Sinar Mas: [DSSA]                  # Sinar Mas (Widjaja)
+  Bakrie: [BUMI, ENRG, BNBR, ELTY]   # Bakrie Group
+  Salim: [INDF, ICBP]                # Salim (First Pacific)
+  Kalbe: [KLBF]                      # Kalbe Farma
+  Philip Morris: [HMSP]              # Philip Morris Indonesia
+  Astra: [ASII, UNTR]                # Astra International
+  Charoen Pokphand: [CPIN]           # Charoen Pokphand Indonesia
+  Ooredoo: [ISAT]                    # Ooredoo (Indosat)
+
 scoring:
   # ── Threshold Sinyal v3 ──
   # Format: [STRONG_BUY_min, BUY_min, WEAK_BUY_min, HOLD_min]
@@ -202,6 +222,11 @@ portfolio:
 # ═══════════════════════════════════════════════════════════════
 # WATCHLIST — Fokus saham konglomerat & grup
 # ═══════════════════════════════════════════════════════════════
+# Isi grup di bawah mengikuti mapping FINAL di section 'groups' (di atas).
+# Key lama barito/bakrie/salim/astra DIPERBAIKI isinya (dulu salah: DSSA
+# di Barito, BUMI dobel Barito+Bakrie, HMSP/BISI di Salim, AKRA/CPIN/ISAT
+# di Astra). Grup terverifikasi lain ditambahkan; 'unlabeled' = masih
+# dipantau tapi label grup kosong (belum terverifikasi).
 watchlist:
   # Ticker dengan WR rendah dari backtest V4 (hold 10d) — di-skip:
   # ICBP 14.7%, BISI 4.8%, CPIN 25.0%, INDF 34.0%, KLBF 34.5%
@@ -220,36 +245,44 @@ watchlist:
     - "TPIA"
     - "CUAN"
     - "MPPA"
-  
-  # Barito Group (BRPT)
+
+  # Barito Group (Prajogo Pangestu)
   barito:
     - "BRPT"  # Barito Pacific (holding)
-    - "DSSA"  # Dian Swastatika Sentosa
-    - "BUMI"  # Bumi Resources (terafiliasi)
-    - "ENRG"  # Energi Mega Persada
-  
+    - "TPIA"  # Chandra Asri
+
   # Bakrie Group
   bakrie:
     - "BUMI"  # Bumi Resources
     - "ENRG"  # Energi Mega Persada
     - "BNBR"  # Bakrie & Brothers
     - "ELTY"  # Bakrieland Development
-  
+
   # Salim Group (First Pacific)
   salim:
     - "INDF"  # Indofood Sukses Makmur
     - "ICBP"  # Indofood CBP
-    - "KLBF"  # Kalbe Farma
-    - "HMSP"  # HM Sampoerna
-    - "BISI"  # Bisi International
-  
+
   # Astra Group
   astra:
     - "ASII"  # Astra International
     - "UNTR"  # United Tractors
-    - "AKRA"  # AKR Corporindo
-    - "CPIN"  # Charoen Pokphand
+
+  # Grup lain yang terverifikasi (mapping final — lihat section 'groups')
+  sinar_mas:
+    - "DSSA"  # Dian Swastatika Sentosa (Sinar Mas)
+  kalbe:
+    - "KLBF"  # Kalbe Farma (di-skip via disabled)
+  philip_morris:
+    - "HMSP"  # HM Sampoerna
+  charoen_pokphand:
+    - "CPIN"  # Charoen Pokphand Indonesia (di-skip via disabled)
+  ooredoo:
     - "ISAT"  # Indosat Ooredoo
+
+  # Masih dipantau — grup belum terverifikasi (label kosong di pesan)
+  unlabeled:
+    - "AKRA"  # AKR Corporindo
 # ═══════════════════════════════════════════════════════════════
 # earnings_calendar:
 #   annual_only: false       # false = Q1+Q2+Q3 juga di-blackout

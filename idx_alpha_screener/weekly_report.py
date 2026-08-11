@@ -11,6 +11,18 @@ Tambahan: mfe_pct = (max_high-entry)/entry*100, mae_pct = (min_low-entry)/entry*
 Jika data OHLC gagal diambil → status DATA_MISSING (tidak di-mark, dicoba lagi
 run berikutnya).
 
+R3 (audit Round 3):
+- return_pct dihitung dari harga EXIT, bukan close terakhir: WIN_TP → harga TP,
+  LOSS_SL → harga SL (dulu INDF LOSS_SL tampil +4.2% & ISAT WIN_TP +11.86%
+  padahal TP-nya cuma +3.9% — menyesatkan). Kolom exit_price mencatat harga
+  exit tsb; close_price tetap disimpan sebagai konteks (return-to-now).
+  Catatan: baris OPEN tidak pernah ditulis ke CSV (dievaluasi ulang), jadi
+  return_pct di CSV selalu berbasis harga exit; label 'open' tidak relevan.
+- Evaluasi di-dedup: (ticker, mode, entry ±1%, jarak tanggal <= 14 hari)
+  dianggap SATU sinyal — hanya baris TERBARU yang dievaluasi; duplikat
+  (termasuk yang sudah pernah dievaluasi di run sebelumnya) di-skip &
+  key-nya di-mark supaya tidak muncul lagi. Jumlah yang di-skip dilaporkan.
+
 Hasil disimpan di data/evaluations_v7.csv + kirim ringkasan ke Telegram.
 
 Cara pakai:
@@ -29,23 +41,26 @@ import pandas as pd
 import numpy as np
 
 from data_invezgo import InvezgoProvider
-from perf_tracker import load_signals
+from perf_tracker import load_signals, DEDUP_TOLERANCE, DEDUP_MAX_AGE_DAYS
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 PERF_CSV = os.path.join(DATA_DIR, "perf_tracker_v7.csv")
 EVAL_CSV = os.path.join(DATA_DIR, "evaluations_v7.csv")
 EVAL_MARK = os.path.join(DATA_DIR, "evaluated_keys.json")
 FIELDS = ["date", "ticker", "mode", "score", "signal", "entry_price", "sl", "tp",
-          "lots", "cost", "status", "close_price", "return_pct", "mfe_pct", "mae_pct",
-          "eval_date", "regime"]
+          "lots", "cost", "status", "close_price", "exit_price", "return_pct",
+          "mfe_pct", "mae_pct", "eval_date", "regime"]
 
-# ── E2: mapping grup konglomerat — konsisten dengan v7_scan.py GROUP_NAMES ──
-GROUP_NAMES = {
-    "BRPT": "Barito", "DSSA": "Barito", "BUMI": "Barito", "ENRG": "Barito",
-    "BNBR": "Bakrie", "VBID": "Bakrie", "ELTY": "Bakrie",
-    "INDF": "Salim", "ICBP": "Salim", "KLBF": "Salim", "HMSP": "Salim", "BISI": "Salim",
-    "ASII": "Astra", "UNTR": "Astra", "AKRA": "Astra", "CPIN": "Astra", "ISAT": "Astra",
-}
+# R3: jumlah baris duplikat evaluasi yang di-skip pada run terakhir — dibaca
+# build_report() untuk dilaporkan. Di-reset di awal evaluate_signals().
+_LAST_EVAL_SKIPPED = 0
+
+# ── E2: mapping grup konglomerat — SINGLE SOURCE: config.yaml section
+# 'groups' (dibaca via groups_config.load_groups(); dulu hardcode di sini
+# + duplikat di v7_scan.py & factor_analysis.py = 4 sumber drift) ──
+from groups_config import load_groups
+
+GROUP_NAMES = load_groups()  # {TICKER: nama_grup} — fallback {} kalau config gagal
 
 # E2: peringatan sampel kecil di tabel breakdown
 MIN_SAMPLE_WARN = 20
@@ -94,8 +109,37 @@ def _save_marked(marked: set):
         json.dump(sorted(marked), f)
 
 
+def _ensure_eval_schema():
+    """Migrasi header evaluations_v7.csv ke urutan FIELDS kanonik (R3).
+
+    Bila kolom FIELDS belum ada di file lama (mis. kolom exit_price dari R3),
+    header ditulis ulang SELENGKAP & SEURUTAN FIELDS — PENTING: baris baru
+    di-append via DictWriter(fieldnames=FIELDS), jadi header harus persis
+    FIELDS (kolom baru di posisi kanoniknya, BUKAN ditambahkan di ujung)
+    supaya nilai baris baru tidak bergeser ke kolom yang salah. Baris lama
+    diberi nilai kosong untuk kolom yang belum ada. File append-only &
+    kecil → rewrite aman."""
+    if not os.path.exists(EVAL_CSV):
+        return
+    try:
+        with open(EVAL_CSV, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        if not rows:
+            return
+        if list(rows[0].keys()) == FIELDS:
+            return  # sudah kanonik — tidak perlu rewrite
+        with open(EVAL_CSV, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
+            writer.writeheader()
+            for r in rows:
+                writer.writerow({k: r.get(k, "") for k in FIELDS})
+    except Exception:
+        pass  # gagal migrasi → baris baru tetap bisa di-append (kolom ekstra diabaikan pembaca)
+
+
 def _append_eval(row: dict):
     new_file = not os.path.exists(EVAL_CSV)
+    _ensure_eval_schema()
     with open(EVAL_CSV, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         if new_file:
@@ -222,10 +266,94 @@ def _data_missing_row(s: dict, mode: str, today: datetime) -> dict:
         "tp": float(s["tp"]),
         "lots": s.get("lots", ""), "cost": s.get("cost", ""),
         "status": "DATA_MISSING", "close_price": "",
-        "return_pct": "", "mfe_pct": "", "mae_pct": "",
+        "exit_price": "", "return_pct": "", "mfe_pct": "", "mae_pct": "",
         "eval_date": today.strftime("%Y-%m-%d"),
         "regime": s.get("regime", "") or "",
     }
+
+
+def _dedup_eval_candidates(candidates: list, hist: list = None) -> tuple:
+    """Saring kandidat evaluasi — SATU sinyal unik hanya dievaluasi SEKALI.
+
+    Dua baris dianggap sinyal yang SAMA (R3) bila:
+      - ticker & mode sama, DAN
+      - entry_price sama dalam toleransi ±1% (DEDUP_TOLERANCE), DAN
+      - tanggalnya berjarak <= 14 hari (DEDUP_MAX_AGE_DAYS — jendela dedup
+        yang sama dengan perf_tracker; baris > 14 hari = sinyal baru wajar).
+
+    Baris yang dipilih: yang TERBARU (metadata paling mutakhir: score/signal/
+    regime terakhir & tanggal paling dekat dengan jendela evaluasi). Duplikat
+    dari batch yang sama (mis. 08/08 22:02 + 22:32 fresh=0) MAUPUN duplikat
+    terhadap sinyal yang sudah pernah dievaluasi di run sebelumnya (dicek ke
+    histori evaluations_v7.csv — kasus BUMI intraday 04/08 dievaluasi 08/07,
+    baris 05/08 entry sama baru cukup umur di run berikutnya) dikembalikan
+    sebagai 'skipped' — key-nya di-mark oleh pemanggil agar tidak dievaluasi
+    sebagai sinyal independen di run berikutnya.
+
+    Return (uniq, skipped): uniq = kandidat terpilih sebagai 5-tuple
+    (s, dt, mode, key, eval_from) — eval_from = tanggal ENTRY PALING AWAL
+    grup dedup (baris re-log dievaluasi sejak sinyal pertama muncul, bukan
+    sejak baris terbaru; kalau tidak, TP/SL yang kena di hari entry baris
+    terbaru tidak terlihat → status OPEN palsu & hasilnya hilang).
+    skipped = 4-tuple (s, dt, mode, key) duplikat.
+    """
+    hist = hist or []
+    hist_idx = {}
+    for r in hist:
+        if r.get("status") not in ("WIN_TP", "LOSS_SL"):
+            continue
+        hist_idx.setdefault((str(r.get("ticker", "")).upper(), r.get("mode", "")),
+                            []).append(r)
+
+    groups = {}
+    for c in candidates:
+        s, _dt, mode, _key = c
+        groups.setdefault((str(s["ticker"]).upper(), mode), []).append(c)
+
+    uniq, skipped = [], []
+    for rows in groups.values():
+        rows.sort(key=lambda c: c[1], reverse=True)  # tanggal turun → baris terbaru = rep pertama
+        reps = []  # [(date, entry_price, uniq_entry)] sinyal unik yang sudah diterima
+        for c in rows:
+            s, dt, _mode, _key = c
+            try:
+                entry = float(s["entry_price"])
+            except (TypeError, ValueError):
+                uniq.append([s, dt, _mode, _key, dt])  # entry tidak valid → evaluasi apa adanya
+                continue
+            if entry <= 0:
+                uniq.append([s, dt, _mode, _key, dt])
+                continue
+            is_dup = False
+            # 1) Duplikat dalam batch yang sama (baris re-log / fresh=0)
+            for rdate, rentry, ue in reps:
+                if (abs(rentry - entry) / rentry <= DEDUP_TOLERANCE
+                        and abs((dt - rdate).days) <= DEDUP_MAX_AGE_DAYS):
+                    is_dup = True
+                    # sinyal re-log: evaluasi tetap dihitung sejak entry
+                    # PALING AWAL grup, bukan sejak baris terbaru
+                    ue[4] = min(ue[4], dt)
+                    break
+            # 2) Duplikat terhadap sinyal yang SUDAH dievaluasi run lalu
+            if not is_dup:
+                for hr in hist_idx.get((str(s["ticker"]).upper(), _mode), []):
+                    try:
+                        h_entry = float(hr.get("entry_price", 0) or 0)
+                        h_date = datetime.strptime(hr["date"], "%Y-%m-%d %H:%M")
+                    except (TypeError, ValueError, KeyError):
+                        continue
+                    if (h_entry > 0
+                            and abs(h_entry - entry) / h_entry <= DEDUP_TOLERANCE
+                            and 0 <= (dt - h_date).days <= DEDUP_MAX_AGE_DAYS):
+                        is_dup = True
+                        break
+            if is_dup:
+                skipped.append(c)
+            else:
+                ue = [s, dt, _mode, _key, dt]
+                reps.append((dt, entry, ue))
+                uniq.append(ue)
+    return uniq, skipped
 
 
 def evaluate_signals(provider=None, dry_run: bool = False) -> list:
@@ -248,7 +376,11 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
     today = datetime.now()
     results = []
     new_marks = []
+    global _LAST_EVAL_SKIPPED
+    _LAST_EVAL_SKIPPED = 0
 
+    # ── Kumpulkan kandidat layak evaluasi (cukup umur & belum di-mark) ──
+    candidates = []
     for s in signals:
         try:
             dt = datetime.strptime(s["date"], "%Y-%m-%d %H:%M")
@@ -262,10 +394,28 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
             if key in marked:
                 continue  # sudah dievaluasi
 
+            candidates.append((s, dt, mode, key))
+        except (ValueError, KeyError, TypeError):
+            continue
+
+    # ── R3: dedup evaluasi — (ticker, mode, entry ±1%, <=14 hari) = SATU
+    # sinyal unik. Dulu BUMI intraday 04/08 & 05/08 (entry 168 sama)
+    # dievaluasi 2× dan batch 08/08 ×4 (baris duplikat fresh=0) akan
+    # dievaluasi sebagai sinyal independen → WR terkontaminasi. Sekarang
+    # hanya baris TERBARU yang dievaluasi; duplikat di-skip & key-nya
+    # di-mark (tidak di-mark saat dry-run) supaya tidak muncul lagi.
+    uniq, skipped = _dedup_eval_candidates(candidates, hist=_load_all_evals())
+    _LAST_EVAL_SKIPPED = len(skipped)
+    if not dry_run:
+        new_marks.extend(k for (_s, _dt, _m, k) in skipped)
+
+    for s, dt, mode, key, eval_from in uniq:
+        try:
             ticker = s["ticker"]
             entry = float(s["entry_price"])
             sl = float(s["sl"])
             tp = float(s["tp"])
+            age_days = (today - dt).days
 
             # ── Ambil OHLC sejak entry (bukan cuma close terakhir) ──
             try:
@@ -281,11 +431,15 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
 
             # Baris SEJAK entry. Index harian = 00:00 sedangkan timestamp
             # sinyal > 00:00 → baris hari entry TIDAK ikut (ter-exclude).
+            # R3: untuk grup dedup (sinyal re-log), window dihitung sejak
+            # eval_from = entry PALING AWAL grup, bukan sejak baris terbaru —
+            # kalau tidak, TP/SL yang kena di hari entry baris terbaru tidak
+            # terlihat (status OPEN palsu → hasil evaluasi hilang).
             # M3-doc: guard potong eksplisit (index > waktu sinyal) supaya
             # konsisten walau format date CSV berubah (dengan/tanpa jam) —
             # docstring di bawah ini MENYESUAIKAN perilaku tersebut.
             if isinstance(df.index, pd.DatetimeIndex):
-                since = df[df.index > pd.Timestamp(dt)]
+                since = df[df.index > pd.Timestamp(eval_from)]
             else:
                 since = df
             if since is None or since.empty:
@@ -310,13 +464,21 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
             if close <= 0:
                 results.append(_data_missing_row(s, mode, today))
                 continue
-            ret_pct = (close - entry) / entry * 100
+            # R3: return_pct dihitung dari harga EXIT, bukan close terakhir:
+            # WIN_TP → exit di harga TP; LOSS_SL → exit di harga SL. (Dulu
+            # pakai close terakhir → INDF LOSS_SL tampil +4.2% padahal rugi &
+            # ISAT WIN_TP tampil +11.86% padahal TP-nya cuma +3.9% — data
+            # menyesatkan untuk WR/avg return.) close_price tetap dicatat
+            # sebagai konteks (harga saat evaluasi), exit_price = harga exit.
+            exit_price = tp if status == "WIN_TP" else sl
+            ret_pct = (exit_price - entry) / entry * 100
             row = {
                 "date": s["date"], "ticker": ticker, "mode": mode,
                 "score": s.get("score", ""), "signal": s.get("signal", ""),
                 "entry_price": entry, "sl": sl, "tp": tp,
                 "lots": s.get("lots", ""), "cost": s.get("cost", ""),
                 "status": status, "close_price": round(close, 2),
+                "exit_price": round(exit_price, 2),
                 "return_pct": round(ret_pct, 2),
                 "mfe_pct": round(res["mfe_pct"], 2),
                 "mae_pct": round(res["mae_pct"], 2),
@@ -487,7 +649,7 @@ def roi_invezgo_section(rows: list, min_sample: int = 30) -> list:
     lines.append(f"NET: Rp {net:,.0f}")
     lines.append("Apakah langganan Invezgo menghasilkan lebih dari biayanya? "
                  + ("✅ YA — NET positif." if net > 0 else "❌ BELUM — NET negatif/nol."))
-    lines.append("Catatan: return_pct = close saat evaluasi (bukan harga TP/SL) — estimasi kasar.")
+    lines.append("Catatan: return_pct = harga exit (TP/SL — bukan close saat evaluasi); estimasi kasar.")
     return lines
 
 
@@ -535,6 +697,9 @@ def build_report(eval_results: list, with_roi: bool = None) -> str:
     """
     if not eval_results:
         lines = ["📊 WR EVALUASI", "Tidak ada sinyal baru yang dievaluasi hari ini."]
+        if _LAST_EVAL_SKIPPED:
+            lines.append(f"⏭️ {_LAST_EVAL_SKIPPED} baris duplikat evaluasi di-skip "
+                         f"(sinyal sama, entry ±1%)")
         _append_breakdown_sections(lines, eval_results, with_roi)
         return "\n".join(lines)
 
@@ -562,6 +727,11 @@ def build_report(eval_results: list, with_roi: bool = None) -> str:
         "📊 LAPORAN WR V7 (MFE/MAE)",
         "─" * 25,
         f"Dievaluasi: {len(eval_results)} sinyal",
+    ]
+    if _LAST_EVAL_SKIPPED:
+        lines.append(f"⏭️ {_LAST_EVAL_SKIPPED} baris duplikat evaluasi di-skip "
+                     f"(sinyal sama, entry ±1%)")
+    lines += [
         f"Selesai: {n_closed} (WIN {wins} | LOSS {losses})",
         f"Win Rate: {wr:.0f}%",
         f"Hit Rate TP: {hit_tp:.0f}% | Hit Rate SL: {hit_sl:.0f}%",
@@ -585,6 +755,8 @@ def build_report(eval_results: list, with_roi: bool = None) -> str:
         lines.append("Catatan: status pakai high/low sejak entry; urutan TP vs SL")
         lines.append("ikut urutan baris harian — intraday same-day tidak diketahui,")
         lines.append("dianggap konservatif (SL dulu).")
+        lines.append("return_pct = harga exit (TP utk WIN_TP, SL utk LOSS_SL) —")
+        lines.append("bukan close saat evaluasi (kolom close_price = konteks).")
     _append_breakdown_sections(lines, eval_results, with_roi)
     return "\n".join(lines)
 

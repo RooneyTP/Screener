@@ -21,8 +21,12 @@ class CooldownTracker:
     Data disimpan di JSON file. Format:
     {
         "BBCA": {"date": "2026-07-14", "signal": "STRONG_BUY", "timestamp": "..."},
+        "BBCA::swing": {"date": "...", "signal": "...", "timestamp": "..."},
         ...
     }
+    Key "TICKER" = level ticker (legacy, dipakai pemanggil tanpa mode);
+    key "TICKER::mode" = per mode (R3): swing & intraday punya slot cooldown
+    sendiri sehingga record swing TIDAK memblokir intraday (dan sebaliknya).
     """
 
     def __init__(self, db_path: str, cooldown_days: int = 5):
@@ -51,10 +55,26 @@ class CooldownTracker:
             json.dump(self._cache, f, indent=2, ensure_ascii=False)
 
     # ── Public ─────────────────────────────────────────────────────────
-    def is_on_cooldown(self, ticker: str) -> bool:
-        """Cek apakah ticker sedang dalam masa cooldown (hanya BUY signal)."""
+    def _key(self, ticker: str, mode: Optional[str] = None) -> str:
+        """Key DB cooldown.
+
+        mode=None → "TICKER" (key level-ticker lama, backward compat dengan
+        pemanggil seperti main.py yang tidak peduli mode).
+        mode="swing"/"intraday" → "TICKER::mode" (R3 — cooldown PER MODE:
+        dulu swing & intraday berbagi 1 slot ticker-level sehingga record
+        intraday menimpa record swing & swing memblokir intraday).
+        """
+        t = ticker.upper()
+        return f"{t}::{mode}" if mode else t
+
+    def is_on_cooldown(self, ticker: str, mode: Optional[str] = None) -> bool:
+        """Cek apakah ticker sedang dalam masa cooldown (hanya BUY signal).
+
+        mode=None → cek key legacy level-ticker (perilaku lama).
+        mode="swing"/"intraday" → cek cooldown mode tsb SAJA.
+        """
         data = self._load()
-        entry = data.get(ticker.upper())
+        entry = data.get(self._key(ticker, mode))
         if not entry:
             return False
         signal_type = entry.get("signal", "")
@@ -71,8 +91,13 @@ class CooldownTracker:
         except ValueError:
             return False
 
-    def record(self, ticker: str, signal: str, extra: dict = None):
-        """Catat sinyal ke database cooldown."""
+    def record(self, ticker: str, signal: str, extra: dict = None,
+               mode: Optional[str] = None):
+        """Catat sinyal ke database cooldown.
+
+        mode=None → key level-ticker (perilaku lama); mode diberikan →
+        key "TICKER::mode" sehingga mode lain tidak terpengaruh (R3).
+        """
         data = self._load()
         entry = {
             "date": datetime.now().strftime("%Y-%m-%d"),
@@ -81,13 +106,13 @@ class CooldownTracker:
         }
         if extra:
             entry.update(extra)
-        data[ticker.upper()] = entry
+        data[self._key(ticker, mode)] = entry
         self._save()
 
-    def cooldown_info(self, ticker: str) -> Optional[dict]:
+    def cooldown_info(self, ticker: str, mode: Optional[str] = None) -> Optional[dict]:
         """Info cooldown untuk display."""
         data = self._load()
-        entry = data.get(ticker.upper())
+        entry = data.get(self._key(ticker, mode))
         if not entry:
             return None
         try:
