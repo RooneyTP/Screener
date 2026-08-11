@@ -717,13 +717,13 @@ def main():
         extra_parts.append(format_position_alerts(position_alerts))
     if sector_line:
         extra_parts.append(sector_line)
-    # IDE5: alasan skip CA blackout — tampil sebagai bagian terpisah (budget
-    # extra_parts 300 chars; kalau banyak skip, di-truncate aman di formatter).
-    if skip_reasons:
-        extra_parts.append("⛔ CA BLACKOUT (skip):\n" + "\n".join(skip_reasons))
+    # IDE5: alasan skip CA blackout ditampilkan di section MANAJEMEN RISIKO
+    # lewat param skip_reasons (dipetakan jadi '⚠️ Warning: ...' + detail),
+    # bukan lagi di extra_parts (PASS 3 format).
     output_message = format_message(swing, intra, sentiment, CAPITAL,
                                     narratives=narratives,
                                     concentration_warnings=concentration_warnings,
+                                    skip_reasons=skip_reasons,
                                     extra_parts=extra_parts)
 
     print(output_message)

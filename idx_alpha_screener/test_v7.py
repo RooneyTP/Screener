@@ -902,6 +902,11 @@ class TestTelegramFormatter(unittest.TestCase):
         msg = telegram_formatter.format_message(swing, intra)
         self.assertLess(len(msg), 3500, f"pesan terlalu panjang: {len(msg)} chars")
         self.assertIn("SCREENER V7", msg)
+        # PASS 3: section baru + label entry eksplisit + separator
+        self.assertIn("🏆 SWING SIGNALS", msg)
+        self.assertIn("🎯 Buy:", msg)
+        self.assertIn("⚙️ MANAJEMEN RISIKO", msg)
+        self.assertIn("━" * 20, msg)
         # R6: ticker dobel mode tampil SEKALI di SWING (penanda ⚡ di akhir),
         # TIDAK diulang di section INTRADAY
         self.assertEqual(msg.count("SW0"), 1, "ticker dobel hanya muncul 1x")
@@ -909,6 +914,24 @@ class TestTelegramFormatter(unittest.TestCase):
         self.assertIn("⚡", swing_sec, "penanda mode ganda (⚡) di baris SWING")
         intra_sec = msg.split("⚡ INTRADAY")[1] if "⚡ INTRADAY" in msg else ""
         self.assertNotIn("SW0", intra_sec, "ticker dobel tidak diulang di INTRADAY")
+
+    def test_buy_label_explicit_with_range_and_fallback(self):
+        """GAYA A — label '🎯 Buy:' SELALU muncul utk tiap saham swing."""
+        swing = self._swing_list(2)
+        # entry_rec normal → range dari price_range (titik-ribuan)
+        swing[0]["entry_rec"] = {"method": "Limit", "price_range": "Rp2,120 - Rp2,141"}
+        swing[0]["price"] = 2120.0
+        # entry_rec kosong → fallback '{harga*0.96:.0f} - {harga:.0f}'
+        swing[1]["entry_rec"] = None
+        swing[1]["price"] = 105.0
+        msg = telegram_formatter.format_message(swing, self._intra_list(1))
+        self.assertIn("   🎯 Buy: 2.120 - 2.141", msg)
+        self.assertIn("   🎯 Buy: 101 - 105", msg)
+        # entry_rec '-' (tidak bisa entry) → fallback juga
+        swing[1]["entry_rec"] = {"method": "Tidak bisa entry", "price_range": "-"}
+        msg2 = telegram_formatter.format_message(swing, self._intra_list(1))
+        self.assertIn("   🎯 Buy: 101 - 105", msg2)
+        self.assertNotIn("🎯 2.120-2.141", msg2, "label lama '🎯 {range}' dihapus")
 
     def test_continuation_label(self):
         swing = self._swing_list(2)
@@ -939,17 +962,21 @@ class TestTelegramFormatter(unittest.TestCase):
         self.assertIn("SW2", swing_sec, "fresh tetap di SWING")
         self.assertNotIn("SW0", swing_sec, "lanjutan TIDAK di SWING")
         self.assertNotIn("SW1", swing_sec, "lanjutan TIDAK di SWING")
-        # Format baris lanjutan: 'BUMI 69.2 | 187 | SL 171/TP 213 🔄 08/08'
-        self.assertIn("SW0 60.0 | 10,000 | SL 9,500/TP 11,000 🔄 05/08", msg)
+        # Format baris lanjutan (PASS 3): 'BUMI 187 | SL 171/TP 213 🔄 08/08'
+        self.assertIn("SW0 10.000 | SL 9.500/TP 11.000 🔄 05/08", msg)
         # Narrative hanya untuk fresh
         self.assertIn("📝 narasi netral untuk sinyal fresh.", msg)
-        self.assertNotIn("📝", msg.split("🔄 LANJUTAN (masih valid)")[1].split("⚡ INTRADAY")[0],
-                         "section LANJUTAN tanpa narrative")
+        lanj_sec = msg.split("🔄 LANJUTAN (masih valid)")[1].split("⚙️ MANAJEMEN RISIKO")[0]
+        self.assertNotIn("📝", lanj_sec, "section LANJUTAN tanpa narrative")
         # Intraday lanjutan tetap di section intraday dengan 🔄
-        intra_sec = msg.split("⚡ INTRADAY")[1] if "⚡ INTRADAY" in msg else ""
-        self.assertIn("🔄 03/08", intra_sec)
-        # Ringkasan menghitung SEMUA sinyal (3 swing + 1 intraday)
-        self.assertIn("Swing 3 · Intra 1", msg)
+        intra_sec = msg.split("⚡ INTRADAY")[1]
+        intra_sec = intra_sec.split("🔄 LANJUTAN (masih valid)")[0] \
+            if "🔄 LANJUTAN (masih valid)" in intra_sec else intra_sec
+        self.assertIn("🔄", intra_sec)
+        # Ringkasan 'Swing N · Intra N' LAMA dihapus → digantikan MANAJEMEN RISIKO
+        self.assertNotIn("Swing 3 · Intra 1", msg)
+        self.assertIn("⚙️ MANAJEMEN RISIKO", msg)
+        self.assertIn("• Modal: Rp", msg)
 
     def test_no_lanjutan_section_when_no_continuation(self):
         """V7 akurasi — tanpa sinyal lanjutan → section LANJUTAN tidak muncul."""
@@ -965,25 +992,26 @@ class TestTelegramFormatter(unittest.TestCase):
         msg = telegram_formatter.format_message(swing, self._intra_list(1),
                                                 narratives=narratives)
         self.assertIn("📝 Konteks netral: akumulasi broker naik.", msg)
-        # R6: suffix pendek di baris yang sama — broker ekstrem & earnings
-        self.assertIn("🔵+45B", msg, "broker flow ekstrem → suffix 🔵+45B")
-        self.assertIn("📈 Rev+8%", msg, "earnings dipadatkan → 📈 Rev+8%")
+        # PASS 3: suffix pendek dipindah ke baris Data — broker ekstrem & earnings
+        self.assertIn("Flow +45B", msg, "broker flow ekstrem → 'Flow +45B' di baris Data")
+        self.assertIn("Rev +8%", msg, "earnings dipadatkan → 'Rev +8%' di baris Data")
         self.assertNotIn("margin", msg, "string earnings panjang tidak tampil")
         # bf netral / akumulasi biasa → tanpa suffix broker
         swing[0]["bf"] = "netral"
         msg2 = telegram_formatter.format_message(swing, self._intra_list(1),
                                                  narratives=narratives)
-        self.assertNotIn("🔵+45B", msg2, "bf netral → suffix broker tidak tampil")
-        # distribusi → suffix 🔴-8B
+        self.assertNotIn("+45B", msg2, "bf netral → suffix broker tidak tampil")
+        # distribusi → suffix 🔴-8B (di baris Data)
         swing[0]["bf"] = "distribusi_8B"
         msg3 = telegram_formatter.format_message(swing, self._intra_list(1))
-        self.assertIn("🔴-8B", msg3, "distribusi → suffix 🔴-8B")
+        self.assertIn("Flow -8B", msg3, "distribusi → 'Flow -8B' di baris Data")
 
     def test_no_narratives_param_no_crash(self):
         # Panggilan lama tanpa narratives → harus tetap jalan
         msg = telegram_formatter.format_message(self._swing_list(3), self._intra_list(2))
-        self.assertIn("Swing 3 · Intra 2", msg)
-        self.assertIn("Alokasi", msg)
+        self.assertIn("⚙️ MANAJEMEN RISIKO", msg)
+        self.assertIn("• Modal: Rp", msg)
+        self.assertIn("Max Risk: Rp", msg)
 
     def test_market_sentiment_section(self):
         sentiment = {
@@ -994,8 +1022,17 @@ class TestTelegramFormatter(unittest.TestCase):
         }
         msg = telegram_formatter.format_message(self._swing_list(2), self._intra_list(1),
                                                 market_sentiment=sentiment)
-        self.assertIn("🔮 Aman", msg)
-        self.assertIn("IHSG 7,000 S 6,800/R 7,200", msg)
+        self.assertIn("🟢 Market: AMAN", msg)
+        self.assertIn("IHSG 7.000 (S: 6.800 / R: 7.200)", msg)
+        # RED → 🔴 BAHAYA; lainnya → 🟡 WASPADA
+        sentiment["sentiment"] = "RED"
+        msg2 = telegram_formatter.format_message(self._swing_list(1), [],
+                                                 market_sentiment=sentiment)
+        self.assertIn("🔴 Market: BAHAYA", msg2)
+        sentiment["sentiment"] = "YELLOW"
+        msg3 = telegram_formatter.format_message(self._swing_list(1), [],
+                                                 market_sentiment=sentiment)
+        self.assertIn("🟡 Market: WASPADA", msg3)
 
     def test_long_message_truncated(self):
         # Narrative panjang × 5 sinyal → pesan >3500 → di-truncate + marker
@@ -1018,9 +1055,27 @@ class TestTelegramFormatter(unittest.TestCase):
         msg = telegram_formatter.format_message(
             self._swing_list(2), self._intra_list(1),
             concentration_warnings=[
-                "⚠️ KONSENTRASI: Grup Barito 45% > 40% — lot dikurangi (BRPT 15→13 lot) → 39%"])
-        self.assertIn("⚠️ KONSENTRASI: Grup Barito 45% > 40%", msg)
-        self.assertIn("lot dikurangi", msg)
+                "⚠️ KONSENTRASI: Grup Barito 45% > 40% — lot dikurangi (BRPT(swing) 15→13 lot) → 39%"])
+        # PASS 3: warning dipetakan ke format '⚠️ Warning: {teks}' + '   ↳ {detail}'
+        self.assertIn("⚠️ Warning: Konsentrasi Grup Barito 45% (>40%)", msg)
+        self.assertIn("↳ Lot BRPT 15→13 lot dipangkas otomatis ke max 40%.", msg)
+
+    def test_skip_reasons_shown_as_warnings(self):
+        """IDE5 — CA blackout skip_reasons tampil di section MANAJEMEN RISIKO."""
+        msg = telegram_formatter.format_message(
+            self._swing_list(1), self._intra_list(1),
+            skip_reasons=["⚠️ CA BLACKOUT: TPIA DIVIDEND 15/08 — skip (H+7)"])
+        self.assertIn("⚠️ Warning: CA Blackout TPIA DIVIDEND 15/08", msg)
+        self.assertIn("↳ skip (H+7)", msg)
+
+    def test_total_risk_warning_mapped(self):
+        """IDE6 — warning TOTAL RISK dipetakan tanpa 'ke max X%' (batas portfolio)."""
+        msg = telegram_formatter.format_message(
+            self._swing_list(2), self._intra_list(1),
+            concentration_warnings=[
+                "⚠️ TOTAL RISK: 2.4% > 3.0% — lot dikurangi (BRPT(swing) 13→11 lot)"])
+        self.assertIn("⚠️ Warning: Total risk 2.4% (>3.0%)", msg)
+        self.assertIn("↳ Lot BRPT 13→11 lot dipangkas otomatis.", msg)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1232,11 +1287,12 @@ class TestC2ConcentrationGuard(unittest.TestCase):
         # logged_signals ikut disinkronkan (CSV konsisten dengan pesan)
         self.assertEqual(logged[0]["lots"], swing[0]["sizing"]["lots"])
         self.assertEqual(logged[0]["cost"], swing[0]["sizing"]["cost"])
-        # Peringatan tampil di format_message
+        # Peringatan tampil di format_message (PASS 3: '⚠️ Warning: Konsentrasi ...')
         msg = telegram_formatter.format_message(swing, [], capital=CAP,
                                                 concentration_warnings=warns)
-        self.assertIn("⚠️ KONSENTRASI", msg)
+        self.assertIn("⚠️ Warning: Konsentrasi Grup Bakrie", msg)
         self.assertIn("Bakrie", msg)
+        self.assertIn("↳ Lot BUMI 15→13 lot", msg)
 
     def test_1_signal_15pct_normal_no_change_no_warning(self):
         CAP = 20_000_000
