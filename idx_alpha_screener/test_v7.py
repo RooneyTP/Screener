@@ -180,28 +180,96 @@ class TestPerfTrackerDedup(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.csv = os.path.join(self._tmp.name, "perf_tracker_v7.csv")
 
-    # ── Skenario inti: batch 1 fresh, batch 2 (harga ±1%, <14 hari) fresh=0 ──
+    # ── Skenario inti: batch 1 fresh, batch 2 HARI BERIKUTNYA (harga ±1%,
+    # <14 hari) fresh=0 (N10: batch hari SAMA sekarang di-skip total — lihat
+    # test_same_day_duplicate_skipped_entirely) ──
     def test_duplicate_within_tolerance_not_logged_as_fresh(self):
         # L2: pin tanggal tetap — pakai datetime.now() langsung flaky kalau
         # assertion menyeberang tengah malam (ref_date bisa beda 1 hari).
-        fixed_now = datetime(2026, 8, 5, 21, 0, 0)
         with mock.patch("perf_tracker.datetime") as mdt:
-            mdt.now.return_value = fixed_now
+            mdt.now.return_value = datetime(2026, 8, 5, 21, 0, 0)
             mdt.strptime.side_effect = datetime.strptime
             r1 = dedup_and_log_batch(self.csv, [_mk_signal()])
             # Harga 10050 vs 10000 = +0.5% (≤ ±1%) & < 14 hari → duplikat
+            # (hari BERBEDA → tetap di-log sebagai lanjutan fresh=0)
+            mdt.now.return_value = datetime(2026, 8, 6, 21, 0, 0)
             r2 = dedup_and_log_batch(self.csv, [_mk_signal(entry_price=10050.0)])
         self.assertTrue(r1[0]["fresh"], "sinyal pertama harus fresh=True")
         self.assertIsNone(r1[0]["ref_date"])
         self.assertTrue(r1[0]["logged"])
         self.assertFalse(r2[0]["fresh"], "sinyal identik ±1% harus fresh=False (lanjutan)")
-        self.assertEqual(r2[0]["ref_date"], fixed_now.strftime("%d/%m"))
+        self.assertEqual(r2[0]["ref_date"], datetime(2026, 8, 5, 21, 0, 0).strftime("%d/%m"))
         self.assertTrue(r2[0]["logged"], "sinyal lanjutan TETAP di-log (fresh=0)")
 
         # Isi CSV: 2 baris, kolom fresh = 1 lalu 0
         rows = load_signals(self.csv)
         self.assertEqual(len(rows), 2)
         self.assertEqual([r["fresh"] for r in rows], ["1", "0"])
+
+    # ── N10 (P1): DEDUP BATCH ANTAR-RUN — 2x run HARI SAMA → 1 baris ──
+    # Scanner yang jalan 4x semalam (08/08) menulis 44 baris dengan 33
+    # duplikat. Aturan baru: sinyal (ticker+mode, entry ±1%) yang SUDAH
+    # tercatat hari ini TIDAK di-log ulang (skip total, bukan fresh=0).
+    def test_same_day_duplicate_skipped_entirely(self):
+        fixed_now = datetime(2026, 8, 5, 21, 0, 0)
+        with mock.patch("perf_tracker.datetime") as mdt:
+            mdt.now.return_value = fixed_now
+            mdt.strptime.side_effect = datetime.strptime
+            r1 = dedup_and_log_batch(self.csv, [_mk_signal()])
+            # Run ke-2 malam yang sama, harga ±1% → SKIP TOTAL
+            with self.assertLogs("perf_tracker", level="WARNING") as cm:
+                r2 = dedup_and_log_batch(self.csv, [_mk_signal(entry_price=10050.0)])
+        self.assertTrue(r1[0]["logged"])
+        self.assertFalse(r2[0]["logged"], "duplikat batch hari sama TIDAK di-log")
+        self.assertTrue(r2[0]["skipped"], "ditandai skipped (bukan fresh=0)")
+        self.assertTrue(any("skip duplikat batch" in m.lower() for m in cm.output),
+                        "log warning 'skip duplikat batch' harus muncul")
+        # 1 baris per sinyal per hari
+        rows = load_signals(self.csv)
+        self.assertEqual(len(rows), 1, "2x run hari sama → hanya 1 baris tercatat")
+        self.assertEqual(rows[0]["fresh"], "1")
+
+        # Duplikat DALAM SATU batch (2 sinyal identik) juga di-skip
+        with mock.patch("perf_tracker.datetime") as mdt:
+            mdt.now.return_value = datetime(2026, 8, 6, 21, 0, 0)
+            mdt.strptime.side_effect = datetime.strptime
+            res = dedup_and_log_batch(self.csv, [_mk_signal(entry_price=10000.0),
+                                                 _mk_signal(entry_price=10000.0)])
+        self.assertTrue(res[0]["logged"])
+        self.assertTrue(res[1]["skipped"], "duplikat dalam batch yang sama di-skip")
+        self.assertEqual(len(load_signals(self.csv)), 2)
+
+    # ── N10 (P1): FALSE-FRESH — baris KEMARIN entry IDENTIK → fresh=0 ──
+    # Audit: 16 baris (13.6%) fresh=1 padahal ticker+mode+entry identik sudah
+    # ada di hari SEBELUMNYA (contoh batch 08/08 22:02, BUMI/AKRA 04-05/08).
+    def test_false_fresh_prev_day_identical_entry_is_continuation(self):
+        with mock.patch("perf_tracker.datetime") as mdt:
+            mdt.now.return_value = datetime(2026, 8, 5, 21, 0, 0)
+            mdt.strptime.side_effect = datetime.strptime
+            dedup_and_log_batch(self.csv, [_mk_signal(entry_price=10000.0)])
+            # Hari berikutnya, entry IDENTIK → harus fresh=0, BUKAN fresh=1
+            mdt.now.return_value = datetime(2026, 8, 6, 21, 0, 0)
+            r2 = dedup_and_log_batch(self.csv, [_mk_signal(entry_price=10000.0)])
+        self.assertFalse(r2[0]["fresh"],
+                         "baris kemarin entry identik → fresh=0 (bukan fresh=1)")
+        self.assertTrue(r2[0]["logged"])
+        self.assertEqual(r2[0]["ref_date"], "05/08")
+        rows = load_signals(self.csv)
+        self.assertEqual([r["fresh"] for r in rows], ["1", "0"])
+
+    # ── N10 (P1): format tanggal ber-detik ikut diparse — sebelumnya baris
+    # '%Y-%m-%d %H:%M:%S' lolos dedup diam-diam (date tidak ter-parse) →
+    # sinyal identik keesokan harinya di-re-label 'baru' (false-fresh). ──
+    def test_seconds_in_date_format_still_dedup(self):
+        with open(self.csv, "w", encoding="utf-8") as f:
+            f.write("date,ticker,mode,score,signal,entry_price,sl,tp,lots,cost,fresh,regime\n")
+            f.write("2026-08-04 21:03:30,BBCA,swing,55,BUY,10000,9500,11000,2,2000000,1,unknown\n")
+        with mock.patch("perf_tracker.datetime") as mdt:
+            mdt.now.return_value = datetime(2026, 8, 5, 21, 0, 0)
+            mdt.strptime.side_effect = datetime.strptime
+            r = dedup_and_log_batch(self.csv, [_mk_signal(entry_price=10000.0)])
+        self.assertFalse(r[0]["fresh"],
+                         "baris kemarin (format dgn detik) entry identik → fresh=0")
 
     # ── R6: beda harga > ±1% TAPI anchor fresh=1 < 7 hari → tetap lanjutan ──
     # Skenario BUMI 168→179→187: harga naik >1%/hari sehingga dedup ±1% lama
@@ -285,6 +353,32 @@ class TestPerfTrackerDedup(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             header = f.readline().strip()
         self.assertIn("fresh", header.split(","))
+
+    # ── N10 (P3): kolom risk_amount di perf CSV — terisi dari sizing, baris
+    # lama di-backfill 0 ──
+    def test_risk_amount_column_written_and_backfilled(self):
+        # Sinyal baru membawa risk_amount → kolom terisi
+        s = _mk_signal(risk_amount=500000)
+        dedup_and_log_batch(self.csv, [s])
+        with open(self.csv, encoding="utf-8") as f:
+            header = f.readline().strip()
+        self.assertIn("risk_amount", header.split(","),
+                      "header CSV harus punya kolom risk_amount")
+        rows = load_signals(self.csv)
+        self.assertEqual(rows[0]["risk_amount"], "500000",
+                         "risk_amount terisi dari sizing")
+
+        # CSV lama tanpa kolom risk_amount → migrasi + backfill 0
+        old = os.path.join(self._tmp.name, "old_perf.csv")
+        with open(old, "w", encoding="utf-8") as f:
+            f.write("date,ticker,mode,score,signal,entry_price,sl,tp,lots,cost,fresh,regime\n")
+            f.write("2026-08-01 10:00,BBCA,swing,55,BUY,10000,9500,11000,2,2000000,1,unknown\n")
+        dedup_and_log_batch(old, [_mk_signal(ticker="DSSA")])
+        rows2 = load_signals(old)
+        self.assertEqual(rows2[0]["risk_amount"], "0",
+                         "baris lama di-backfill risk_amount=0")
+        self.assertEqual(rows2[1]["risk_amount"], "0",
+                         "sinyal tanpa risk_amount → 0")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -935,12 +1029,15 @@ class TestTelegramFormatter(unittest.TestCase):
 
     def test_continuation_label(self):
         swing = self._swing_list(2)
-        swing[0]["continuation"] = "05/08"
+        # N10 (P2): ref_date DINAMIS (usia 2 hari) — label statis seperti
+        # "05/08" bisa berusia > 3 hari saat suite dijalankan → tidak tampil.
+        ref = (datetime.now() - timedelta(days=2)).strftime("%d/%m")
+        swing[0]["continuation"] = ref
         msg = telegram_formatter.format_message(swing, self._intra_list(1))
         # V7 akurasi: swing continuation pindah ke section LANJUTAN (1 baris
         # tanpa narrative), TIDAK lagi tampil di section SWING.
         self.assertIn("🔄 LANJUTAN (masih valid)", msg)
-        self.assertIn("🔄 05/08", msg)
+        self.assertIn(f"🔄 {ref}", msg)
         self.assertNotIn("SW0", msg.split("🔄 LANJUTAN (masih valid)")[0],
                          "sinyal lanjutan tidak boleh tampil di SWING")
         self.assertIn("🔄 lanjutan = sinyal <14 hari", msg, "legend lanjutan harus muncul")
@@ -950,10 +1047,14 @@ class TestTelegramFormatter(unittest.TestCase):
         narrative), lanjutan di section 'LANJUTAN (masih valid)' (1 baris
         tanpa narrative); ringkasan menghitung SEMUA sinyal."""
         swing = self._swing_list(3)            # SW0, SW1, SW2
-        swing[0]["continuation"] = "05/08"     # lanjutan
-        swing[1]["continuation"] = "04/08"     # lanjutan
+        # N10 (P2): ref_date dinamis, usia <= 3 hari supaya tetap tampil
+        ref0 = (datetime.now() - timedelta(days=2)).strftime("%d/%m")
+        ref1 = (datetime.now() - timedelta(days=1)).strftime("%d/%m")
+        ref2 = (datetime.now() - timedelta(days=3)).strftime("%d/%m")
+        swing[0]["continuation"] = ref0        # lanjutan (usia 2 hari)
+        swing[1]["continuation"] = ref1        # lanjutan (usia 1 hari)
         intra = self._intra_list(1)
-        intra[0]["continuation"] = "03/08"     # intraday lanjutan → tetap di intra
+        intra[0]["continuation"] = ref2        # intraday lanjutan (usia 3 hari) → tetap di intra
         narratives = {"SW2": "narasi netral untuk sinyal fresh."}
         msg = telegram_formatter.format_message(swing, intra, narratives=narratives)
 
@@ -963,7 +1064,7 @@ class TestTelegramFormatter(unittest.TestCase):
         self.assertNotIn("SW0", swing_sec, "lanjutan TIDAK di SWING")
         self.assertNotIn("SW1", swing_sec, "lanjutan TIDAK di SWING")
         # Format baris lanjutan (PASS 3): 'BUMI 187 | SL 171/TP 213 🔄 08/08'
-        self.assertIn("SW0 10.000 | SL 9.500/TP 11.000 🔄 05/08", msg)
+        self.assertIn(f"SW0 10.000 | SL 9.500/TP 11.000 🔄 {ref0}", msg)
         # Narrative hanya untuk fresh
         self.assertIn("📝 narasi netral untuk sinyal fresh.", msg)
         lanj_sec = msg.split("🔄 LANJUTAN (masih valid)")[1].split("⚙️ MANAJEMEN RISIKO")[0]
@@ -977,6 +1078,57 @@ class TestTelegramFormatter(unittest.TestCase):
         self.assertNotIn("Swing 3 · Intra 1", msg)
         self.assertIn("⚙️ MANAJEMEN RISIKO", msg)
         self.assertIn("• Modal: Rp", msg)
+
+    def test_continuation_older_than_3_days_hidden(self):
+        """N10 (P2) — CAP LANJUTAN 3 HARI: sinyal continuation (fresh=0) berusia
+        > 3 hari sejak ref_date TIDAK ditampilkan di pesan (tetap di CSV);
+        usia <= 3 hari tetap tampil. Berlaku utk swing & intraday."""
+        swing = self._swing_list(3)            # SW0, SW1, SW2
+        old_ref = (datetime.now() - timedelta(days=5)).strftime("%d/%m")
+        fresh_ref = (datetime.now() - timedelta(days=2)).strftime("%d/%m")
+        swing[0]["continuation"] = old_ref     # usia 5 hari → HIDDEN
+        swing[1]["continuation"] = fresh_ref   # usia 2 hari → tampil
+        intra = self._intra_list(2)            # IN0, IN1
+        intra[0]["continuation"] = old_ref     # intraday usia 5 hari → HIDDEN
+        msg = telegram_formatter.format_message(swing, intra)
+
+        self.assertNotIn(old_ref, msg, "lanjutan usia 5 hari tidak boleh tampil")
+        self.assertIn(f"🔄 {fresh_ref}", msg, "lanjutan usia 2 hari tetap tampil")
+        self.assertIn("🔄 LANJUTAN (masih valid)", msg)
+        self.assertNotIn("SW0", msg, "SW0 (lanjutan tua) tidak tampil di mana pun")
+        intra_sec = msg.split("⚡ INTRADAY (H+3)")[1]
+        intra_sec = intra_sec.split("🔄 LANJUTAN (masih valid)")[0] \
+            if "🔄 LANJUTAN (masih valid)" in intra_sec else intra_sec
+        self.assertNotIn("IN0", intra_sec, "intraday lanjutan usia 5 hari tidak tampil")
+        self.assertIn("IN1", intra_sec, "intraday fresh tetap tampil")
+
+    def test_top5_display_cap(self):
+        """N10 (P2) — TOP-5 PER PESAN: maks 5 sinyal SWING + 5 INTRADAY
+        terbaik (skor tertinggi; intraday fresh dulu baru lanjutan). Cap
+        tampilan saja — CSV tetap mencatat semua sinyal."""
+        # 7 swing fresh skor 70..64 → hanya 5 terbaik tampil
+        swing = [_mk_swing(tkr=f"S{i}", score=70 - i) for i in range(7)]
+        msg = telegram_formatter.format_message(swing, [])
+        swing_sec = msg.split("🏆 SWING SIGNALS")[1]
+        for i in range(5):
+            self.assertIn(f"{i+1}. S{i}", swing_sec, f"S{i} harus tampil di top-5")
+        self.assertNotIn("S5", swing_sec, "swing ke-6 di luar top-5 tidak tampil")
+        self.assertNotIn("S6", swing_sec, "swing ke-7 di luar top-5 tidak tampil")
+
+        # 7 intraday: 4 fresh skor 55..52 + 3 lanjutan skor LEBIH TINGGI 65..63
+        # → fresh dulu baru lanjutan: F0..F3 + 1 lanjutan terbaik (C0)
+        intra = [_mk_intra(tkr=f"F{i}", score=55 - i) for i in range(4)]
+        for i in range(3):
+            s = _mk_intra(tkr=f"C{i}", score=65 - i)
+            s["continuation"] = (datetime.now() - timedelta(days=1)).strftime("%d/%m")
+            intra.append(s)
+        msg2 = telegram_formatter.format_message([], intra)
+        intra_sec = msg2.split("⚡ INTRADAY (H+3)")[1]
+        for i in range(4):
+            self.assertIn(f"• F{i}", intra_sec, f"fresh F{i} harus tampil duluan")
+        self.assertIn("• C0", intra_sec, "1 lanjutan terbaik mengisi slot ke-5")
+        self.assertNotIn("• C1", intra_sec, "lanjutan ke-2 di luar top-5 tidak tampil")
+        self.assertNotIn("• C2", intra_sec, "lanjutan ke-3 di luar top-5 tidak tampil")
 
     def test_no_lanjutan_section_when_no_continuation(self):
         """V7 akurasi — tanpa sinyal lanjutan → section LANJUTAN tidak muncul."""
@@ -2478,9 +2630,10 @@ class TestV7ScanLabelConsistency(unittest.TestCase):
                              {"RANGING": [60, 50, 42, 35, 28]}):
             sig = self._helper()
             self.assertEqual(sig(63, "RANGING", "NO_DATA"), "STRONG_BUY",
-                             "score 58+5=63 → label harus STRONG_BUY (>=60), bukan BUY")
+                             "score 63 (N10: bonus akumulasi +5 sudah dihapus) "
+                             "→ STRONG_BUY (>=60)")
             self.assertEqual(sig(58, "RANGING", "NO_DATA"), "BUY",
-                             "score pre-bonus 58 → BUY (konsisten)")
+                             "score 58 → BUY (konsisten)")
 
     def test_bearish_cap_matches_compute(self):
         with mock.patch.dict(v7_engine.THRESHOLDS,
@@ -2495,6 +2648,107 @@ class TestV7ScanLabelConsistency(unittest.TestCase):
                              {"RANGING": [60, 50, 42, 35, 28]}):
             sig = self._helper()
             self.assertEqual(sig(63, "REGIME_ANEH", "NO_DATA"), "STRONG_BUY")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TEST 10b — N10 (fix noise): gate swing BULL-only, bonus +5 dihapus,
+# vol_ratio 1.2, cooldown fallback 2 hari, log skip INFO, risk_amount CSV
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestV7ScanNoiseFixes(unittest.TestCase):
+    """N10 (fix noise) — verifikasi item P2/P3 di v7_scan.py:
+    gate swing akumulasi 48-49 hanya BULL, bonus +5 dihapus, vol_ratio
+    intraday 1.2, cooldown fallback 2 hari, log skip INFO, risk_amount."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(_HERE, "v7_scan.py"), encoding="utf-8") as f:
+            cls.src = f.read()
+
+    def _vs(self):
+        import v7_scan as vs  # import berat → lazy, hanya saat dibutuhkan
+        return vs
+
+    # ── Item 7: gate swing — cabang akumulasi 48-49 HANYA di BULL ──
+    def test_swing_gate_akumulasi_only_bull(self):
+        vs = self._vs()
+        self.assertTrue(vs._swing_gate(48, "akumulasi", "BULL"),
+                        "BULL skor 48 akumulasi → lolos (WEAK_BUY 48-49)")
+        self.assertFalse(vs._swing_gate(48, "akumulasi", "RANGING"),
+                         "RANGING skor 48 akumulasi → TIDAK lolos swing")
+        self.assertFalse(vs._swing_gate(49, "akumulasi", "HIGH_VOLATILITY"),
+                         "HIGH_VOL skor 49 akumulasi → TIDAK lolos")
+        self.assertFalse(vs._swing_gate(49, "akumulasi", "BEAR"),
+                         "BEAR skor 49 akumulasi → TIDAK lolos")
+        self.assertFalse(vs._swing_gate(47, "akumulasi", "BULL"),
+                         "BULL skor 47 (di bawah 48) → TIDAK lolos")
+        self.assertTrue(vs._swing_gate(50, "akumulasi", "RANGING"),
+                        "skor >= 50 selalu lolos (threshold market_mode)")
+        self.assertFalse(vs._swing_gate(54, "distribusi", "BULL"),
+                         "distribusi skor < 55 ditolak")
+        self.assertFalse(vs._swing_gate(53, "netral", "BULL"),
+                         "netral skor < 55 ditolak")
+        self.assertTrue(vs._swing_gate(56, "netral", "BULL"),
+                        "netral skor >= 55 tetap lolos")
+
+    # ── Item 4: bonus akumulasi +5 DIHAPUS ──
+    def test_swing_bonus_plus5_removed(self):
+        self.assertNotIn("swing_score += 5", self.src,
+                         "bonus +5 akumulasi harus dihapus dari v7_scan")
+        self.assertNotIn("swing_score = min(100, swing_score)", self.src)
+        self.assertIn("swing_score = v7r[\"score\"]", self.src,
+                      "score swing = skor final langsung dari v7.compute")
+
+    # ── Item 8: vol_ratio intraday 1.0 → 1.2 ──
+    def test_intraday_min_vol_ratio_1_2(self):
+        vs = self._vs()
+        self.assertEqual(vs.INTRADAY_MIN_VOL_RATIO, 1.2)
+        self.assertIn("vol_ratio >= INTRADAY_MIN_VOL_RATIO", self.src)
+        self.assertNotIn("vol_ratio >= 1.0", self.src,
+                         "syarat vol_ratio lama 1.0 harus diganti 1.2")
+
+    # ── Item 3: cooldown fallback 2 hari (config.yaml di-handle paralel) ──
+    def test_cooldown_fallback_days_2(self):
+        self.assertIn('cd_cfg.get("days", 2)', self.src,
+                      "fallback cooldown days harus 2 (bukan 1)")
+        self.assertNotIn('cd_cfg.get("days", 1)', self.src)
+
+    # ── Item 9: log skip INFO (jejak audit) ──
+    def test_skip_info_logs_present(self):
+        self.assertIn('logger.info("Skip', self.src,
+                      "skip per-ticker harus punya jejak INFO")
+        self.assertIn('logger.info("Watchlist disable', self.src,
+                      "watchlist disable harus di-log INFO per ticker")
+
+    # ── Item 10: risk_amount di logged_signals (swing & intraday) ──
+    def test_risk_amount_in_logged_signals(self):
+        self.assertIn('"risk_amount": int(sz.get("risk_amount", 0) or 0)', self.src)
+        self.assertIn('"risk_amount": int(sz2.get("risk_amount", 0) or 0)', self.src)
+
+
+class TestCooldownTwoDays(unittest.TestCase):
+    """N10 (P2) — cooldown 2 hari: streak sinyal harian terpotong (sebelumnya
+    days=1 → sinyal bisa muncul tiap malam, BUMI 8 hari berturut)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.db = os.path.join(self._tmp.name, "cooldown.json")
+        self.tr = CooldownTracker(self.db, cooldown_days=2)
+
+    def test_2day_cooldown_breaks_daily_streak(self):
+        days = []
+        for i in range(8):
+            with mock.patch("signal_manager.datetime") as mdt:
+                mdt.now.return_value = datetime(2026, 8, 1 + i, 21, 0, 0)
+                mdt.strptime.side_effect = datetime.strptime
+                if not self.tr.is_on_cooldown("BUMI", "swing"):
+                    days.append(i)
+                    self.tr.record("BUMI", "STRONG_BUY", mode="swing")
+        self.assertEqual(days, [0, 2, 4, 6],
+                         "cooldown 2 hari → sinyal tiap 2 hari, bukan tiap malam")
+        self.assertLessEqual(len(days), 4,
+                             "streak 8 hari terpotong jadi maks 4 kemunculan")
 
 
 # ══════════════════════════════════════════════════════════════════════════

@@ -40,6 +40,11 @@ Format GAYA A (baris pendek vertikal — pilihan user):
 - Broker flow hanya tampil saat EKSTREM (akumulasi_masif / distribusi)
   sebagai `Flow +45B` / `Flow -8B` di baris Data.
 - Angka di SEMUA tempat memakai TITIK ribuan (1.920), bukan koma.
+- N10 (P2): CAP LANJUTAN 3 HARI — sinyal continuation (fresh=0) hanya tampil
+  maks 3 hari sejak ref_date (usia > 3 hari → TIDAK ditampilkan di pesan,
+  tapi tetap tercatat di CSV). N10 (P2): TOP-5 PER PESAN — maks 5 sinyal
+  SWING + 5 INTRADAY terbaik (skor tertinggi, fresh dulu baru lanjutan);
+  cap tampilan saja, CSV tetap mencatat semua.
 """
 import re
 from datetime import datetime
@@ -47,6 +52,54 @@ from typing import List, Dict, Optional
 
 # Separator section (20 karakter) — persis contoh user
 SEP = "━" * 20
+
+# N10 (P2): usia maksimum sinyal lanjutan (fresh=0) yang masih ditampilkan
+# di pesan, dihitung dari continuation ref_date ('dd/mm'). Lebih tua dari ini
+# → tidak tampil di pesan (tetap di CSV).
+CONTINUATION_MAX_AGE_DAYS = 3
+
+
+def _cont_age_days(cont, now=None):
+    """Umur sinyal lanjutan (hari) dari label continuation 'dd/mm' (ref_date).
+
+    Tahun diasumsikan tahun berjalan; kalau hasilnya di masa depan (label
+    dari akhir tahun, mis. 31/12 saat ini 01/01) mundur 1 tahun. Return None
+    kalau tidak ter-parse (defensif: tampilkan saja).
+    """
+    if not cont:
+        return None
+    try:
+        d, m = str(cont).strip().split("/")
+        now = now or datetime.now()
+        ref = datetime(now.year, int(m), int(d))
+        if ref > now:
+            ref = datetime(now.year - 1, int(m), int(d))
+        return (now - ref).days
+    except (ValueError, TypeError):
+        return None
+
+
+def _cont_visible(s: dict, now=None) -> bool:
+    """N10 (P2) — cap lanjutan 3 hari: sinyal continuation (fresh=0) berusia
+    > CONTINUATION_MAX_AGE_DAYS sejak ref_date TIDAK ditampilkan di pesan
+    (tetap tercatat di CSV). Sinyal fresh selalu tampil."""
+    cont = s.get("continuation")
+    if not cont:
+        return True
+    age = _cont_age_days(cont, now=now)
+    if age is None:
+        return True
+    return age <= CONTINUATION_MAX_AGE_DAYS
+
+
+def _top_display(signals, n=5):
+    """N10 (P2) — top-n display: fresh dulu (skor tertinggi), baru lanjutan
+    (skor tertinggi). Cap TAMPILAN saja — CSV tetap mencatat semua sinyal."""
+    fresh = sorted((s for s in signals if not s.get("continuation")),
+                   key=lambda x: x.get("score", 0), reverse=True)
+    cont = sorted((s for s in signals if s.get("continuation")),
+                  key=lambda x: x.get("score", 0), reverse=True)
+    return (fresh + cont)[:n]
 
 
 def _fmt_num(val) -> str:
@@ -287,13 +340,17 @@ def format_message(
     # narrative. Intraday tetap 1 section (label 🔄 di baris yang sama).
     swing_fresh = [s for s in swing_list if not s.get("continuation")]
     swing_cont = [s for s in swing_list if s.get("continuation")]
-    swing_disp = list(swing_fresh[:5])            # SWING: hanya fresh, maks 5
-    swing_cont_disp = list(swing_cont[:5])        # LANJUTAN: maks 5 baris
-    intra_disp_all = list(intra_list[:5])
+    # N10 (P2): top-5 per pesan (skor tertinggi, fresh dulu) + cap lanjutan
+    # 3 hari (usia > 3 hari sejak ref_date → tidak tampil, tetap di CSV).
+    swing_disp = list(_top_display(swing_fresh, 5))   # SWING: hanya fresh, maks 5
+    swing_cont_disp = [s for s in _top_display(swing_cont, 5)
+                       if _cont_visible(s)]           # LANJUTAN: maks 5, usia <= 3 hari
+    intra_disp_all = _top_display(intra_list, 5)      # INTRADAY: fresh dulu, maks 5
     swing_tickers = {s.get("tkr") for s in swing_disp}
     dual_tickers = {s.get("tkr") for s in swing_disp
                     if any(x.get("tkr") == s.get("tkr") for x in intra_list)}
     intra_disp = [s for s in intra_disp_all if s.get("tkr") not in swing_tickers]
+    intra_disp = [s for s in intra_disp if _cont_visible(s)]
 
     # ── HEADER (1 baris) ──
     lines.append(f"📊 SCREENER V7 — {now}")
@@ -398,7 +455,7 @@ def format_message(
         lines.append("")
 
     # ── Legenda lanjutan (hanya kalau ada label 🔄 di pesan) ──
-    any_cont = any(s.get("continuation") for s in swing_list) or any(
+    any_cont = bool(swing_cont_disp) or any(
         s.get("continuation") for s in intra_disp
     )
     if any_cont:

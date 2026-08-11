@@ -51,12 +51,12 @@ def _signal_from_score(score: float, regime: str, weekly: str) -> str:
     """Label sinyal dari score FINAL — konsisten dengan v7.compute().
 
     R3: kolom score & signal di perf CSV harus berasal dari perhitungan yang
-    SAMA. Sebelumnya signal diambil dari v7r['signal'] (sebelum bonus
-    akumulasi +5) sedangkan score = swing_score (sesudah +5) → inkonsisten
-    (contoh: score 63 dilabel BUY padahal >= 60 di RANGING harusnya
-    STRONG_BUY). Threshold dibaca dari v7_engine.THRESHOLDS (sudah di-override
-    config.yaml via v7_engine.configure) + cap weekly BEARISH → STRONG_BUY
-    menjadi BUY — persis logika v7.compute().
+    SAMA. N10 (P2): bonus akumulasi +5 DIHAPUS — score = skor final langsung
+    dari v7.compute (sudah termasuk weekly penalty/bonus), sehingga label
+    dihitung dari skor yang sama persis dengan kolom score. Threshold dibaca
+    dari v7_engine.THRESHOLDS (sudah di-override config.yaml via
+    v7_engine.configure) + cap weekly BEARISH → STRONG_BUY menjadi BUY —
+    persis logika v7.compute().
     """
     th = v7_engine.THRESHOLDS.get(regime, v7_engine.THRESHOLDS["RANGING"])
     if score >= th[0]:
@@ -74,8 +74,30 @@ def _signal_from_score(score: float, regime: str, weekly: str) -> str:
     return sig
 
 
+def _swing_gate(score: float, bf: str, regime: str) -> bool:
+    """Gate sinyal swing (N10 P2 — BULL-only untuk cabang akumulasi 48-49).
+
+    - Skor >= 50 → lolos (WEAK_BUY ke atas sesuai threshold regime).
+    - Cabang 'akumulasi & skor >= 48' (mengizinkan WEAK_BUY 48-49) HANYA
+      aktif saat regime BULL. Di regime lain syarat skor = threshold
+      market_mode yang sudah ada (>=50/60) — WEAK_BUY 48-49 tidak lolos
+      (di RANGING/HIGH_VOL/BEAR bahkan sinyal WEAK_BUY sudah difilter
+      allowed_signals lebih awal).
+    - Distribusi dengan skor < 55 ditolak; netral/net_buy skor < 55 ditolak.
+    """
+    akum_gate = regime == "BULL" and "akumulasi" in bf and score >= 48
+    if not (score >= 50 or akum_gate):
+        return False
+    if "distribusi" in bf and score < 55:
+        return False
+    nn = ("netral" in bf) or ("net_buy" in bf and score < 52)
+    if score < 55 and nn:
+        return False
+    return True
+
+
 def _update_logged_sizing(logged_signals: list, ticker: str, mode: str,
-                          lots: int, cost: int) -> None:
+                          lots: int, cost: int, risk_amount=None) -> None:
     """Sinkronkan lot/cost hasil guard ke daftar sinyal yang akan di-log ke perf CSV.
 
     logged_signals punya satu baris per (ticker, mode) — sama dengan sinyal di
@@ -85,6 +107,8 @@ def _update_logged_sizing(logged_signals: list, ticker: str, mode: str,
         if lg.get("ticker") == ticker and lg.get("mode") == mode:
             lg["lots"] = lots
             lg["cost"] = cost
+            if risk_amount is not None:
+                lg["risk_amount"] = risk_amount
             return
 
 
@@ -165,7 +189,8 @@ def enforce_group_concentration_guard(swing: list, intra: list,
                 frac = 0.05
             sz["risk_amount"] = int(new_cost * frac)
             _update_logged_sizing(logged_signals, s.get("tkr", ""), mode,
-                                  new_lots, new_cost)
+                                  new_lots, new_cost,
+                                  risk_amount=sz.get("risk_amount"))
             # L1: label mode di detail — ticker yang muncul di swing & intraday
             # sebelumnya tampil dobel tanpa pembeda (mis. "BRPT 15→13 lot")
             details.append(f"{s.get('tkr')}({mode}) {old_lots}→{new_lots} lot")
@@ -268,7 +293,8 @@ def enforce_total_risk_guard(swing: list, intra: list, logged_signals: list,
             sz["pct_modal"] = round(new_cost / capital * 100, 1)
             sz["risk_amount"] = int(new_cost * frac)
             _update_logged_sizing(logged_signals, s.get("tkr", ""), mode,
-                                  lots, new_cost)
+                                  lots, new_cost,
+                                  risk_amount=sz.get("risk_amount"))
             details.append(f"{s.get('tkr')}({mode}) {orig_lots}→{lots} lot")
     pct = total / capital * 100.0
     if details:
@@ -288,6 +314,10 @@ def enforce_total_risk_guard(swing: list, intra: list, logged_signals: list,
 # Event yang memicu blackout (dari SDK Invezgo get_calendar): DIVIDEND, RIGHT,
 # SPLIT, RUPS (RUPS_RESULT / RUPS_SCHEDULE). PUBLIC_EXPOSE tidak memblokir.
 CA_BLACKOUT_TYPES = ("DIVIDEND", "RIGHT", "SPLIT", "RUPS")
+
+# ── N10 (P2): syarat volume intraday — minimal 1.2x rata-rata (sebelumnya
+# 1.0). Vol 1.0-1.1x = aktivitas normal, bukan lonjakan → bukan setup intraday.
+INTRADAY_MIN_VOL_RATIO = 1.2
 
 
 def _ca_calendar_check(ip, tkr: str, days_ahead: int = 7):
@@ -366,8 +396,10 @@ def main():
     # Buang ticker yang di-disable (WR rendah dari backtest)
     disabled = set(CONFIG.get("watchlist", {}).get("disabled", []))
     WATCHLIST = [t for t in WATCHLIST if t not in disabled]
-    if disabled:
-        logger.info("Watchlist disabled (WR rendah): %s", ", ".join(sorted(disabled)))
+    # N10 (P3): jejak audit per-ticker — tiap ticker disabled di-log INFO
+    # (sebelumnya hanya daftar agregat; audit butuh jejak skip yang jelas).
+    for _d in sorted(disabled):
+        logger.info("Watchlist disable: %s", _d)
     CAPITAL = 20_000_000
     # IDE5: earnings_blackout_days dari config.yaml exit_strategy (default 7) —
     # jendela blackout corporate action (DIVIDEND/RIGHT/SPLIT/RUPS) ke depan.
@@ -413,7 +445,11 @@ def main():
     cd_cfg = CONFIG.get("cooldown", {})
     cooldown = CooldownTracker(
         db_path=os.path.join(ROOT, cd_cfg.get("db_path", "data/signal_cooldown.json")),
-        cooldown_days=cd_cfg.get("days", 1) if cd_cfg.get("enabled", True) else 0,
+        # N10 (P2): cooldown 2 hari (config.yaml di-handle paralel; kalau
+        # config.days berubah jadi 2, kode otomatis ikut — fallback di sini
+        # juga 2). Efek: streak harian (BUMI 8 hari) terpotong jadi maks
+        # ~2-3 kemunculan per minggu.
+        cooldown_days=cd_cfg.get("days", 2) if cd_cfg.get("enabled", True) else 0,
     )
     cooldown.clean_old()
 
@@ -494,6 +530,10 @@ def main():
             v7r = v7_engine.compute(tkr, v4s, regime, weekly_trend=weekly)
 
             if v7r["signal"] not in allowed_signals:
+                # N10 (P3): jejak audit — sebelumnya skip ini SILENT (audit
+                # noise tidak bisa melacak kenapa ticker tidak muncul).
+                logger.info("Skip %s: signal %s tidak diizinkan di regime %s",
+                            tkr, v7r["signal"], regime)
                 continue
 
             price = float(row["close"])
@@ -504,28 +544,29 @@ def main():
             earn = v7r["factors"].get("earnings_detail", "")
             vol_ratio = float(row.get("vol_ratio", 1) or 1)
             # N4: vol_ratio NaN lolos guard lama (`nan or 1` → nan truthy) →
-            # `vol_ratio >= 1.0` selalu False → sinyal intraday hilang diam-diam.
+            # `vol_ratio >= ambang` selalu False → sinyal intraday hilang diam-diam.
             # NaN/inf → default 1.0 + jejak debug.
             if not math.isfinite(vol_ratio):
                 logger.debug("vol_ratio tidak valid (%s) → default 1.0", vol_ratio)
                 vol_ratio = 1.0
             brokers_raw = v7r["factors"].get("brokers", "")
 
+            # N10 (P2): bonus akumulasi +5 DIHAPUS — 0 sinyal bergantung
+            # padanya dan menginflasi label/skor/cooldown/perf CSV. Score =
+            # skor final langsung dari v7.compute (sudah termasuk weekly
+            # penalty/bonus).
             swing_score = v7r["score"]
-            if "akumulasi" in bf and v7r["score"] >= 48:
-                swing_score += 5
-            swing_score = min(100, swing_score)  # L6: bonus +5 tidak boleh >100
 
             # ── Swing filter (independent) ──
-            swing_ok = False
-            if swing_score >= 50 or ("akumulasi" in bf and v7r["score"] >= 48):
-                if not ("distribusi" in bf and v7r["score"] < 55):
-                    nn = ("netral" in bf) or ("net_buy" in bf and swing_score < 52)
-                    if not (swing_score < 55 and nn):
-                        swing_ok = True
+            # N10 (P2): cabang akumulasi 48-49 hanya aktif di regime BULL
+            # (lihat _swing_gate) — di regime lain syarat skor = threshold
+            # market_mode (>=50/60) yang sudah ada.
+            swing_ok = _swing_gate(swing_score, bf, regime)
 
             # ── Intraday filter (independent of swing) ──
-            intra_ok = v7r["score"] >= 48 and vol_ratio >= 1.0
+            # N10 (P2): vol_ratio minimal 1.2x (sebelumnya 1.0) — vol
+            # 1.0-1.1x bukan lonjakan volume.
+            intra_ok = v7r["score"] >= 48 and vol_ratio >= INTRADAY_MIN_VOL_RATIO
 
             # R3: cooldown per MODE — record swing tidak memblokir intraday
             # (dan sebaliknya). Dulu 1 slot ticker-level → record intraday
@@ -556,6 +597,14 @@ def main():
                     swing_ok = False
                     intra_ok = False
 
+            # N10 (P3): jejak audit — alasan skip yang sebelumnya SILENT
+            # (tidak lolos gate swing/intraday sama sekali).
+            if not swing_ok and not intra_ok:
+                logger.info(
+                    "Skip %s: tidak lolos gate swing/intraday (score=%.1f, "
+                    "vol_ratio=%.2f, bf=%s)", tkr, v7r["score"], vol_ratio,
+                    bf or "-")
+
             # L12: recommend_entry dipanggil SEKALI per ticker (sebelumnya 2x
             # untuk ticker yang lolos swing+intraday — hasilnya identik).
             entry_rec = None
@@ -576,12 +625,14 @@ def main():
                 })
                 logged_signals.append({
                     "ticker": tkr, "mode": "swing", "score": swing_score,
-                    # R3: signal dihitung dari score FINAL (swing_score sudah
-                    # termasuk bonus +5) — konsisten dengan kolom score.
+                    # R3: signal dihitung dari score FINAL (N10: bonus +5
+                    # sudah dihapus — score = skor v7.compute langsung).
                     "signal": _signal_from_score(swing_score, regime, weekly),
                     "entry_price": price,
                     "sl": ex["stop_loss"], "tp": ex["take_profit"],
                     "lots": sz.get("lots", 0), "cost": sz.get("cost", 0),
+                    # N10 (P3): risk_amount risiko sejati di perf CSV.
+                    "risk_amount": int(sz.get("risk_amount", 0) or 0),
                     "regime": regime,
                     # IDE1 (faktor DNA): nilai faktor 0-100 + atr_pct/vol_ratio + event CA
                     "broker_flow": round(float(v7r["factors"].get("broker_flow", 0) or 0), 1),
@@ -610,6 +661,8 @@ def main():
                     "entry_price": price,
                     "sl": ex2["stop_loss"], "tp": ex2["take_profit"],
                     "lots": sz2.get("lots", 0), "cost": sz2.get("cost", 0),
+                    # N10 (P3): risk_amount risiko sejati di perf CSV.
+                    "risk_amount": int(sz2.get("risk_amount", 0) or 0),
                     "regime": regime,
                     # IDE1 (faktor DNA): nilai faktor 0-100 + atr_pct/vol_ratio + event CA
                     "broker_flow": round(float(v7r["factors"].get("broker_flow", 0) or 0), 1),

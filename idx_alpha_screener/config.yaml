@@ -71,7 +71,7 @@ scoring:
 
 cooldown:
   enabled: true
-  days: 1                    # 1 hari — biar dapet sinyal segar tiap hari
+  days: 2                    # 2 hari utk memutus streak sinyal berulang (FIX NOISE 08/2026)
   db_path: data/signal_cooldown.json
 
 # ── Market Mode Filter (v7.10) ──
@@ -169,11 +169,16 @@ v6:
 v7:
   enabled: true
   # Threshold sinyal per regime: [STRONG_BUY, BUY, WEAK_BUY, HOLD, SELL]
+  # FIX NOISE (08/2026): RANGING & HIGH_VOLATILITY dinaikkan SB 60→65, BUY 50→55
+  # (simulasi: sinyal 35%→24%, SB 15%→7% — tanpa membunuh sinyal). BULL & BEAR
+  # DI BIARKAN: BULL [62,52,45,38,30] (regime tren kuat, WR tertinggi 51.3% —
+  # sensitivitas tetap dibutuhkan) & BEAR [58,48,42,35,28] (sudah paling ketat,
+  # hanya sinyal terkuat yang lolos di regime lemah).
   thresholds:
     BULL:              [62, 52, 45, 38, 30]
     BEAR:              [58, 48, 42, 35, 28]
-    RANGING:           [60, 50, 42, 35, 28]
-    HIGH_VOLATILITY:   [60, 50, 42, 35, 28]
+    RANGING:           [65, 55, 42, 35, 28]
+    HIGH_VOLATILITY:   [65, 55, 42, 35, 28]
   # Bobot faktor (total harus 1.0):
   #   v4_score 0.40 | broker_flow 0.20 | foreign_flow 0.15
   #   fundamental 0.15 | earnings_momentum 0.10
@@ -231,12 +236,20 @@ portfolio:
 watchlist:
   # Ticker dengan WR rendah dari backtest V4 (hold 10d) — di-skip:
   # ICBP 14.7%, BISI 4.8%, CPIN 25.0%, INDF 34.0%, KLBF 34.5%
+  # FIX NOISE (08/2026): ELTY, CUAN, MPPA, UNTR, ISAT ditambahkan ke disabled
+  # (0 sinyal di build baru; hemat ~25 call API/malam). Watchlist aktif 15 → 10.
+  # Entri grup TIDAK dihapus — tetap dipantau, cukup di-disable.
   disabled:
     - "ICBP"
     - "BISI"
     - "CPIN"
     - "INDF"
     - "KLBF"
+    - "ELTY"
+    - "CUAN"
+    - "MPPA"
+    - "UNTR"
+    - "ISAT"
 
   # User picks
   user:
