@@ -8,8 +8,9 @@ Membaca perf_tracker_v7.csv, mengevaluasi sinyal yang sudah cukup umur
 - Keduanya kena → yang pertama kena secara urutan baris yang menang
 - Lainnya      → OPEN (belum selesai)
 Tambahan: mfe_pct = (max_high-entry)/entry*100, mae_pct = (min_low-entry)/entry*100.
-Jika data OHLC gagal diambil → status DATA_MISSING (tidak di-mark, dicoba lagi
-run berikutnya).
+Jika data OHLC gagal diambil → status DATA_MISSING (tidak di-append, dicoba lagi
+run berikutnya s/d 3x berturut-turut, lalu key di-mark supaya peringatan tidak
+muncul selamanya — R4).
 
 R3 (audit Round 3):
 - return_pct dihitung dari harga EXIT, bukan close terakhir: WIN_TP → harga TP,
@@ -47,6 +48,12 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 PERF_CSV = os.path.join(DATA_DIR, "perf_tracker_v7.csv")
 EVAL_CSV = os.path.join(DATA_DIR, "evaluations_v7.csv")
 EVAL_MARK = os.path.join(DATA_DIR, "evaluated_keys.json")
+# R4: sinyal DATA_MISSING (gagal ambil OHLC) dicoba ulang maksimal
+# DATA_MISSING_MAX_ATTEMPTS run berturut-turut, lalu key-nya di-mark —
+# dulu tidak pernah di-mark → peringatan "DATA_MISSING" muncul tiap run
+# selamanya. Data yang sementara unavailable tetap punya 3x kesempatan.
+DATA_MISSING_MAX_ATTEMPTS = 3
+MISSING_ATTEMPTS_FILE = os.path.join(DATA_DIR, "data_missing_attempts.json")
 FIELDS = ["date", "ticker", "mode", "score", "signal", "entry_price", "sl", "tp",
           "lots", "cost", "status", "close_price", "exit_price", "return_pct",
           "mfe_pct", "mae_pct", "eval_date", "regime"]
@@ -109,6 +116,48 @@ def _save_marked(marked: set):
         json.dump(sorted(marked), f)
 
 
+def _load_missing_attempts() -> dict:
+    """Baca counter percobaan DATA_MISSING per key (persisten antar run)."""
+    if os.path.exists(MISSING_ATTEMPTS_FILE):
+        try:
+            with open(MISSING_ATTEMPTS_FILE, encoding="utf-8", errors="replace") as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_missing_attempts(attempts: dict):
+    try:
+        with open(MISSING_ATTEMPTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(attempts, f)
+    except Exception:
+        pass
+
+
+def _record_data_missing(key, s, mode, today, results, attempts, dry_run=False) -> bool:
+    """Catat satu kegagalan ambil data OHLC (status DATA_MISSING).
+
+    Tidak di-append ke CSV; dicoba lagi run berikutnya SAMPAI
+    DATA_MISSING_MAX_ATTEMPTS kali berturut-turut — setelah itu key di-mark
+    (berhenti dicoba & tidak muncul lagi di laporan) supaya peringatan tidak
+    berulang selamanya (R4). dry_run: hasil tetap dihitung utk preview tapi
+    counter & mark TIDAK ditulis.
+
+    Returns True kalau key baru di-mark (pemanggil menambahkannya ke new_marks).
+    """
+    results.append(_data_missing_row(s, mode, today))
+    if dry_run:
+        return False
+    n = int(attempts.get(key, 0) or 0) + 1
+    attempts[key] = n
+    if n >= DATA_MISSING_MAX_ATTEMPTS:
+        attempts.pop(key, None)
+        return True
+    return False
+
+
 def _ensure_eval_schema():
     """Migrasi header evaluations_v7.csv ke urutan FIELDS kanonik (R3).
 
@@ -138,7 +187,11 @@ def _ensure_eval_schema():
 
 
 def _append_eval(row: dict):
-    new_file = not os.path.exists(EVAL_CSV)
+    # R4: file 0-byte (mis. pernah di-truncate) dihitung BARU → header wajib
+    # ditulis. Dulu hanya cek exists() → _ensure_eval_schema() return early
+    # utk 0 baris → baris data jadi baris pertama tanpa header (pola sama
+    # dgn perf_tracker.py).
+    new_file = not os.path.exists(EVAL_CSV) or os.path.getsize(EVAL_CSV) == 0
     _ensure_eval_schema()
     with open(EVAL_CSV, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
@@ -373,6 +426,8 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
         provider = InvezgoProvider()
 
     marked = _load_marked()
+    missing_attempts = _load_missing_attempts()
+    missing_dirty = False
     today = datetime.now()
     results = []
     new_marks = []
@@ -425,8 +480,12 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
                 df = None
             if df is None or df.empty:
                 # Data gagal diambil (network/rate limit) → tandai, jangan crash.
-                # Tidak di-append ke CSV & tidak di-mark → dicoba lagi run berikutnya.
-                results.append(_data_missing_row(s, mode, today))
+                # Tidak di-append ke CSV; dicoba lagi run berikutnya s/d
+                # DATA_MISSING_MAX_ATTEMPTS kali, lalu key di-mark (R4).
+                if _record_data_missing(key, s, mode, today, results, missing_attempts, dry_run):
+                    new_marks.append(key)
+                if not dry_run:
+                    missing_dirty = True
                 continue
 
             # Baris SEJAK entry. Index harian = 00:00 sedangkan timestamp
@@ -443,7 +502,10 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
             else:
                 since = df
             if since is None or since.empty:
-                results.append(_data_missing_row(s, mode, today))
+                if _record_data_missing(key, s, mode, today, results, missing_attempts, dry_run):
+                    new_marks.append(key)
+                if not dry_run:
+                    missing_dirty = True
                 continue
 
             # Klasifikasi MFE/MAE pakai high/low sejak entry
@@ -458,11 +520,17 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
             # jangan tulis mfe/mae 'nan%' ke CSV.
             closes = _pick_col(df, "close").astype(float).dropna()
             if closes.empty:
-                results.append(_data_missing_row(s, mode, today))
+                if _record_data_missing(key, s, mode, today, results, missing_attempts, dry_run):
+                    new_marks.append(key)
+                if not dry_run:
+                    missing_dirty = True
                 continue
             close = float(closes.iloc[-1])
             if close <= 0:
-                results.append(_data_missing_row(s, mode, today))
+                if _record_data_missing(key, s, mode, today, results, missing_attempts, dry_run):
+                    new_marks.append(key)
+                if not dry_run:
+                    missing_dirty = True
                 continue
             # R3: return_pct dihitung dari harga EXIT, bukan close terakhir:
             # WIN_TP → exit di harga TP; LOSS_SL → exit di harga SL. (Dulu
@@ -498,6 +566,8 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
     if new_marks:
         marked.update(new_marks)
         _save_marked(marked)
+    if not dry_run and missing_dirty:
+        _save_missing_attempts(missing_attempts)
     return results
 
 

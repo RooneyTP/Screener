@@ -10,7 +10,6 @@ import yfinance as yf
 import logging
 import os
 import time
-import datetime
 from typing import Optional
 import concurrent.futures
 
@@ -642,7 +641,7 @@ def detect_volatility_regime(df: pd.DataFrame) -> str:
 
     Returns
     -------
-    str : 'LOW' (ATR%% < 1.5%%), 'NORMAL' (1.5-3.0%%), 'HIGH' (>3.0%%)
+    str : 'LOW' (ATR% < 1.5%), 'NORMAL' (1.5-3.0%), 'HIGH' (>3.0%)
     """
     if df.empty or not all(c in df.columns for c in ["high", "low", "close"]):
         return "NORMAL"
@@ -872,12 +871,10 @@ def compute_trend_strength(df: pd.DataFrame) -> float:
 
 
 # ── Fundamental Data ──────────────────────────────────────────────────
+# Cache fundamental data per ticker dalam satu sesi.
+# Key: ticker (str) → Value: dict hasil fetch atau None.
+# Guna menghindari rate limit dari Yahoo Finance.
 _FUNDAMENTAL_CACHE: dict = {}
-"""
-Cache fundamental data per ticker dalam satu sesi.
-Key: ticker (str) → Value: dict hasil fetch atau None.
-Guna menghindari rate limit dari Yahoo Finance.
-"""
 
 
 def fetch_fundamental(ticker: str, use_cache: bool = True) -> dict:

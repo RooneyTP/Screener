@@ -40,14 +40,10 @@ from perf_tracker import dedup_and_log_batch
 # (sebelumnya hardcode GROUP_NAMES di sini + duplikat di factor_analysis.py
 # & weekly_report.py = 4 sumber drift; sekarang semua baca dari config.yaml
 # via groups_config.py — fallback {} kalau config gagal, label kosong)
-from groups_config import load_groups, group_of
-
-GROUP_NAMES = load_groups()  # {TICKER: nama_grup}
-
-
-def group_of(ticker: str) -> str:
-    """Label grup konglomerat untuk ticker."""
-    return GROUP_NAMES.get(ticker.upper(), "")
+# R4: def group_of lokal DIHAPUS (dulu men-shadow import & crash utk
+# ticker None — AttributeError 'NoneType'. group_of dari groups_config
+# punya guard None + case-insensitive + param groups opsional.)
+from groups_config import group_of
 
 
 def _signal_from_score(score: float, regime: str, weekly: str) -> str:

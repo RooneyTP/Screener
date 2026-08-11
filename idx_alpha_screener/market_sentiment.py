@@ -26,28 +26,39 @@ def _compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["ema12"] = close.ewm(span=12, adjust=False).mean()
     df["ema50"] = close.ewm(span=50, adjust=False).mean()
 
-    # RSI 14
+    # RSI 14 — Wilder smoothing (alpha=1/14), konsisten dgn data.py
+    # compute_all_indicators (R4: dulu rolling-mean Cutler → nilai beda dgn
+    # indikator per-saham). Tanpa shift — sentiment mau nilai SAAT INI.
     delta = close.diff()
-    gain = delta.where(delta > 0, 0.0).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
-    rs = gain / loss.replace(0, np.nan)
-    df["rsi"] = 100 - (100 / (1 + rs))
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta.where(delta < 0, 0.0))
+    avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    # Edge case Wilder: avg_loss == 0 (naik semua) → RSI 100, bukan NaN
+    rsi = rsi.where(avg_loss != 0, 100.0)
+    rsi = rsi.where(avg_gain != 0, 0.0)
+    df["rsi"] = rsi
 
-    # ADX 14
+    # ADX 14 — Wilder smoothing penuh (alpha=1/14), konsisten dgn data.py
     prev_close = close.shift(1)
     tr1 = high - low
     tr2 = (high - prev_close).abs()
     tr3 = (low - prev_close).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr_ = tr.rolling(14).mean()
+    # Wilder SMMA untuk ATR (alpha=1/14), bukan SMA14
+    atr_ = tr.ewm(alpha=1/14, adjust=False).mean()
     up_move = high.diff()
     down_move = -low.diff()
     plus_dm = ((up_move > down_move) & (up_move > 0)).astype(float) * up_move
     minus_dm = ((down_move > up_move) & (down_move > 0)).astype(float) * down_move
-    plus_di = 100 * (plus_dm.ewm(span=14, adjust=False).mean() / atr_.replace(0, np.nan))
-    minus_di = 100 * (minus_dm.ewm(span=14, adjust=False).mean() / atr_.replace(0, np.nan))
+    # Smoothing +DM/-DM pakai Wilder (alpha=1/14), bukan ewm span=14
+    plus_di = 100 * (plus_dm.ewm(alpha=1/14, adjust=False).mean() / atr_.replace(0, np.nan))
+    minus_di = 100 * (minus_dm.ewm(alpha=1/14, adjust=False).mean() / atr_.replace(0, np.nan))
     dx = 100 * ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
-    df["adx"] = dx.rolling(14).mean()
+    # DX dirata-rata dengan Wilder smoothing, bukan SMA14
+    df["adx"] = dx.ewm(alpha=1/14, adjust=False).mean()
 
     # Volume 20-day avg
     df["vol_avg20"] = volume.rolling(20).mean()

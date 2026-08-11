@@ -471,9 +471,11 @@ class TestWeeklyReportClassify(unittest.TestCase):
             f.write(f"{sig_date.strftime('%Y-%m-%d %H:%M')},BBCA,swing,55.4,BUY,100,90,110,2,20000000,1\n")
 
         provider = MockProvider(df=pd.DataFrame())  # get_historical → kosong
+        attempts_json = os.path.join(tmp.name, "data_missing_attempts.json")
         with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
              mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
-             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json):
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json), \
+             mock.patch.object(weekly_report_mod, "MISSING_ATTEMPTS_FILE", attempts_json):
             results = weekly_report_mod.evaluate_signals(provider=provider)
 
         self.assertEqual(len(results), 1)
@@ -1068,8 +1070,12 @@ class TestGroupMappingConfig(unittest.TestCase):
                 return None
         with mock.patch("logging.FileHandler", _NullHandler):
             import v7_scan
-        self.assertEqual(v7_scan.GROUP_NAMES, expected,
+        # R4: GROUP_NAMES dihapus dari v7_scan (def group_of lokal men-shadow
+        # import & crash utk None) — sekarang v7_scan memakai group_of dari
+        # groups_config; verifikasi perilaku, bukan atribut:
+        self.assertEqual(v7_scan.group_of("BRPT"), expected["BRPT"],
                          "v7_scan harus baca mapping dari config.yaml")
+        self.assertEqual(v7_scan.group_of("UNKNOWN"), "")
         import factor_analysis
         self.assertEqual(factor_analysis.GROUP_NAMES, expected,
                          "factor_analysis harus baca mapping dari config.yaml")
@@ -2433,6 +2439,243 @@ class TestV7ScanLabelConsistency(unittest.TestCase):
                              {"RANGING": [60, 50, 42, 35, 28]}):
             sig = self._helper()
             self.assertEqual(sig(63, "REGIME_ANEH", "NO_DATA"), "STRONG_BUY")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TEST 11 — R4: fix audit Round 4 (unit-bug quality_gate, Wilder sentiment,
+# header file 0-byte, DATA_MISSING retry limit, group_of shadowing,
+# flag _sector_capped)
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestQualityGateUnits(unittest.TestCase):
+    """R4 — quality_gate: ret_20d dalam satuan FRAKSI (0.05 = -5%).
+    Dulu dibandingkan dgn -3.0 / 8.0 (persen) → falling-knife &
+    false-breakout tidak pernah terpenuhi utk data riil (fraksi)."""
+
+    def _row(self, ret_20d, rsi=50.0, vol_ratio=1.0, adx=25.0,
+             atr=1.0, close=100.0):
+        return {"rsi": rsi, "vol_ratio": vol_ratio, "ret_20d": ret_20d,
+                "adx": adx, "atr": atr, "close": close}
+
+    def test_falling_knife_fraction_units(self):
+        from scoring import quality_gate
+        # ret_20d = -5% (fraksi -0.05) + RSI 30 + volume spike → SELL
+        row = self._row(ret_20d=-0.05, rsi=30.0, vol_ratio=2.0)
+        self.assertEqual(quality_gate(row, "BUY"), "SELL",
+                         "-5% + RSI 30 + vol 2x harus falling knife → SELL")
+        self.assertEqual(quality_gate(row, "STRONG_BUY"), "SELL")
+
+    def test_falling_knife_not_triggered_below_threshold(self):
+        from scoring import quality_gate
+        # -2% (fraksi -0.02) di atas ambang -3% → BUKAN falling knife
+        row = self._row(ret_20d=-0.02, rsi=30.0, vol_ratio=2.0)
+        self.assertEqual(quality_gate(row, "BUY"), "BUY")
+
+    def test_false_breakout_fraction_units(self):
+        from scoring import quality_gate
+        # ret_20d = +10% (fraksi 0.10) + volume di bawah rata-rata → downgrade
+        row = self._row(ret_20d=0.10, rsi=60.0, vol_ratio=0.5)
+        self.assertEqual(quality_gate(row, "STRONG_BUY"), "BUY",
+                         "+10% + vol rendah harus false breakout → downgrade")
+        self.assertEqual(quality_gate(row, "BUY"), "WEAK_BUY")
+
+    def test_false_breakout_not_triggered_below_threshold(self):
+        from scoring import quality_gate
+        # +7% (fraksi 0.07) di bawah ambang 8% → BUKAN false breakout
+        row = self._row(ret_20d=0.07, rsi=60.0, vol_ratio=0.5)
+        self.assertEqual(quality_gate(row, "STRONG_BUY"), "STRONG_BUY")
+
+
+class TestSectorCapFlag(unittest.TestCase):
+    """R4 — apply_sector_cap: flag _sector_capped di-set utk saham yang
+    di-cap (dulu `if h.get(...)` terbalik → flag tidak pernah di-set,
+    padahal main.py pop() & memakainya)."""
+
+    def test_capped_stock_flagged(self):
+        from signal_manager import apply_sector_cap
+        hasil = [
+            {"ticker": "A", "sector": "Bank", "signal": "BUY", "score": 80},
+            {"ticker": "B", "sector": "Bank", "signal": "BUY", "score": 70},
+            {"ticker": "C", "sector": "Bank", "signal": "BUY", "score": 60},
+        ]
+        apply_sector_cap(hasil, max_per_sector=2)
+        capped = [h for h in hasil if h.get("_sector_capped")]
+        self.assertEqual(len(capped), 1, "hanya saham ke-3 yang di-cap")
+        self.assertEqual(capped[0]["ticker"], "C")
+        self.assertEqual(capped[0]["signal"], "HOLD")
+        for h in hasil[:2]:
+            self.assertFalse(h.get("_sector_capped", False),
+                             "saham yang lolos cap tidak boleh di-flag")
+
+
+class TestWeeklyReportZeroByteHeader(unittest.TestCase):
+    """R4 — file evaluations 0-byte dihitung BARU → baris pertama = header
+    (dulu new_file hanya cek exists() → baris data tanpa header)."""
+
+    def _row(self):
+        return {k: f"v{i}" for i, k in enumerate(weekly_report_mod.FIELDS)}
+
+    def test_append_eval_zero_byte_file_gets_header(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        eval_csv = os.path.join(tmp.name, "evaluations_v7.csv")
+        open(eval_csv, "w").close()  # 0 byte
+        with mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv):
+            weekly_report_mod._append_eval(self._row())
+        with open(eval_csv, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(weekly_report_mod.FIELDS),
+                         "file 0-byte → baris pertama harus header")
+        self.assertEqual(len(lines), 2)
+
+    def test_append_eval_new_file_gets_header(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        eval_csv = os.path.join(tmp.name, "evaluations_v7.csv")
+        with mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv):
+            weekly_report_mod._append_eval(self._row())
+        with open(eval_csv, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(weekly_report_mod.FIELDS))
+
+
+class TestWeeklyReportDataMissingLimit(unittest.TestCase):
+    """R4 — sinyal DATA_MISSING dicoba maks DATA_MISSING_MAX_ATTEMPTS run
+    lalu key di-mark (dulu tidak pernah di-mark → peringatan selamanya)."""
+
+    def _setup(self, tmp):
+        perf_csv = os.path.join(tmp, "perf_tracker_v7.csv")
+        eval_csv = os.path.join(tmp, "evaluations_v7.csv")
+        mark_json = os.path.join(tmp, "evaluated_keys.json")
+        attempts_json = os.path.join(tmp, "data_missing_attempts.json")
+        sig_date = datetime.now() - timedelta(days=11)
+        with open(perf_csv, "w", newline="", encoding="utf-8") as f:
+            f.write("date,ticker,mode,score,signal,entry_price,sl,tp,lots,cost,fresh\n")
+            f.write(f"{sig_date.strftime('%Y-%m-%d %H:%M')},BBCA,swing,55.4,BUY,100,90,110,2,20000000,1\n")
+        return perf_csv, eval_csv, mark_json, attempts_json
+
+    def _patched(self, perf_csv, eval_csv, mark_json, attempts_json):
+        import contextlib
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv))
+        stack.enter_context(mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv))
+        stack.enter_context(mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json))
+        stack.enter_context(mock.patch.object(weekly_report_mod, "MISSING_ATTEMPTS_FILE", attempts_json))
+        return stack
+
+    def test_marked_after_max_attempts(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        perf_csv, eval_csv, mark_json, attempts_json = self._setup(tmp.name)
+        provider = MockProvider(df=pd.DataFrame())  # get_historical → kosong
+        max_att = weekly_report_mod.DATA_MISSING_MAX_ATTEMPTS
+        for _ in range(max_att):
+            with self._patched(perf_csv, eval_csv, mark_json, attempts_json):
+                results = weekly_report_mod.evaluate_signals(provider=provider)
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["status"], "DATA_MISSING")
+        # Setelah limit → key di-mark → run berikutnya tidak mencoba lagi
+        with self._patched(perf_csv, eval_csv, mark_json, attempts_json):
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+        self.assertEqual(results, [], "key sudah di-mark → tidak di-retry lagi")
+        with open(mark_json, encoding="utf-8") as f:
+            marked = json.load(f)
+        self.assertEqual(len(marked), 1, "key DATA_MISSING harus tercatat di-mark")
+
+    def test_dry_run_does_not_increment_attempts(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        perf_csv, eval_csv, mark_json, attempts_json = self._setup(tmp.name)
+        provider = MockProvider(df=pd.DataFrame())
+        with self._patched(perf_csv, eval_csv, mark_json, attempts_json):
+            results = weekly_report_mod.evaluate_signals(provider=provider, dry_run=True)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "DATA_MISSING")
+        self.assertFalse(os.path.exists(attempts_json), "dry-run tidak menulis counter")
+        self.assertFalse(os.path.exists(mark_json), "dry-run tidak menulis mark")
+
+
+class TestMarketSentimentWilder(unittest.TestCase):
+    """R4 — market_sentiment memakai Wilder smoothing (alpha=1/14) konsisten
+    dgn data.py compute_all_indicators, bukan rolling-mean Cutler/SMA14."""
+
+    @staticmethod
+    def _df(n=80):
+        import numpy as np
+        rng = np.random.default_rng(42)
+        close = 7000 + np.cumsum(rng.normal(0, 30, n))
+        high = close + rng.uniform(5, 40, n)
+        low = close - rng.uniform(5, 40, n)
+        vol = rng.uniform(1e9, 3e9, n)
+        idx = pd.date_range("2026-01-01", periods=n, freq="D")
+        return pd.DataFrame({"open": close, "high": high, "low": low,
+                             "close": close, "volume": vol}, index=idx)
+
+    def test_rsi_adx_match_wilder_reference(self):
+        import numpy as np
+        import market_sentiment as ms
+        df = self._df()
+        out = ms._compute_indicators(df.copy())
+
+        # Referensi RSI Wilder independen (alpha=1/14)
+        delta = df["close"].diff()
+        gain = delta.where(delta > 0, 0.0)
+        loss = (-delta.where(delta < 0, 0.0))
+        avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rsi_ref = 100 - (100 / (1 + rs))
+        rsi_ref = rsi_ref.where(avg_loss != 0, 100.0).where(avg_gain != 0, 0.0)
+        self.assertAlmostEqual(out["rsi"].iloc[-1], rsi_ref.iloc[-1], places=6)
+        # Bukan lagi Cutler (SMA14) — nilai harus beda nyata
+        rsi_cutler = 100 - (100 / (1 + gain.rolling(14).mean()
+                                   / loss.rolling(14).mean().replace(0, np.nan)))
+        self.assertGreater(abs(out["rsi"].iloc[-1] - rsi_cutler.iloc[-1]), 0.5,
+                           "RSI harus Wilder, bukan rolling-mean Cutler")
+
+        # Referensi ADX Wilder independen
+        prev_close = df["close"].shift(1)
+        tr = pd.concat([df["high"] - df["low"],
+                        (df["high"] - prev_close).abs(),
+                        (df["low"] - prev_close).abs()], axis=1).max(axis=1)
+        atr_ref = tr.ewm(alpha=1/14, adjust=False).mean()
+        up = df["high"].diff()
+        dn = -df["low"].diff()
+        pdm = ((up > dn) & (up > 0)).astype(float) * up
+        mdm = ((dn > up) & (dn > 0)).astype(float) * dn
+        pdi = 100 * (pdm.ewm(alpha=1/14, adjust=False).mean() / atr_ref.replace(0, np.nan))
+        mdi = 100 * (mdm.ewm(alpha=1/14, adjust=False).mean() / atr_ref.replace(0, np.nan))
+        dx = 100 * ((pdi - mdi).abs() / (pdi + mdi).replace(0, np.nan))
+        adx_ref = dx.ewm(alpha=1/14, adjust=False).mean()
+        self.assertAlmostEqual(out["adx"].iloc[-1], adx_ref.iloc[-1], places=6)
+
+    def test_predict_sentiment_returns_valid_dict(self):
+        import market_sentiment as ms
+        res = ms.predict_market_sentiment(self._df())
+        self.assertIn(res["sentiment"], ("GREEN", "YELLOW", "RED"))
+        self.assertTrue(res["reason"])
+
+
+class TestV7ScanGroupOf(unittest.TestCase):
+    """R4 — v7_scan.group_of tidak lagi men-shadow import groups_config:
+    aman utk ticker None (dulu AttributeError) & label sama dgn sumber
+    tunggal."""
+
+    def _vs(self):
+        import v7_scan as vs  # import berat → lazy, hanya saat dibutuhkan
+        return vs
+
+    def test_group_of_none_safe(self):
+        vs = self._vs()
+        self.assertEqual(vs.group_of(None), "")
+        self.assertEqual(vs.group_of(""), "")
+
+    def test_group_of_matches_groups_config(self):
+        import groups_config
+        vs = self._vs()
+        for t in ("BRPT", "brpt", "BUMI", "INDF", "UNKNOWN"):
+            self.assertEqual(vs.group_of(t), groups_config.group_of(t))
+        self.assertEqual(vs.group_of("BRPT"), "Barito")
 
 
 if __name__ == "__main__":

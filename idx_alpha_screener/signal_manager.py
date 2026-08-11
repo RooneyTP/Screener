@@ -178,7 +178,9 @@ def apply_sector_cap(hasil: list, max_per_sector: int = 2) -> list:
                     "Sector cap: %s (sektor %s) — skor %d → HOLD (sudah ada %d BUY di sektor ini)",
                     h["ticker"], sector_key, h["score"], current
                 )
-                if h.get("_sector_capped"):
+                # R4: dulu `if h.get(...)` (terbalik) → flag tidak pernah
+                # di-set, padahal main.py pop() & memakainya utk statistik.
+                if not h.get("_sector_capped"):
                     h["_sector_capped"] = True
         sector_count[sector_key] = sector_count.get(sector_key, 0) + 1
 

@@ -635,10 +635,12 @@ def quality_gate(row: pd.Series, signal: str) -> str:
                   "WEAK_BUY": "HOLD", "HOLD": "SELL", "SELL": "SELL"}
 
     # 1. Falling knife: oversold + volume spike
+    # R4: ret_20d dalam satuan FRAKSI (0.05 = -5%) — dulu < -3.0 (persen)
+    # tidak pernah terpenuhi → falling-knife mati senyap.
     falling_knife = (
         pd.notna(rsi) and rsi < 35
         and pd.notna(vol_ratio) and vol_ratio > 1.5
-        and pd.notna(ret_20d) and ret_20d < -3.0
+        and pd.notna(ret_20d) and ret_20d < -0.03
     )
 
     # 2. Low liquidity: ATR < 0.3% of price
@@ -653,8 +655,10 @@ def quality_gate(row: pd.Series, signal: str) -> str:
     )
 
     # 4. False breakout: price up 8%+ with below-average volume
+    # R4: ret_20d fraksi (0.08 = +8%) — dulu > 8.0 (persen) tidak pernah
+    # terpenuhi → false-breakout mati senyap.
     false_breakout = (
-        pd.notna(ret_20d) and ret_20d > 8.0
+        pd.notna(ret_20d) and ret_20d > 0.08
         and pd.notna(vol_ratio) and vol_ratio < 1.0
     )
 
