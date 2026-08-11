@@ -121,9 +121,15 @@ def get_time_stop(entry_date: str, mode: str = "swing") -> dict:
             "remaining": remaining, "urgency": urgency}
 
 
-def position_sizing(capital: float, price: float, score: float, atr_pct: float) -> dict:
+def position_sizing(capital: float, price: float, score: float, atr_pct: float,
+                    sl: float = 0.0) -> dict:
     """
     Dynamic position sizing — alokasi modal berdasarkan score & volatilitas.
+
+    sl : float, optional — stop loss FINAL (dari compute_exit). IDE6: risk_amount
+    dihitung JUJUR = (price − sl)/price × cost (risiko sebenarnya per posisi,
+    bukan flat 5%). Kalau sl <= 0 atau sl >= price (invalid) → fallback 0.05
+    (perilaku lama, kompatibel pemanggil yang tidak mengirim sl).
     """
     if capital <= 0 or price <= 0:
         return {"lots": 0, "cost": 0, "risk_pct": 0}
@@ -157,10 +163,20 @@ def position_sizing(capital: float, price: float, score: float, atr_pct: float) 
     else:
         lots = raw_lots
     actual_cost = lots * price * 100
+
+    # IDE6: fraksi risiko SEJATI (entry−SL)/entry; fallback 5% kalau SL invalid
+    try:
+        sl_f = float(sl)
+    except (TypeError, ValueError):
+        sl_f = 0.0
+    if 0 < sl_f < price:
+        risk_frac = (price - sl_f) / price
+    else:
+        risk_frac = 0.05  # fallback perilaku lama (sl tidak tersedia)
     
     return {
         "lots": lots,
         "cost": int(actual_cost),
         "pct_modal": round(base_pct * 100, 1),
-        "risk_amount": int(actual_cost * 0.05),  # max loss 5%
+        "risk_amount": int(actual_cost * risk_frac),  # IDE6: risiko sebenarnya
     }

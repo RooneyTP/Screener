@@ -7,6 +7,12 @@ backtest V7 tidak mungkin — broker flow tidak punya history).
 
 CSV: data/perf_tracker_v7.csv
 Kolom: date, ticker, mode, score, signal, entry_price, sl, tp, lots, cost, fresh, regime
+  + faktor DNA (IDE1): broker_flow, foreign_flow, fundamental, earnings_momentum
+    (nilai numerik faktor 0-100 dari v7r['factors']), weekly_trend (string
+    BULLISH/BEARISH/NO_DATA), atr_pct & vol_ratio (angka dari baris harga),
+    event (nama corporate action + tanggal, atau '' — dari CA calendar IDE5).
+    Baris lama (CSV migrasi) di-backfill 'unknown' (event → '').
+    Dipakai factor_analysis (A2) untuk pivot WR per faktor DNA.
   - fresh: 1 = sinyal baru, 0 = lanjutan (duplikat sinyal lama <14 hari, ±1% harga)
   - regime: regime market saat sinyal dikeluarkan (BULL/BEAR/HIGH_VOLATILITY/RANGING)
     dari detect_market_regime di v7_scan; baris lama (CSV migrasi) di-backfill 'unknown'.
@@ -33,10 +39,17 @@ from datetime import datetime, timedelta
 logger = logging.getLogger("perf_tracker")
 
 DEFAULT_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "perf_tracker_v7.csv")
-FIELDS = ["date", "ticker", "mode", "score", "signal", "entry_price", "sl", "tp", "lots", "cost", "fresh", "regime"]
+FIELDS = ["date", "ticker", "mode", "score", "signal", "entry_price", "sl", "tp", "lots", "cost", "fresh", "regime",
+          "broker_flow", "foreign_flow", "fundamental", "earnings_momentum", "weekly_trend",
+          "atr_pct", "vol_ratio", "event"]
 
 # Nilai default saat migrasi CSV lama (kolom ditambahkan ke header + baris lama di-backfill)
-FIELD_DEFAULTS = {"fresh": "1", "regime": "unknown"}
+# IDE1: kolom faktor DNA lama → 'unknown' (jujur: nilainya tidak diketahui, bukan 0);
+# event → '' (tidak ada event tercatat).
+FIELD_DEFAULTS = {"fresh": "1", "regime": "unknown",
+                  "broker_flow": "unknown", "foreign_flow": "unknown", "fundamental": "unknown",
+                  "earnings_momentum": "unknown", "weekly_trend": "unknown",
+                  "atr_pct": "unknown", "vol_ratio": "unknown", "event": ""}
 
 # ── Parameter dedup ──
 DEDUP_TOLERANCE = 0.01      # toleransi entry_price ±1%
@@ -160,13 +173,22 @@ def find_previous_signal(csv_path, ticker, mode, entry_price,
 
 
 def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
-               lots, cost, fresh=True, regime="unknown") -> bool:
+               lots, cost, fresh=True, regime="unknown",
+               broker_flow="", foreign_flow="", fundamental="",
+               earnings_momentum="", weekly_trend="", atr_pct="",
+               vol_ratio="", event="") -> bool:
     """Log satu sinyal ke CSV. Return True jika sukses.
 
     fresh=True  → sinyal baru (fresh=1 di CSV)
     fresh=False → lanjutan/duplikat (fresh=0 di CSV, dilabel '(lanjutan)' di Telegram)
     regime      → regime market saat sinyal (BULL/BEAR/HIGH_VOLATILITY/RANGING),
                   default 'unknown' untuk pemanggil lama (kompatibel).
+    IDE1 (faktor DNA) — kolom faktor dari v7r['factors'] + baris harga:
+      broker_flow / foreign_flow / fundamental / earnings_momentum : nilai
+      numerik faktor 0-100 (default '' kalau pemanggil lama tidak mengirim).
+      weekly_trend : string (BULLISH/BEARISH/NO_DATA; default 'unknown').
+      atr_pct / vol_ratio : angka (default '').
+      event : nama corporate action + tanggal atau '' (CA calendar IDE5).
     """
     try:
         os.makedirs(os.path.dirname(csv_path), exist_ok=True)
@@ -183,6 +205,14 @@ def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
             "cost": int(cost),
             "fresh": 1 if fresh else 0,
             "regime": regime if regime else "unknown",
+            "broker_flow": broker_flow if broker_flow not in (None, "") else "",
+            "foreign_flow": foreign_flow if foreign_flow not in (None, "") else "",
+            "fundamental": fundamental if fundamental not in (None, "") else "",
+            "earnings_momentum": earnings_momentum if earnings_momentum not in (None, "") else "",
+            "weekly_trend": weekly_trend if weekly_trend else "unknown",
+            "atr_pct": atr_pct if atr_pct not in (None, "") else "",
+            "vol_ratio": vol_ratio if vol_ratio not in (None, "") else "",
+            "event": event if event else "",
         }
         new_file = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0  # L10: file 0 byte = baru → header wajib
         _ensure_header(csv_path)  # migrasi header kalau CSV lama (no-op jika sudah lengkap)

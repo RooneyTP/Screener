@@ -13,6 +13,11 @@ pivot win rate per faktor:
   - foreign_detail   : detail faktor foreign flow Invezgo (jika tercatat)
   - fundamental_detail: detail faktor fundamental Invezgo (jika tercatat)
   - regime           : market regime saat sinyal (jika tercatat)
+  - Faktor DNA (IDE1) — kolom baru di perf_tracker_v7.csv, otomatis terbaca
+    kalau TERCATAT (baris lama di-backfill 'unknown' → dianggap tidak ada):
+      broker_flow / foreign_flow / fundamental / earnings_momentum (band
+      0-100: >=65 / 55-64 / <55), weekly_trend, atr_pct (band <1.5 / 1.5-5 /
+      >5), vol_ratio (band <1 / 1-2 / >=2), event (corporate action).
 
 CATATAN JUJUR TENTANG DATA:
   Kolom broker_detail / foreign_detail / fundamental_detail / regime
@@ -52,7 +57,53 @@ GROUP_NAMES = load_groups()  # {TICKER: nama_grup} — fallback {} kalau config 
 
 CLOSED_STATUSES = ("WIN_TP", "LOSS_SL")
 
-FACTOR_COLUMNS = ["broker_detail", "foreign_detail", "fundamental_detail", "regime"]
+# IDE1: kolom faktor DNA baru — dipakai presence report + pivot WR
+FACTOR_COLUMNS = ["broker_detail", "foreign_detail", "fundamental_detail", "regime",
+                  "broker_flow", "foreign_flow", "fundamental", "earnings_momentum",
+                  "weekly_trend", "atr_pct", "vol_ratio", "event"]
+
+# Nilai backfill migrasi CSV lama — dianggap TIDAK tercatat (jujur)
+UNKNOWN_VALUES = (None, "", "unknown")
+
+
+def factor_band(value) -> str:
+    """Banding faktor numerik 0-100: >=65 / 55-64 / <55; non-angka → 'unknown'."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if v >= 65:
+        return ">=65"
+    if v >= 55:
+        return "55-64"
+    return "<55"
+
+
+def atr_pct_band(value) -> str:
+    """Banding atr_pct (volatilitas): <1.5 / 1.5-5 / >5 — selaras threshold
+    position_sizing (atr_pct > 5 → alokasi setengah, < 1.5 → lebih berani)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if v < 1.5:
+        return "<1.5"
+    if v <= 5.0:
+        return "1.5-5"
+    return ">5"
+
+
+def vol_ratio_band(value) -> str:
+    """Banding vol_ratio: <1 / 1-2 / >=2."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if v < 1:
+        return "<1"
+    if v < 2:
+        return "1-2"
+    return ">=2"
 
 
 def group_of(ticker: str) -> str:
@@ -169,12 +220,16 @@ def sample_projection(rows: list, min_sample: int = MIN_SAMPLE,
 
 
 def report_columns_presence(rows: list) -> list:
-    """Cek kolom faktor mana yang TERCATAT di data. Jujur kalau tidak ada."""
+    """Cek kolom faktor mana yang TERCATAT di data. Jujur kalau tidak ada.
+
+    Nilai backfill migrasi ('unknown' / '') TIDAK dihitung sebagai tercatat —
+    hanya nilai nyata yang masuk (IDE1).
+    """
     lines = []
     present = set()
     for r in rows:
         for c in FACTOR_COLUMNS:
-            if r.get(c) not in (None, ""):
+            if r.get(c) not in UNKNOWN_VALUES:
                 present.add(c)
     lines.append("\n### Ketersediaan kolom faktor")
     lines.append("")
@@ -235,8 +290,23 @@ def main():
 
     # Faktor Invezgo + regime: hanya kalau kolomnya ADA (lihat catatan di docstring)
     for col in ("broker_detail", "foreign_detail", "fundamental_detail", "regime"):
-        if any(r.get(col) not in (None, "") for r in rows):
+        if any(r.get(col) not in UNKNOWN_VALUES for r in rows):
             out += wr_table(rows, lambda r, c=col: r.get(c), col, args.min_sample)
+
+    # ── Faktor DNA (IDE1): kolom baru di perf_tracker_v7.csv — pivot WR
+    # otomatis muncul kalau kolomnya TERCATAT (baris lama 'unknown' di-skip).
+    for col in ("broker_flow", "foreign_flow", "fundamental", "earnings_momentum"):
+        if any(r.get(col) not in UNKNOWN_VALUES for r in rows):
+            out += wr_table(rows, lambda r, c=col: factor_band(r.get(c)),
+                            f"{col} (band 0-100)", args.min_sample)
+    for col in ("weekly_trend", "event"):
+        if any(r.get(col) not in UNKNOWN_VALUES for r in rows):
+            out += wr_table(rows, lambda r, c=col: r.get(c) or "(kosong)",
+                            col, args.min_sample)
+    for col, band_fn in (("atr_pct", atr_pct_band), ("vol_ratio", vol_ratio_band)):
+        if any(r.get(col) not in UNKNOWN_VALUES for r in rows):
+            out += wr_table(rows, lambda r, c=col, f=band_fn: f(r.get(c)),
+                            col, args.min_sample)
 
     out += report_columns_presence(rows)
     out.append("")

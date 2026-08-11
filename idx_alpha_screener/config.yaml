@@ -218,6 +218,7 @@ portfolio:
   max_positions: 5           # Maks 5 posisi bersamaan
   max_per_sector: 2          # Maks 2 di sektor yang sama
   max_sector_exposure_pct: 40.0  # Maks 40% modal di satu sektor
+  max_total_risk_pct: 3.0    # IDE6: total risiko (Σ risk_amount SEJATI semua sinyal) maks 3% modal (Rp600rb @ 20jt)
 
 # ═══════════════════════════════════════════════════════════════
 # WATCHLIST — Fokus saham konglomerat & grup

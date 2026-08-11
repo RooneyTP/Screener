@@ -2678,5 +2678,264 @@ class TestV7ScanGroupOf(unittest.TestCase):
         self.assertEqual(vs.group_of("BRPT"), "Barito")
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# VERIFIKASI FASE 2 — IDE6 risk_amount sejati, guard total risk, CA blackout,
+# Faktor DNA (IDE1)
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestPositionSizingRiskAmount(unittest.TestCase):
+    """IDE6 — risk_amount = risiko SEJATI (entry−SL)/entry×cost; SL invalid
+    (0 / >= harga) → fallback 5% cost (perilaku lama)."""
+
+    def test_sl_9pct_risk_amount_is_true_risk(self):
+        cap, price, score = 20_000_000, 1000.0, 75.0
+        sz = position_sizing(cap, price, score, atr_pct=1.0, sl=910.0)
+        # risk_frac = (1000−910)/1000 = 0.09 → 9% dari cost (bukan 5% flat)
+        self.assertEqual(sz["risk_amount"], int(sz["cost"] * 0.09),
+                         "SL 9% di bawah harga → risk_amount harus 9% cost")
+
+    def test_sl_zero_fallback_5pct(self):
+        cap, price, score = 20_000_000, 1000.0, 75.0
+        sz = position_sizing(cap, price, score, atr_pct=1.0, sl=0.0)
+        self.assertEqual(sz["risk_amount"], int(sz["cost"] * 0.05),
+                         "SL tidak tersedia (0) → fallback 5% cost")
+
+    def test_sl_above_price_fallback_5pct(self):
+        cap, price, score = 20_000_000, 1000.0, 75.0
+        sz = position_sizing(cap, price, score, atr_pct=1.0, sl=1050.0)
+        self.assertEqual(sz["risk_amount"], int(sz["cost"] * 0.05),
+                         "SL >= harga (invalid) → fallback 5% cost")
+
+
+class TestV7RiskAndCaGuards(unittest.TestCase):
+    """Verifikasi fase 2: enforce_total_risk_guard (IDE6) + CA calendar
+    blackout (IDE5) + clamp fraksi N8 di kedua guard."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Import v7_scan tanpa menulis file log data/screener.log (pola
+        # TestC2ConcentrationGuard) — FileHandler diganti null inert.
+        class _NullHandler:
+            level = 1000
+            def setFormatter(self, *a, **k):
+                return None
+        with mock.patch("logging.FileHandler", _NullHandler):
+            import v7_scan as v7s
+        cls.v7s = v7s
+
+    def _sig(self, tkr, price, lots, risk_frac=0.05):
+        """Sinyal swing sintetis — sizing dengan risk_amount sesuai fraksi."""
+        cost = lots * price * 100
+        return {
+            "tkr": tkr, "score": 70.0, "price": price,
+            "exit": {"stop_loss": int(price * 0.9), "take_profit": int(price * 1.2),
+                     "rrr": 2.0},
+            "sizing": {"lots": lots, "cost": cost, "pct_modal": 15.0,
+                       "risk_amount": int(cost * risk_frac)},
+            "bf": "akumulasi", "ff": "net_buy", "weekly": "BULLISH",
+            "brokers": "", "entry_rec": {"method": "Limit", "price_range": "-"},
+            "group": "Bakrie",
+        }
+
+    def _logged(self, tickers, mode="swing", lots=0, price=0.0):
+        return [{"ticker": t, "mode": mode, "lots": lots, "cost": lots * price * 100}
+                for t in tickers]
+
+    # ── enforce_total_risk_guard (IDE6) ──
+
+    def test_total_risk_5_positions_over_3pct_lots_reduced(self):
+        """5 posisi @ risk 0.75% modal (total 3.75% > 3%) → lot diturunkan
+        bertahap sampai total risk ≤ limit."""
+        CAP = 20_000_000
+        price = 2000.0
+        lots = 15  # cost 3jt = 15% modal, risk 5% cost = 150rb (0.75% modal)
+        swing = [self._sig(f"B{t}", price, lots) for t in range(5)]
+        logged = self._logged([f"B{t}" for t in range(5)], lots=lots, price=price)
+        warns = self.v7s.enforce_total_risk_guard(swing, [], logged, CAP, max_risk_pct=3.0)
+
+        self.assertTrue(warns, "harus ada peringatan TOTAL RISK")
+        self.assertIn("TOTAL RISK", warns[0])
+        total = sum(s["sizing"]["risk_amount"] for s in swing)
+        self.assertLessEqual(total, CAP * 0.03 + 1, "total risk ≤ 3% modal setelah guard")
+        self.assertTrue(any(s["sizing"]["lots"] < lots for s in swing),
+                        "ada lot yang diturunkan")
+        self.assertTrue(all(s["sizing"]["lots"] >= 1 for s in swing),
+                        "tidak ada lot < 1")
+        self.assertEqual(sum(s["sizing"]["cost"] for s in swing),
+                         sum(l["cost"] for l in logged),
+                         "logged_signals sinkron dengan sizing")
+
+    def test_total_risk_normal_noop(self):
+        """1 posisi risk 0.75% modal ≤ 3% → no-op total (tidak ada warning,
+        lot tidak berubah)."""
+        CAP = 20_000_000
+        price = 2000.0
+        swing = [self._sig("BBCA", price, 15)]
+        warns = self.v7s.enforce_total_risk_guard(swing, [], [], CAP, max_risk_pct=3.0)
+        self.assertEqual(warns, [])
+        self.assertEqual(swing[0]["sizing"]["lots"], 15)
+
+    def test_total_risk_dedup_ticker_two_modes(self):
+        """Ticker di swing+intraday dihitung SEKALI (pakai risk lebih besar):
+        X swing 500rb + X intraday 100rb + Y swing 100rb → dedup total 600rb
+        = limit 3% → no-op. Tanpa dedup 700rb > 600rb pasti kena reduksi."""
+        CAP = 20_000_000
+        price = 2000.0
+        x_swing = self._sig("BBCA", price, 15)
+        x_swing["sizing"]["risk_amount"] = 500_000
+        x_intra = self._sig("BBCA", price, 10)
+        x_intra["sizing"]["risk_amount"] = 100_000
+        y_swing = self._sig("BBRI", price, 10)
+        y_swing["sizing"]["risk_amount"] = 100_000
+        warns = self.v7s.enforce_total_risk_guard(
+            [x_swing, y_swing], [x_intra], [], CAP, max_risk_pct=3.0)
+        self.assertEqual(warns, [], "dedup ticker → total 600rb ≤ limit → no-op")
+        self.assertEqual(x_swing["sizing"]["lots"], 15,
+                         "sinyal X(swing) tidak boleh disentuh")
+        self.assertEqual(x_intra["sizing"]["lots"], 10,
+                         "mode alternatif (intraday) tidak boleh disentuh")
+
+    def test_total_risk_overstated_risk_amount_clamped(self):
+        """N8 — risk_amount overstate (999_999_999, pemanggil lama) → fraksi
+        di-clamp ke 5% cost (bukan 333x cost) saat lot diturunkan."""
+        CAP = 20_000_000
+        price = 2000.0
+        swing = [self._sig(f"B{t}", price, 15) for t in range(5)]
+        for s in swing:
+            s["sizing"]["risk_amount"] = 999_999_999
+        warns = self.v7s.enforce_total_risk_guard(swing, [], [], CAP, max_risk_pct=3.0)
+        self.assertTrue(warns)
+        for s in swing:
+            self.assertLessEqual(s["sizing"]["risk_amount"], int(s["sizing"]["cost"] * 0.5),
+                                 "risk_amount hasil guard tidak boleh > 50% cost")
+
+    # ── CA calendar blackout (IDE5) ──
+
+    @staticmethod
+    def _dstr(days):
+        return (datetime.now().date() + timedelta(days=days)).strftime("%Y-%m-%d")
+
+    class _FakeCalendar:
+        def __init__(self, events):
+            self._events = events
+            self.raises = False
+        def get_corporate_calendar(self, tkr):
+            if self.raises:
+                raise RuntimeError("kalender mati")
+            return self._events
+
+    def test_ca_blackout_rups_blocks_signal_with_reason(self):
+        """Event RUPS H+3 dalam horizon → blocked; alur main() men-skip
+        sinyal dengan alasan '⚠️ CA BLACKOUT'."""
+        ip = self._FakeCalendar([{"date": self._dstr(3), "type": "RUPS"}])
+        blocked, label = self.v7s._ca_calendar_check(ip, "BBCA", 7)
+        self.assertIsNotNone(blocked)
+        self.assertEqual(blocked[0], "RUPS")
+        self.assertIn("RUPS", label)
+        # Alur skip di v7_scan.main() (baris CA blackout):
+        swing_ok = intra_ok = True
+        skip_reasons = []
+        if blocked:
+            skip_reasons.append(
+                f"⚠️ CA BLACKOUT: BBCA {blocked[0]} {blocked[1]} — skip (H+7)")
+            swing_ok = False
+            intra_ok = False
+        self.assertFalse(swing_ok and intra_ok, "sinyal harus di-skip")
+        self.assertIn("⚠️ CA BLACKOUT", skip_reasons[0])
+        self.assertIn("RUPS", skip_reasons[0])
+
+    def test_ca_blackout_no_event_normal(self):
+        """Tanpa event → (None, '') → sinyal TIDAK di-skip."""
+        ip = self._FakeCalendar([])
+        blocked, label = self.v7s._ca_calendar_check(ip, "BBCA", 7)
+        self.assertIsNone(blocked)
+        self.assertEqual(label, "")
+        swing_ok = intra_ok = True
+        if blocked:
+            swing_ok = intra_ok = False
+        self.assertTrue(swing_ok and intra_ok, "tanpa event = normal, tidak skip")
+
+    def test_ca_blackout_provider_exception_no_raise(self):
+        """Calendar gagal (exception) → no-op, TIDAK pernah raise."""
+        ip = self._FakeCalendar([])
+        ip.raises = True
+        blocked, label = self.v7s._ca_calendar_check(ip, "BBCA", 7)
+        self.assertIsNone(blocked)
+        self.assertEqual(label, "")
+
+    def test_ca_blackout_event_outside_horizon_label_only(self):
+        """Event di luar H+7 → sinyal TIDAK diblokir, label event tetap
+        tercatat (kolom event perf CSV)."""
+        ip = self._FakeCalendar([{"date": self._dstr(10), "type": "SPLIT"}])
+        blocked, label = self.v7s._ca_calendar_check(ip, "BBCA", 7)
+        self.assertIsNone(blocked)
+        self.assertTrue(label.startswith("SPLIT"))
+
+    def test_ca_blackout_nearest_public_expose_not_blocking(self):
+        """PUBLIC_EXPOSE terdekat (tidak memblokir) + RUPS dalam horizon →
+        blocked = RUPS, label = event TERDEKAT (unpacking tuple benar)."""
+        ip = self._FakeCalendar([
+            {"date": self._dstr(1), "type": "PUBLIC_EXPOSE"},
+            {"date": self._dstr(5), "type": "RUPS_RESULT"},
+        ])
+        blocked, label = self.v7s._ca_calendar_check(ip, "BBCA", 7)
+        self.assertIsNotNone(blocked)
+        self.assertEqual(blocked[0], "RUPS_RESULT")
+        self.assertTrue(label.startswith("PUBLIC_EXPOSE"),
+                        "label harus event terdekat (PUBLIC_EXPOSE)")
+
+
+class TestFaktorDnaLogging(unittest.TestCase):
+    """IDE1 — log_signal mencatat kolom faktor DNA; CSV lama di-migrasi
+    (header ditambah + baris lama di-backfill 'unknown'/'event')."""
+
+    def test_log_signal_with_factors_columns_filled(self):
+        with tempfile.TemporaryDirectory(prefix="dna_") as td:
+            csvp = os.path.join(td, "perf.csv")
+            ok = log_signal(
+                csvp, ticker="BBRI", mode="swing", score=62.0, signal="BUY",
+                entry_price=5000, sl=4750, tp=5500, lots=5, cost=2500000,
+                regime="BULL", broker_flow=72.0, foreign_flow=58.0,
+                fundamental=65.0, earnings_momentum=40.0,
+                weekly_trend="BULLISH", atr_pct=2.3, vol_ratio=1.8,
+                event="DIVIDEND 12/08")
+            self.assertTrue(ok)
+            rows = load_signals(csvp)
+            self.assertEqual(len(rows), 1)
+            r = rows[0]
+            self.assertEqual(r["broker_flow"], "72.0")
+            self.assertEqual(r["foreign_flow"], "58.0")
+            self.assertEqual(r["fundamental"], "65.0")
+            self.assertEqual(r["earnings_momentum"], "40.0")
+            self.assertEqual(r["weekly_trend"], "BULLISH")
+            self.assertEqual(r["atr_pct"], "2.3")
+            self.assertEqual(r["vol_ratio"], "1.8")
+            self.assertEqual(r["event"], "DIVIDEND 12/08")
+
+    def test_old_csv_migrated_backfill_unknown(self):
+        """CSV lama tanpa kolom faktor → log_signal baru memicu migrasi
+        header; baris lama di-backfill 'unknown' (event → '')."""
+        with tempfile.TemporaryDirectory(prefix="dna_mig_") as td:
+            csvp = os.path.join(td, "perf.csv")
+            with open(csvp, "w", newline="", encoding="utf-8") as f:
+                f.write("date,ticker,mode,score,signal,entry_price,sl,tp,lots,cost,fresh,regime\n")
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M')},BBCA,swing,55.4,BUY,10000,9500,11000,2,2000000,1,unknown\n")
+            ok = log_signal(
+                csvp, ticker="BBRI", mode="swing", score=62.0, signal="BUY",
+                entry_price=5000, sl=4750, tp=5500, lots=5, cost=2500000,
+                regime="BULL", broker_flow=72.0, weekly_trend="BULLISH",
+                atr_pct=2.3, vol_ratio=1.8, event="DIVIDEND 12/08")
+            self.assertTrue(ok)
+            rows = load_signals(csvp)
+            self.assertEqual(len(rows), 2, "baris lama + baris baru")
+            old, new = rows[0], rows[1]
+            for c in ("broker_flow", "foreign_flow", "fundamental",
+                      "earnings_momentum", "weekly_trend", "atr_pct", "vol_ratio"):
+                self.assertEqual(old[c], "unknown", f"baris lama {c} = 'unknown'")
+            self.assertEqual(old["event"], "", "baris lama event = ''")
+            self.assertEqual(new["broker_flow"], "72.0")
+            self.assertEqual(new["event"], "DIVIDEND 12/08")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

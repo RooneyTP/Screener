@@ -9,7 +9,7 @@ Cara pakai:
   df = provider.fetch_historical("BBCA", period="1y")
 """
 
-import os, logging, re, warnings, time
+import os, logging, re, warnings, time, json
 from datetime import datetime, timedelta
 from typing import Optional
 import pandas as pd
@@ -17,6 +17,10 @@ import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("invezgo")
+
+# Dir data/ — cache CA calendar (IDE5) + fundamental; dipatch di test supaya
+# I/O tidak menyentuh data/ asli (pola sama dengan v7_engine._DATA_DIR).
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
 
 def _to_int(v):
@@ -96,6 +100,24 @@ def _api_code(code: str) -> str:
 def _safe_code(code: str) -> str:
     """Sanitasi ticker utk nama file cache — hanya A-Z0-9 (cegah path traversal)."""
     return re.sub(r"[^A-Z0-9]", "", (code or "").upper())
+
+
+# Format tanggal payload calendar Invezgo (ID: '20/08/2026'; ISO; dsb.)
+_CAL_DATE_FORMATS = ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y")
+
+def _parse_calendar_date(v) -> str:
+    """Parse string tanggal payload CA calendar Invezgo → 'YYYY-MM-DD' atau ''."""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if not s:
+        return ""
+    for fmt in _CAL_DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return ""
 
 # ── Load API Key dari .env ──
 API_KEY = ""
@@ -409,6 +431,69 @@ class InvezgoProvider:
         except Exception as e:
             logger.debug("Gagal ambil intraday %s: %s", code, e)
             return {}
+
+    def get_corporate_calendar(self, code: str, use_cache: bool = True) -> list:
+        """Calendar corporate action Invezgo (IDE5) — get_calendar + cache 24 jam.
+
+        SDK: analysis.get_calendar(code=..., limit=50) → response
+        {data: [{code, type, payload{...tanggal...}}]}. Tanggal event di-parse
+        dari payload (TradingPeriodStr / ExcPeriodStr / ...) — beberapa format
+        tanggal ID/ISO didukung.
+
+        Return list of dict: [{"type": "RUPS_RESULT", "date": "YYYY-MM-DD"}, ...]
+        HANYA event yang tanggalnya ter-parse. Kalau SDK gagal / response aneh →
+        [] (scan TIDAK boleh crash karena calendar). Cache data/calendar_{CODE}.json
+        TTL 24 jam (hanya hasil NON-kosong — hasil kosong tidak dicache supaya
+        event baru muncul di scan berikutnya).
+
+        Dipakai v7_scan._ca_calendar_check untuk blackout sinyal (IDE5).
+        """
+        api_code = _api_code(code)
+        safe = _safe_code(code)
+        cache_path = os.path.join(_DATA_DIR, f"calendar_{safe}.json")
+        if use_cache and os.path.exists(cache_path):
+            age_hours = (time.time() - os.path.getmtime(cache_path)) / 3600
+            if age_hours < 24:
+                try:
+                    with open(cache_path, encoding="utf-8") as f:
+                        cached = json.load(f)
+                    if isinstance(cached, list):
+                        return cached
+                except Exception:
+                    pass
+        events = []
+        try:
+            data = self.client.analysis.get_calendar(code=api_code, limit=50)
+            items = (data or {}).get("data") or []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                etype = str(item.get("type", "") or "").strip().upper()
+                if not etype:
+                    continue
+                payload = item.get("payload") or {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                ev_date = ""
+                for key in ("TradingPeriodStr", "ExcPeriodStr", "TradingPeriodStart",
+                            "ExcPeriodStart", "TradingPeriodEnd", "ExcPeriodEnd"):
+                    ev_date = _parse_calendar_date(payload.get(key))
+                    if ev_date:
+                        break
+                if not ev_date:
+                    continue
+                events.append({"type": etype, "date": ev_date})
+        except Exception as e:
+            logger.debug("Gagal ambil calendar %s: %s", code, e)
+            events = []
+        if use_cache and events:
+            try:
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(events, f)
+            except Exception:
+                pass
+        return events
 
 
 # ── Test ──

@@ -3,6 +3,7 @@ v7_scan.py — V7 Dual Mode Scanner (Invezgo ONLY)
 Data 100% dari Invezgo. Output ke Telegram via cron + formatted.
 """
 import sys, os, warnings, yaml, traceback, math
+from datetime import datetime, timedelta
 warnings.filterwarnings('ignore')
 ROOT = r'C:\Hermes_Workspace\Screener\idx_alpha_screener'
 sys.path.insert(0, ROOT)
@@ -145,13 +146,24 @@ def enforce_group_concentration_guard(swing: list, intra: list,
             price = float(s.get("price", 0) or 0)
             if price <= 0:
                 continue
+            old_cost = float(sz.get("cost", 0) or 0)
+            old_risk = float(sz.get("risk_amount", 0) or 0)
             new_cost = int(new_lots * price * 100)
             sz["lots"] = new_lots
             sz["cost"] = new_cost
             sz["pct_modal"] = round(new_cost / capital * 100, 1)
-            # L3: risk_amount ikut di-scale proporsional (5% dari cost baru) —
-            # sebelumnya tidak diupdate → risiko di ringkasan Telegram overstate
-            sz["risk_amount"] = int(new_cost * 0.05)
+            # L3 + IDE6: risk_amount di-scale PROPORSIONAL terhadap cost (fraksi
+            # risiko asli dipertahankan) — risk_amount sekarang risiko SEJATI
+            # (entry−SL)/entry×cost dari position_sizing, bukan 5% flat; kalau
+            # key risk_amount tidak ada (pemanggil lama) fallback 5% cost.
+            frac = (old_risk / old_cost) if old_cost > 0 else 0.05
+            # N8: clamp fraksi — hanya pakai fraksi proporsional WAJAR
+            # (0 < frac <= 0.5 = risiko jujur 0-50% dari cost). Nilai lama/
+            # overstate (mis. 999_999_999 dari pemanggil lama) atau 0/negatif
+            # → fallback 5% cost (konsisten dengan _sig_risk_amount).
+            if not (0 < frac <= 0.5):
+                frac = 0.05
+            sz["risk_amount"] = int(new_cost * frac)
             _update_logged_sizing(logged_signals, s.get("tkr", ""), mode,
                                   new_lots, new_cost)
             # L1: label mode di detail — ticker yang muncul di swing & intraday
@@ -173,6 +185,152 @@ def enforce_group_concentration_guard(swing: list, intra: list,
                 f"hati-hati (lot sudah minimal, tidak bisa dikurangi)"
             )
     return warnings
+
+
+def _sig_risk_amount(s: dict) -> float:
+    """Risk_amount sebuah sinyal; fallback 5% cost kalau key tidak ada (pemanggil lama)."""
+    sz = s.get("sizing") or {}
+    r = sz.get("risk_amount")
+    if r is None:
+        return float(sz.get("cost", 0) or 0) * 0.05
+    return float(r or 0)
+
+
+def enforce_total_risk_guard(swing: list, intra: list, logged_signals: list,
+                             capital: float, max_risk_pct: float = 3.0) -> list:
+    """IDE6 — Guard TOTAL RISK: Σ risk_amount semua sinyal ≤ max_risk_pct% modal.
+
+    Dipanggil SETELAH enforce_group_concentration_guard (C2). risk_amount tiap
+    sinyal sekarang risiko SEJATI (entry−SL)/entry×cost dari position_sizing.
+
+    Aturan agregasi:
+      - Semua sinyal swing + intraday dihitung.
+      - Ticker yang muncul di KEDUA mode dihitung SEKALI — pakai mode dengan
+        risk_amount LEBIH BESAR (mode lain adalah alternatif, bukan tambahan).
+    Jika total > max_risk_pct% CAPITAL (default 3% = Rp600rb @ modal 20jt):
+      lot sinyal ber-risk tertinggi diturunkan BERTAHAP (1 lot per langkah,
+      fraksi risiko per rupiah dipertahankan, minimal 1 lot) sampai total ≤
+      limit; sizing + logged_signals disinkronkan (konsisten dengan C2).
+    No-op total saat total ≤ limit (perilaku normal TIDAK berubah).
+
+    Return daftar baris peringatan (kosong kalau total risk normal).
+    """
+    warnings = []
+    if capital <= 0 or not (swing or intra):
+        return warnings
+    limit = capital * max_risk_pct / 100.0
+    all_signals = [("swing", s) for s in swing] + [("intraday", s) for s in intra]
+
+    # ── Agregasi dengan dedup ticker (2 mode → sekali, pakai risk lebih besar) ──
+    best = {}
+    for mode, s in all_signals:
+        tkr = s.get("tkr", "")
+        if not tkr:
+            continue
+        r = _sig_risk_amount(s)
+        if tkr not in best or r > best[tkr][2]:
+            best[tkr] = (mode, s, r)
+    total = sum(r for _, _, r in best.values())
+    if total <= limit:
+        return warnings  # normal — no-op
+
+    # ── Kurangi lot sinyal ber-risk tertinggi bertahap (pola C2) ──
+    order = sorted(best.values(), key=lambda x: x[2], reverse=True)
+    details = []
+    for mode, s, _r in order:
+        if total <= limit:
+            break
+        sz = s.get("sizing") or {}
+        price = float(s.get("price", 0) or 0)
+        if price <= 0:
+            continue
+        lots = int(sz.get("lots", 0) or 0)
+        if lots <= 1:
+            continue
+        old_cost = float(sz.get("cost", 0) or 0)
+        old_risk = float(sz.get("risk_amount", 0) or 0)
+        frac = (old_risk / old_cost) if old_cost > 0 else 0.05
+        # N8: clamp fraksi — sama dengan C2 guard: hanya fraksi wajar
+        # (0 < frac <= 0.5) yang dipertahankan; nilai overstate/lama → 5%.
+        if not (0 < frac <= 0.5):
+            frac = 0.05
+        orig_lots = lots
+        while lots > 1 and total > limit:
+            lots -= 1
+            new_cost = int(lots * price * 100)
+            new_risk = int(new_cost * frac)
+            total = total - old_risk + new_risk
+            old_risk = new_risk
+        if lots != orig_lots:
+            new_cost = int(lots * price * 100)
+            sz["lots"] = lots
+            sz["cost"] = new_cost
+            sz["pct_modal"] = round(new_cost / capital * 100, 1)
+            sz["risk_amount"] = int(new_cost * frac)
+            _update_logged_sizing(logged_signals, s.get("tkr", ""), mode,
+                                  lots, new_cost)
+            details.append(f"{s.get('tkr')}({mode}) {orig_lots}→{lots} lot")
+    pct = total / capital * 100.0
+    if details:
+        warnings.append(
+            f"⚠️ TOTAL RISK: {pct:.1f}% > {max_risk_pct:.0f}% — lot dikurangi "
+            f"({', '.join(details)})"
+        )
+    else:
+        warnings.append(
+            f"⚠️ TOTAL RISK: {pct:.1f}% > {max_risk_pct:.0f}% — "
+            f"hati-hati (lot sudah minimal, tidak bisa dikurangi)"
+        )
+    return warnings
+
+
+# ── IDE5: CA (corporate action) calendar blackout ──
+# Event yang memicu blackout (dari SDK Invezgo get_calendar): DIVIDEND, RIGHT,
+# SPLIT, RUPS (RUPS_RESULT / RUPS_SCHEDULE). PUBLIC_EXPOSE tidak memblokir.
+CA_BLACKOUT_TYPES = ("DIVIDEND", "RIGHT", "SPLIT", "RUPS")
+
+
+def _ca_calendar_check(ip, tkr: str, days_ahead: int = 7):
+    """Cek calendar corporate action utk blackout sinyal (IDE5).
+
+    Return (blocked, label):
+      blocked = (TYPE, 'dd/mm') kalau ada event DIVIDEND/RIGHT/SPLIT/RUPS dalam
+                H+days_ahead ke depan → sinyal harus di-skip.
+      label   = 'TYPE dd/mm' event terdekat (apa pun tipenya) utk kolom event
+                perf CSV, atau '' kalau tidak ada event.
+    TIDAK pernah raise — calendar gagal / provider tanpa method = no-op
+    (scan tetap jalan, perilaku lama).
+    """
+    try:
+        events = ip.get_corporate_calendar(tkr) or []
+    except Exception as e:
+        logger.debug("CA calendar gagal %s: %s", tkr, e)
+        return None, ""
+    if not events:
+        return None, ""
+    today = datetime.now().date()
+    horizon = today + timedelta(days=int(days_ahead))
+    upcoming = []
+    for ev in events:
+        d = ev.get("date")
+        if not d:
+            continue
+        try:
+            ed = datetime.strptime(str(d), "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if ed < today:
+            continue
+        upcoming.append((ed, str(ev.get("type", "") or "").upper()))
+    if not upcoming:
+        return None, ""
+    upcoming.sort()
+    nearest_date, nearest_type = upcoming[0]  # tuple = (tanggal, tipe event)
+    label = f"{nearest_type} {nearest_date.strftime('%d/%m')}"
+    for ed, etype in upcoming:
+        if ed <= horizon and any(k in etype for k in CA_BLACKOUT_TYPES):
+            return (etype, ed.strftime("%d/%m")), label
+    return None, label
 
 
 def aggregate_sector_flow(signals: list) -> str:
@@ -211,6 +369,9 @@ def main():
     if disabled:
         logger.info("Watchlist disabled (WR rendah): %s", ", ".join(sorted(disabled)))
     CAPITAL = 20_000_000
+    # IDE5: earnings_blackout_days dari config.yaml exit_strategy (default 7) —
+    # jendela blackout corporate action (DIVIDEND/RIGHT/SPLIT/RUPS) ke depan.
+    earnings_blackout_days = int(CONFIG.get("exit_strategy", {}).get("earnings_blackout_days", 7) or 7)
     # M3: enabled dibaca dari config.yaml (v7.enabled), bukan hardcode True
     v7_engine.enabled = bool(CONFIG.get("v7", {}).get("enabled", True))
     # F1: override threshold/bobot V7 dari config.yaml (kosong = default hardcode engine)
@@ -266,6 +427,7 @@ def main():
     swing = []
     intra = []
     logged_signals = []
+    skip_reasons = []  # IDE5: alasan skip CA blackout (tampil di pesan)
 
     # Cek posisi terbuka dulu (harga dari Invezgo)
     def _get_price(tkr):
@@ -375,6 +537,25 @@ def main():
                 logger.warning("Cooldown: %s (intraday)", tkr)
                 intra_ok = False
 
+            # ── IDE5: CA calendar blackout — corporate action
+            # (DIVIDEND/RIGHT/SPLIT/RUPS) dalam H+earnings_blackout_days ke
+            # depan → SKIP sinyal (swing & intraday) + catat alasan. Calendar
+            # gagal/kosong = no-op (scan tetap jalan). ca_label dipakai kolom
+            # 'event' di perf CSV (IDE1) — event terdekat walau di luar jendela.
+            ca_block, ca_label = None, ""
+            if swing_ok or intra_ok:
+                try:
+                    ca_block, ca_label = _ca_calendar_check(ip, tkr, earnings_blackout_days)
+                except Exception as e:
+                    logger.debug("CA calendar check gagal %s: %s", tkr, e)
+                    ca_block, ca_label = None, ""
+                if ca_block:
+                    skip_reasons.append(
+                        f"⚠️ CA BLACKOUT: {tkr} {ca_block[0]} {ca_block[1]} — skip (H+{earnings_blackout_days})")
+                    logger.warning("CA blackout: %s (%s %s)", tkr, ca_block[0], ca_block[1])
+                    swing_ok = False
+                    intra_ok = False
+
             # L12: recommend_entry dipanggil SEKALI per ticker (sebelumnya 2x
             # untuk ticker yang lolos swing+intraday — hasilnya identik).
             entry_rec = None
@@ -383,7 +564,8 @@ def main():
 
             if swing_ok:
                 ex = compute_exit(price, atr, regime, "swing", weekly)
-                sz = position_sizing(CAPITAL, price, swing_score, atr_pct)
+                # IDE6: sl FINAL dari compute_exit → risk_amount risiko sejati
+                sz = position_sizing(CAPITAL, price, swing_score, atr_pct, sl=ex["stop_loss"])
                 swing.append({
                     "tkr": tkr, "score": swing_score, "price": price,
                     "exit": ex, "sizing": sz,
@@ -401,11 +583,21 @@ def main():
                     "sl": ex["stop_loss"], "tp": ex["take_profit"],
                     "lots": sz.get("lots", 0), "cost": sz.get("cost", 0),
                     "regime": regime,
+                    # IDE1 (faktor DNA): nilai faktor 0-100 + atr_pct/vol_ratio + event CA
+                    "broker_flow": round(float(v7r["factors"].get("broker_flow", 0) or 0), 1),
+                    "foreign_flow": round(float(v7r["factors"].get("foreign_flow", 0) or 0), 1),
+                    "fundamental": round(float(v7r["factors"].get("fundamental", 0) or 0), 1),
+                    "earnings_momentum": round(float(v7r["factors"].get("earnings_momentum", 0) or 0), 1),
+                    "weekly_trend": weekly,
+                    "atr_pct": round(atr_pct, 2),
+                    "vol_ratio": round(vol_ratio, 2),
+                    "event": ca_label,
                 })
 
             if intra_ok:
                 ex2 = compute_exit(price, atr, regime, "intraday", weekly)
-                sz2 = position_sizing(CAPITAL, price, v7r["score"], atr_pct)
+                # IDE6: sl FINAL dari compute_exit → risk_amount risiko sejati
+                sz2 = position_sizing(CAPITAL, price, v7r["score"], atr_pct, sl=ex2["stop_loss"])
                 intra.append({
                     "tkr": tkr, "score": v7r["score"], "price": price,
                     "exit": ex2, "sizing": sz2, "bf": bf, "ff": ff, "earn": earn, "vol": vol_ratio,
@@ -419,6 +611,15 @@ def main():
                     "sl": ex2["stop_loss"], "tp": ex2["take_profit"],
                     "lots": sz2.get("lots", 0), "cost": sz2.get("cost", 0),
                     "regime": regime,
+                    # IDE1 (faktor DNA): nilai faktor 0-100 + atr_pct/vol_ratio + event CA
+                    "broker_flow": round(float(v7r["factors"].get("broker_flow", 0) or 0), 1),
+                    "foreign_flow": round(float(v7r["factors"].get("foreign_flow", 0) or 0), 1),
+                    "fundamental": round(float(v7r["factors"].get("fundamental", 0) or 0), 1),
+                    "earnings_momentum": round(float(v7r["factors"].get("earnings_momentum", 0) or 0), 1),
+                    "weekly_trend": weekly,
+                    "atr_pct": round(atr_pct, 2),
+                    "vol_ratio": round(vol_ratio, 2),
+                    "event": ca_label,
                 })
 
             # Record cooldown per MODE yang lolos (R3) — key (ticker, mode),
@@ -451,6 +652,21 @@ def main():
             logger.warning("C2: %s", w)
     else:
         concentration_warnings = []
+
+    # ── IDE6: Guard TOTAL RISK — Σ risk_amount (dedup ticker 2 mode, pakai
+    # mode dgn risk lebih besar) ≤ max_total_risk_pct% CAPITAL (default 3% =
+    # Rp600rb @ modal 20jt). risk_amount sekarang risiko SEJATI (entry−SL)/entry
+    # × cost dari position_sizing. Dijalankan SETELAH C2 (lot sudah dikecilkan
+    # untuk konsentrasi grup); kalau masih lewat → lot ber-risk tertinggi
+    # diturunkan bertahap. Peringatan digabung ke concentration_warnings supaya
+    # tampil di pesan Telegram lewat jalur yang sama.
+    if portfolio_cfg.get("enabled", True):
+        max_risk_pct = float(portfolio_cfg.get("max_total_risk_pct", 3.0))
+        risk_warnings = enforce_total_risk_guard(
+            swing, intra, logged_signals, CAPITAL, max_risk_pct=max_risk_pct)
+        concentration_warnings.extend(risk_warnings)
+        for w in risk_warnings:
+            logger.warning("IDE6: %s", w)
 
     # ── Log performa sinyal ke CSV (dedup persistén: ±1% harga & <14 hari) ──
     # N7-FIX: path SELALU data/perf_tracker_v7.csv (hardcode, sama seperti
@@ -501,6 +717,10 @@ def main():
         extra_parts.append(format_position_alerts(position_alerts))
     if sector_line:
         extra_parts.append(sector_line)
+    # IDE5: alasan skip CA blackout — tampil sebagai bagian terpisah (budget
+    # extra_parts 300 chars; kalau banyak skip, di-truncate aman di formatter).
+    if skip_reasons:
+        extra_parts.append("⛔ CA BLACKOUT (skip):\n" + "\n".join(skip_reasons))
     output_message = format_message(swing, intra, sentiment, CAPITAL,
                                     narratives=narratives,
                                     concentration_warnings=concentration_warnings,
