@@ -1519,6 +1519,341 @@ class TestBrokerTrendWeightsIntegration(unittest.TestCase):
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# LAPISAN 2 — FLOW SPIKE (L2-A) & IHSG LATE-SESSION SURGE (L2-B)
+# Insight bandarmologi user: (1) net buy MENDADAK = jebakan distribusi besok
+# (bandar bergerak diam); (2) IHSG LONCAT penutupan 15.30-16.00 = waspada
+# distribusi besok (bandar ajak ritel beli).
+# ══════════════════════════════════════════════════════════════════════════
+
+def _mk_intraday_bars(day_closes_map):
+    """Deret intraday 5-menit sintetis {datetime, close} utk deteksi late-surge.
+
+    day_closes_map : dict {'YYYY-MM-DD': {HH:MM: close}} — close per waktu
+    spesifik; waktu lain memakai close bar pertama (flat). Waktu 08:55-16:00
+    step 5 menit (86 bar/hari) — meniru get_index_intraday (close auction 16:00).
+    """
+    rows = []
+    for d, tm in day_closes_map.items():
+        base = next(iter(tm.values()))
+        for m in range(8 * 60 + 55, 16 * 60 + 1, 5):
+            hh, mm = divmod(m, 60)
+            t = f"{hh:02d}:{mm:02d}"
+            rows.append({"datetime": f"{d} {t}", "close": tm.get(t, base)})
+    return rows
+
+
+class TestFlowSpikeDetection(unittest.TestCase):
+    """L2-A — detect_flow_spike + cap skor factor_broker_trend saat spike."""
+
+    def setUp(self):
+        v7_engine._broker_trend_mem_cache.clear()
+
+    def tearDown(self):
+        v7_engine._broker_trend_mem_cache.clear()
+
+    def _patch_hist(self, hist):
+        return mock.patch.object(v7_engine, "_get_broker_flow_history_cached",
+                                 return_value=hist)
+
+    def test_1d_spike_5x_baseline_detected_and_score_capped(self):
+        # 19 hari baseline 1B + 1 hari MENDADAK 5B (5× rata-rata harian)
+        vals = [1e9] * 19 + [5e9]
+        spk = v7_engine.detect_flow_spike(vals)
+        self.assertTrue(spk["spike"])
+        self.assertEqual(spk["kind"], "1d")
+        self.assertAlmostEqual(spk["avg_20d_pos"], 1.2e9)
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertIs(r["flow_spike"], True)
+        self.assertLessEqual(r["score"], 50,
+                             "spike → JANGAN beri bonus: skor di-cap netral 50")
+        self.assertIn("flow spike", r["detail"])
+        self.assertIn("waspada distribusi", r["detail"])
+        # bandingkan: tanpa spike (akumulasi konsisten) skor jauh lebih tinggi
+        with self._patch_hist(_broker_hist([1e9] * 20)):
+            r_norm = v7_engine.factor_broker_trend("BRPT")
+        self.assertGreater(r_norm["score"], r["score"])
+
+    def test_5d_spike_detected(self):
+        # baseline 0.5B, 5 hari terakhir 3B → net_5d 15B > 12.5×1.125B (kondisi A)
+        vals = [0.5e9] * 15 + [3e9] * 5
+        spk = v7_engine.detect_flow_spike(vals)
+        self.assertTrue(spk["spike"])
+        self.assertEqual(spk["kind"], "5d")
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertIs(r["flow_spike"], True)
+        self.assertLessEqual(r["score"], 50)
+
+    def test_consistent_accumulation_no_spike_high_score(self):
+        # Akumulasi konsisten 20 hari 1B (streak, tanpa spike) → skor normal TINGGI
+        vals = [1e9] * 20
+        spk = v7_engine.detect_flow_spike(vals)
+        self.assertFalse(spk["spike"])
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertIs(r.get("flow_spike"), False)
+        self.assertGreater(r["score"], 70, "akumulasi konsisten tanpa spike → skor tinggi")
+        self.assertNotIn("flow spike", r["detail"])
+
+    def test_choppy_flow_no_spike(self):
+        # 10 hari +1B lalu 10 hari -0.5B: bukan spike, flow campuran
+        vals = [1e9] * 10 + [-0.5e9] * 10
+        self.assertFalse(v7_engine.detect_flow_spike(vals)["spike"])
+
+    def test_no_positive_baseline_no_spike(self):
+        # Semua hari negatif (baseline 0) → bukan spike (sudah distribusi)
+        vals = [-1e9] * 20
+        spk = v7_engine.detect_flow_spike(vals)
+        self.assertFalse(spk["spike"])
+        self.assertEqual(spk["avg_20d_pos"], 0.0)
+
+    def test_empty_or_invalid_data_no_spike(self):
+        for nets in ([], None, ["abc", "xyz"], [float("nan"), 1e9]):
+            spk = v7_engine.detect_flow_spike(nets)
+            self.assertFalse(spk["spike"], f"data {nets!r} → bukan spike")
+
+    def test_gradual_ramp_not_spike(self):
+        # Ramp 1B→10.5B (momentum naik sehat, bukan mendadak) — skenario A IDE4
+        vals = [1e9 + i * 0.5e9 for i in range(20)]
+        spk = v7_engine.detect_flow_spike(vals)
+        self.assertFalse(spk["spike"])
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertIs(r.get("flow_spike"), False)
+        self.assertGreater(r["score"], 70)
+
+    def test_compute_exposes_flow_spike_flag(self):
+        old_enabled = v7_engine.enabled
+        v7_engine.enabled = True
+        base = {"score": 50, "detail": "x"}
+        try:
+            with mock.patch.object(v7_engine, "factor_broker_flow", return_value=dict(base)), \
+                 mock.patch.object(v7_engine, "factor_foreign_flow", return_value=dict(base)), \
+                 mock.patch.object(v7_engine, "factor_fundamental_quality", return_value=dict(base)), \
+                 mock.patch.object(v7_engine, "factor_earnings_momentum", return_value=dict(base)), \
+                 mock.patch.object(v7_engine, "factor_broker_trend",
+                                   side_effect=[{"score": 80, "detail": "trend 20d +5.0B streak5",
+                                                 "flow_spike": True},
+                                                {"score": 80, "detail": "trend 20d +5.0B streak5"}]):
+                r_spike = v7_engine.compute("BRPT", 50.0, "RANGING")
+                r_plain = v7_engine.compute("BRPT", 50.0, "RANGING")
+            self.assertIs(r_spike["factors"]["flow_spike"], True)
+            self.assertIs(r_plain["factors"]["flow_spike"], False)
+        finally:
+            v7_engine.enabled = old_enabled
+
+
+class TestLateSessionSurge(unittest.TestCase):
+    """L2-B — detect_late_session_surge: loncat kodok 15.30-16.00 (IHSG)."""
+
+    @staticmethod
+    def _df(n=80):
+        import numpy as np
+        rng = np.random.default_rng(42)
+        close = 7000 + np.cumsum(rng.normal(0, 30, n))
+        high = close + rng.uniform(5, 40, n)
+        low = close - rng.uniform(5, 40, n)
+        vol = rng.uniform(1e9, 3e9, n)
+        idx = pd.date_range("2026-01-01", periods=n, freq="D")
+        return pd.DataFrame({"open": close, "high": high, "low": low,
+                             "close": close, "volume": vol}, index=idx)
+
+    def test_surge_absolute_0_5pct_detected(self):
+        import market_sentiment as ms
+        rows = _mk_intraday_bars({"2026-08-10": {
+            "15:30": 7000.0, "15:35": 7007.0, "15:40": 7014.0,
+            "15:45": 7021.0, "15:50": 7028.0, "15:55": 7035.0, "16:00": 7035.0}})
+        r = ms.detect_late_session_surge(rows)
+        self.assertTrue(r["late_surge"], "kenaikan 0.5% di 30 mnt terakhir = surge")
+        self.assertAlmostEqual(r["surge_pct"], 7035.0 / 7000.0 - 1, places=5)
+        self.assertEqual(r["date"], "2026-08-10")
+        self.assertIn("15:30", r["window"])
+
+    def test_flat_close_no_surge(self):
+        import market_sentiment as ms
+        rows = _mk_intraday_bars({"2026-08-10": {"08:55": 7000.0, "16:00": 7000.0}})
+        r = ms.detect_late_session_surge(rows)
+        self.assertFalse(r["late_surge"])
+        self.assertEqual(r["surge_pct"], 0.0)
+
+    def test_relative_surge_2x_avg_detected_without_absolute(self):
+        # Sesi berombak ±2 poin per 30 mnt (avg ~0.029%); 30 mnt terakhir +0.12%
+        # → kenaikan mutlak < 0.3% tapi > 2× rata-rata → surge RELATIF
+        import market_sentiment as ms
+        tm = {}
+        for m in range(8 * 60 + 55, 16 * 60 + 1, 5):
+            hh, mm = divmod(m, 60)
+            t = f"{hh:02d}:{mm:02d}"
+            step = (m - (8 * 60 + 55)) // 5
+            tm[t] = 7000.0 if (step // 6) % 2 == 0 else 7002.0
+        tm.update({"15:30": 7000.0, "15:35": 7003.0, "15:40": 7005.0,
+                   "15:45": 7006.0, "15:50": 7007.0, "15:55": 7008.0,
+                   "16:00": 7008.4})
+        r = ms.detect_late_session_surge(_mk_intraday_bars({"2026-08-10": tm}))
+        self.assertTrue(r["late_surge"], "kenaikan > 2× rata-rata pergerakan 30 mnt = surge")
+        self.assertLess(r["surge_pct"], ms.LATE_SURGE_MIN_PCT,
+                        "kenaikan mutlak kecil — trigger lewat cabang RELATIF")
+        self.assertGreater(r["surge_pct"], 2 * r["avg_30m_pct"])
+
+    def test_incomplete_session_ignored(self):
+        # Bar terakhir 12:00 (sesi belum lengkap) → jangan analisis parsial
+        import market_sentiment as ms
+        rows = []
+        for m in range(8 * 60 + 55, 12 * 60 + 1, 5):
+            hh, mm = divmod(m, 60)
+            rows.append({"datetime": f"2026-08-10 {hh:02d}:{mm:02d}", "close": 7000.0})
+        self.assertFalse(ms.detect_late_session_surge(rows)["late_surge"])
+
+    def test_empty_data_false(self):
+        import market_sentiment as ms
+        for rows in ([], None, [{"close": "abc"}], [{"datetime": "x"}]):
+            r = ms.detect_late_session_surge(rows)
+            self.assertFalse(r["late_surge"], f"data {rows!r} → bukan surge")
+            self.assertIn("late_surge", r)
+
+    def test_predict_integration_with_provider(self):
+        import market_sentiment as ms
+        df = self._df()
+
+        class ProvSurge:
+            def get_index_intraday(self):
+                return _mk_intraday_bars({"2026-08-10": {
+                    "15:30": 7000.0, "15:35": 7007.0, "15:40": 7014.0,
+                    "15:45": 7021.0, "15:50": 7028.0, "15:55": 7035.0, "16:00": 7035.0}})
+
+        res = ms.predict_market_sentiment(df, ProvSurge())
+        self.assertIs(res["late_surge"], True)
+        self.assertTrue(res["late_surge_label"])
+        self.assertIn("+0.50%", res["late_surge_label"])
+        self.assertTrue(any("loncat penutupan" in d for d in res["details"]))
+
+        class ProvPlain:  # provider tanpa method intraday indeks → netral
+            pass
+
+        res2 = ms.predict_market_sentiment(df, ProvPlain())
+        self.assertIs(res2["late_surge"], False)
+        self.assertEqual(res2["late_surge_label"], "")
+        self.assertFalse(any("loncat penutupan" in d for d in res2["details"]))
+
+    def test_predict_without_provider_false(self):
+        import market_sentiment as ms
+        res = ms.predict_market_sentiment(self._df())
+        self.assertIs(res["late_surge"], False)
+
+
+class TestFlowSpikeWarningsV7Scan(unittest.TestCase):
+    """L2-A — flow_spike_warnings di v7_scan: maks 3, top skor, dedup ticker."""
+
+    @classmethod
+    def setUpClass(cls):
+        class _NullHandler:
+            level = 1000
+            def setFormatter(self, *a, **k):
+                return None
+        with mock.patch("logging.FileHandler", _NullHandler):
+            import v7_scan as v7s
+        cls.v7s = v7s
+
+    def _sig(self, tkr, score, spike=True):
+        return {"tkr": tkr, "score": score, "flow_spike": spike}
+
+    def test_top3_only_and_dedup_across_modes(self):
+        swing = [self._sig("BRPT", 70.0), self._sig("BUMI", 60.0)]
+        intra = [self._sig("BUMI", 75.0), self._sig("TPIA", 50.0), self._sig("DSSA", 40.0)]
+        warns = self.v7s.flow_spike_warnings(swing, intra, max_n=3)
+        self.assertEqual(len(warns), 3, "cap 3 warning (top skor)")
+        self.assertEqual(warns[0].count("BUMI"), 1, "BUMI dihitung sekali (skor tertinggi 75)")
+        self.assertIn("BRPT", warns[1])
+        self.assertIn("TPIA", warns[2])
+        self.assertNotIn("DSSA", " ".join(warns), "skor terendah dibuang")
+        for w in warns:
+            self.assertIn("FLOW SPIKE", w)
+            self.assertIn("waspada distribusi", w)
+
+    def test_no_spike_no_warnings(self):
+        swing = [self._sig("BRPT", 70.0, spike=False), self._sig("BUMI", 60.0, spike=False)]
+        self.assertEqual(self.v7s.flow_spike_warnings(swing, []), [])
+        self.assertEqual(self.v7s.flow_spike_warnings([], []), [])
+
+    def test_warnings_render_in_telegram_risk_section(self):
+        warns = [
+            "⚠️ FLOW SPIKE: BRPT net buy mendadak — waspada distribusi (jebakan bandar)",
+            "⚠️ IHSG LONCAT: +0.52% di 15.30-16.00 (vs rata-rata 0.10%/30mnt) — waspada distribusi besok",
+        ]
+        msg = telegram_formatter.format_message([], [], capital=20_000_000,
+                                                concentration_warnings=warns)
+        self.assertIn("⚠️ Warning: Flow spike BRPT net buy mendadak", msg)
+        self.assertIn("waspada distribusi", msg)
+        self.assertIn("⚠️ Warning: IHSG loncat penutupan +0.52% di 15.30-16.00", msg)
+        self.assertIn("waspada distribusi besok", msg)
+
+
+class TestGetIndexIntraday(unittest.TestCase):
+    """L2-B — InvezgoProvider.get_index_intraday: parsing deret 5-menit indeks."""
+
+    def test_parses_sorted_rows_and_caches(self):
+        import data_invezgo as di
+
+        class FakeAnalysis:
+            def get_multi_time_chart(self, code, from_date, to_date, timeframe):
+                self.called = True
+                return [
+                    # tidak urut sengaja — harus di-sort ascending
+                    {"date": "2026-08-10T16:00:00.000Z", "open": 6365.0, "high": 6365.0,
+                     "low": 6365.0, "close": 6365.374, "volume": "815.948.000"},
+                    {"date": "2026-08-10T08:55:00.000Z", "open": 6409.0, "high": 6409.0,
+                     "low": 6409.0, "close": 6409.0, "volume": 1000},
+                ]
+
+        class FakeClient:
+            analysis = FakeAnalysis()
+
+        tmp = tempfile.mkdtemp()
+        old_dir = di._DATA_DIR
+        di._DATA_DIR = tmp
+        try:
+            with mock.patch.object(di, "get_client", return_value=FakeClient()):
+                prov = di.InvezgoProvider()
+                rows = prov.get_index_intraday(code="COMPOSITE", days=3, use_cache=True)
+        finally:
+            di._DATA_DIR = old_dir
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["datetime"], "2026-08-10 08:55")
+        self.assertEqual(rows[0]["time"], "08:55")
+        self.assertEqual(rows[1]["datetime"], "2026-08-10 16:00", "harus ascending")
+        self.assertAlmostEqual(rows[1]["close"], 6365.374)
+        self.assertEqual(rows[1]["volume"], 815948000, "format ribuan ID '815.948.000'")
+        # cache NON-kosong ditulis (di tempdir, bukan data/ asli)
+        files = [f for f in os.listdir(tmp) if f.startswith("intraday_idx_COMPOSITE_3d_5")]
+        self.assertEqual(len(files), 1)
+        with open(os.path.join(tmp, files[0]), encoding="utf-8") as f:
+            cached = json.load(f)
+        self.assertEqual(len(cached), 2)
+
+    def test_error_response_returns_empty(self):
+        import data_invezgo as di
+
+        class FakeAnalysis:
+            def get_multi_time_chart(self, code, from_date, to_date, timeframe):
+                return {"message": "boom", "error": "Unprocessable Entity"}
+
+        class FakeClient:
+            analysis = FakeAnalysis()
+
+        tmp = tempfile.mkdtemp()
+        old_dir = di._DATA_DIR
+        di._DATA_DIR = tmp
+        try:
+            with mock.patch.object(di, "get_client", return_value=FakeClient()):
+                prov = di.InvezgoProvider()
+                rows = prov.get_index_intraday(code="COMPOSITE", days=3, use_cache=False)
+        finally:
+            di._DATA_DIR = old_dir
+        self.assertEqual(rows, [], "response error → [] (scan tidak crash)")
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # TEST 5b — C2 guard konsentrasi grup konglomerat (v7_scan)
 # ══════════════════════════════════════════════════════════════════════════
 

@@ -7,9 +7,115 @@ Digunakan oleh v7_scan.py untuk memberi konteks market di output Telegram.
 import numpy as np
 import pandas as pd
 import logging
-from datetime import datetime
+import math
+from datetime import datetime, timedelta
 
 logger = logging.getLogger("market_sentiment")
+
+# ══════════════════════════════════════════════════════════════════════════
+# L2-B: IHSG LATE-SESSION SURGE — "loncat kodok" penutupan (bandarmologi user)
+# ══════════════════════════════════════════════════════════════════════════
+# Insight user (trader berpengalaman): IHSG yang MELONCAT di 30 menit terakhir
+# sesi (15.30-16.00) sering dipakai bandar utk mengajak ritel beli — sinyal
+# waspada distribusi BESOK. Sumber data: get_index_intraday (deret 5 menit,
+# get_multi_time_chart COMPOSITE — terverifikasi tersedia via API nyata).
+LATE_SESSION_START = "15:30"
+LATE_SURGE_MIN_PCT = 0.003      # kenaikan 30 mnt terakhir > 0.3%
+LATE_SURGE_REL_MULT = 2.0       # ATAU > 2× rata-rata pergerakan per 30 mnt sesi itu
+_MIN_COMPLETE_TIME = "15:00"    # bar terakhir < 15:00 → sesi belum lengkap, skip
+
+
+def _sub30(hhmm: str) -> str:
+    """'HH:MM' − 30 menit → 'HH:MM' (contoh '16:00' → '15:30')."""
+    try:
+        h, m = int(hhmm[:2]), int(hhmm[3:5])
+    except (ValueError, IndexError):
+        return hhmm
+    return (datetime(2000, 1, 1, h, m) - timedelta(minutes=30)).strftime("%H:%M")
+
+
+def detect_late_session_surge(intraday_rows, min_pct: float = LATE_SURGE_MIN_PCT,
+                              rel_mult: float = LATE_SURGE_REL_MULT) -> dict:
+    """Deteksi lonjakan IHSG di 30 menit terakhir sesi (15.30-16.00).
+
+    Parameter
+    ---------
+    intraday_rows : list[dict] — deret 5-menit ascending dari
+        InvezgoProvider.get_index_intraday() (key datetime 'YYYY-MM-DD HH:MM'
+        dan close; key lain diabaikan). Hanya hari trading TERAKHIR yang
+        dianalisis.
+    min_pct : float — ambang mutlak kenaikan 30 mnt terakhir (default 0.3%).
+    rel_mult : float — pengali ambang relatif vs rata-rata pergerakan per 30
+        menit sesi itu (default 2×).
+
+    Logika
+    ------
+      last_30m_pct = close(bar terakhir) / close(bar ≤ 30 mnt sebelumnya) − 1
+      avg_30m_pct  = rata-rata |pergerakan| tiap jendela 30 mnt (6 bar 5-mnt)
+      SURGE = last_30m_pct > min_pct  ATAU
+              (last_30m_pct > 0 DAN last_30m_pct > rel_mult × avg_30m_pct)
+    Sesi yang belum lengkap (bar terakhir < 15:00) / data kurang / error →
+    late_surge False (tidak pernah crash).
+
+    Returns dict: {late_surge, surge_pct, avg_30m_pct, date, window}
+    """
+    empty = {"late_surge": False, "surge_pct": 0.0, "avg_30m_pct": 0.0,
+             "date": "", "window": f"{LATE_SESSION_START}-16:00"}
+    if not intraday_rows:
+        return dict(empty)
+    try:
+        bars = []
+        for r in intraday_rows:
+            if not isinstance(r, dict):
+                continue
+            ds = str(r.get("datetime", "") or "").strip()
+            try:
+                c = float(r.get("close"))
+            except (TypeError, ValueError):
+                continue
+            if not ds or not math.isfinite(c):
+                continue
+            bars.append((ds, c))
+        if not bars:
+            return dict(empty)
+        bars.sort()
+        # ── hari trading terakhir ──
+        last_day = bars[-1][0][:10]
+        day_bars = [b for b in bars if b[0][:10] == last_day]
+        if len(day_bars) < 8:
+            return dict(empty)
+        end_dt, end_close = day_bars[-1]
+        if end_dt[11:] < _MIN_COMPLETE_TIME:
+            return dict(empty)  # sesi belum lengkap — jangan analisis parsial
+        # bar acuan = bar terakhir dengan waktu ≤ (waktu bar akhir − 30 mnt)
+        ref = None
+        for ds, c in day_bars:
+            if ds <= end_dt[:11] + _sub30(end_dt[11:]):
+                ref = (ds, c)
+        if ref is None or ref[1] <= 0 or end_close <= 0:
+            return dict(empty)
+        last_30m_pct = end_close / ref[1] - 1.0
+
+        # ── rata-rata pergerakan per 30 mnt (6 bar) sesi itu ──
+        moves = []
+        for i in range(6, len(day_bars)):
+            prev = day_bars[i - 6][1]
+            if prev > 0:
+                moves.append(abs(day_bars[i][1] / prev - 1.0))
+        avg_30m = (sum(moves) / len(moves)) if moves else 0.0
+
+        surge = (last_30m_pct > min_pct) or (
+            last_30m_pct > 0 and avg_30m > 0 and last_30m_pct > rel_mult * avg_30m)
+        return {
+            "late_surge": bool(surge),
+            "surge_pct": round(last_30m_pct, 5),
+            "avg_30m_pct": round(avg_30m, 5),
+            "date": last_day,
+            "window": f"{LATE_SESSION_START}-16:00",
+        }
+    except Exception as e:
+        logger.debug("Late-session surge error: %s", e)
+        return dict(empty)
 
 
 def _compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -132,8 +238,11 @@ def predict_market_sentiment(df_ihsg: pd.DataFrame, invezgo_provider=None) -> di
         IHSG historical data from fetch_ihsg_cached().
         Expected columns: open, high, low, close, volume
     invezgo_provider : InvezgoProvider, optional
-        TIDAK DIPAKAI — endpoint broker Invezgo (get_summary_stock) menolak
-        kode indeks (422), jadi foreign flow IHSG tidak tersedia.
+        L2-B: dipakai utk data intraday IHSG (get_index_intraday — deret 5
+        menit) → deteksi late-session surge ("loncat kodok" penutupan). Kalau
+        provider tidak punya method tsb / gagal → late_surge False (netral,
+        tidak crash). Catatan: endpoint broker Invezgo (get_summary_stock)
+        menolak kode indeks (422), jadi foreign flow IHSG tetap tidak tersedia.
 
     Returns
     -------
@@ -142,6 +251,8 @@ def predict_market_sentiment(df_ihsg: pd.DataFrame, invezgo_provider=None) -> di
         label     : "Aman" | "Waspada" | "Bahaya" | "Netral"
         reason    : str — 1-2 kalimat deskripsi
         details   : list[str] — faktor-faktor yang dianalisis
+        late_surge      : bool — IHSG meloncat di 15.30-16.00 (waspada distribusi)
+        late_surge_label: str — ringkasan lonjakan ('' kalau tidak ada surge)
     """
     # L2: guard None konsisten dengan compute_ihsg_key_levels (L86) — dulu
     # df_ihsg=None → AttributeError di .empty (crash scan).
@@ -278,9 +389,28 @@ def predict_market_sentiment(df_ihsg: pd.DataFrame, invezgo_provider=None) -> di
         sentiment, label = "YELLOW", "Netral"
         reason = "⚪ NETRAL: IHSG sideway"
 
+    # ── 8. IHSG late-session surge (L2-B, bandarmologi user) ──
+    # "Loncat kodok" 15.30-16.00 = bandar ajak ritel beli → waspada distribusi
+    # besok. Provider tanpa get_index_intraday / error → netral (tidak crash).
+    late = {"late_surge": False, "surge_pct": 0.0, "avg_30m_pct": 0.0, "date": ""}
+    if invezgo_provider is not None and hasattr(invezgo_provider, "get_index_intraday"):
+        try:
+            late = detect_late_session_surge(invezgo_provider.get_index_intraday())
+        except Exception as e:
+            logger.debug("Late-session surge gagal: %s", e)
+    if late.get("late_surge"):
+        details.append(
+            f"IHSG loncat penutupan {late['surge_pct']*100:+.2f}% "
+            f"({late['window']}) — vs rata-rata {late['avg_30m_pct']*100:.2f}%/30mnt")
+
     return {
         "sentiment": sentiment,
         "label": label,
         "reason": reason,
         "details": details,
+        "late_surge": bool(late.get("late_surge")),
+        "late_surge_label": (
+            f"{late['surge_pct']*100:+.2f}% di {late.get('window', LATE_SESSION_START + '-16:00')} "
+            f"(vs rata-rata {late['avg_30m_pct']*100:.2f}%/30mnt)"
+            if late.get("late_surge") else ""),
     }

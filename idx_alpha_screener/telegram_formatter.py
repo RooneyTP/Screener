@@ -235,6 +235,12 @@ def _map_warning(w: str):
         head = "Total risk " + head[len("TOTAL RISK:"):].strip()
     elif head.startswith("CA BLACKOUT:"):
         head = "CA Blackout " + head[len("CA BLACKOUT:"):].strip()
+    elif head.startswith("FLOW SPIKE:"):
+        # L2-A: net buy mendadak = jebakan distribusi (bandarmologi user)
+        head = "Flow spike " + head[len("FLOW SPIKE:"):].strip()
+    elif head.startswith("IHSG LONCAT:"):
+        # L2-B: loncat kodok penutupan 15.30-16.00 (bandarmologi user)
+        head = "IHSG loncat penutupan " + head[len("IHSG LONCAT:"):].strip()
     # '45% > 40%' → '45% (>40%)'
     head = re.sub(r"(\d+(?:\.\d+)?%)\s*>\s*(\d+(?:\.\d+)?%)", r"\1 (>\2)", head)
     detail = detail.strip()

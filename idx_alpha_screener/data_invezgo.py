@@ -511,6 +511,87 @@ class InvezgoProvider:
             logger.debug("Gagal ambil intraday %s: %s", code, e)
             return {}
 
+    def get_index_intraday(self, code: str = "COMPOSITE", days: int = 5,
+                           timeframe: str = "5", use_cache: bool = True) -> list:
+        """Intraday time series INDEKS (IHSG) — deret 5 menit per bar.
+
+        VERIFIKASI API NYATA (2026-08-11): get_intraday_index() HANYA
+        mengembalikan snapshot OHLC (tanpa deret waktu), sedangkan
+        get_multi_time_chart(code, from_date, to_date, timeframe) mengembalikan
+        deret waktu asli untuk kode INDEKS (COMPOSITE). Catatan SDK:
+        timeframe API = ANGKA '1','5','15','30','60','D','W','M' — '5m' ditolak
+        API dengan 422 (diverifikasi langsung).
+
+        Timestamp API = waktu sesi LOKAL WIB dengan suffix 'Z' (bar terakhir
+        16:00 = closing auction; close bar 16:00 cocok PERSIS dengan close
+        harian get_index_history) → di-parse sebagai naive lokal.
+
+        Return list of dict ascending by datetime:
+            [{"datetime": "YYYY-MM-DD HH:MM", "date": "YYYY-MM-DD",
+              "time": "HH:MM", "open": float, "high": float, "low": float,
+              "close": float, "volume": int}, ...]
+        Cache data/intraday_idx_{CODE}_{days}d_{TF}.json TTL 8 jam (data
+        intraday paling sensitif waktu — scan 21:00 WIB selalu refetch).
+        Error / response tak dikenal → [] (scan tidak boleh crash).
+        """
+        api_code = _api_code(code)
+        safe = _safe_code(code)
+        cache_path = os.path.join(_DATA_DIR,
+                                  f"intraday_idx_{safe}_{int(days)}d_{timeframe}.json")
+        if use_cache and os.path.exists(cache_path):
+            age_hours = (time.time() - os.path.getmtime(cache_path)) / 3600
+            if age_hours < 8:
+                try:
+                    with open(cache_path, encoding="utf-8") as f:
+                        cached = json.load(f)
+                    if isinstance(cached, list) and cached:
+                        return cached
+                except Exception:
+                    pass
+
+        rows = []
+        try:
+            to_date = datetime.now().strftime("%Y-%m-%d")
+            # Buffer kalender ~2x+5 hari supaya dapat >= days hari trading
+            from_date = (datetime.now() - timedelta(days=int(days) * 2 + 5)).strftime("%Y-%m-%d")
+            data = self.client.analysis.get_multi_time_chart(
+                code=api_code, from_date=from_date, to_date=to_date,
+                timeframe=str(timeframe))
+            if isinstance(data, list):
+                for item in data:
+                    if not isinstance(item, dict):
+                        continue
+                    ds = str(item.get("date", "") or "").strip()
+                    if not ds:
+                        continue
+                    try:
+                        # 'Z' = sesi lokal WIB (lihat docstring) → naive lokal
+                        dt = datetime.fromisoformat(ds.replace("Z", "+00:00")).replace(tzinfo=None)
+                    except ValueError:
+                        continue
+                    rows.append({
+                        "datetime": dt.strftime("%Y-%m-%d %H:%M"),
+                        "date": dt.strftime("%Y-%m-%d"),
+                        "time": dt.strftime("%H:%M"),
+                        "open": _to_float(item.get("open", 0)),
+                        "high": _to_float(item.get("high", 0)),
+                        "low": _to_float(item.get("low", 0)),
+                        "close": _to_float(item.get("close", 0)),
+                        "volume": _to_int(item.get("volume", 0)),
+                    })
+                rows.sort(key=lambda r: r["datetime"])
+        except Exception as e:
+            logger.debug("Gagal ambil intraday indeks %s: %s", code, e)
+            rows = []
+        if use_cache and rows:
+            try:
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(rows, f)
+            except Exception:
+                pass
+        return rows
+
     def get_corporate_calendar(self, code: str, use_cache: bool = True) -> list:
         """Calendar corporate action Invezgo (IDE5) — get_calendar + cache 24 jam.
 

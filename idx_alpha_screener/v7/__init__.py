@@ -343,6 +343,56 @@ def _get_broker_flow_history_cached(code: str, days: int = 20) -> list:
     return hist
 
 
+# ── L2-A: FLOW SPIKE (bandarmologi user) — net buy MENDADAK = jebakan distribusi ──
+# Insight user (trader berpengalaman): bandar bergerak DIAM — net buy besar
+# yang muncul tiba-tiba sering justru persiapan DISTRIBUSI besok (bandar pakai
+# momentum utk jual ke ritel). Baseline = rata-rata harian hari POSITIF 20d
+# (irama akumulasi normal). Spike:
+#   A. net_5d > 2.5 × (avg_20d_pos × 5)   → total 5 hari ekstrem vs baseline
+#   B. net_1d terakhir > 3 × avg_20d_pos  → 1 hari ekstrem vs baseline
+FLOW_SPIKE_NET5D_MULT = 2.5
+FLOW_SPIKE_1D_MULT = 3.0
+
+
+def detect_flow_spike(nets: list) -> dict:
+    """Deteksi flow spike dari deret net_buy harian (ascending, terbaru akhir).
+
+    Returns {"spike": bool, "kind": "5d"|"1d"|"", "net_5d": float,
+             "avg_20d_pos": float, "last_1d": float}
+    Baseline 0 (tidak ada hari positif dalam 20d — flow sudah distribusi,
+    ditangani skor trend rendah) atau data kosong → spike False (netral).
+    """
+    out = {"spike": False, "kind": "", "net_5d": 0.0, "avg_20d_pos": 0.0,
+           "last_1d": 0.0}
+    if not nets:
+        return out
+    vals = []
+    for x in nets:
+        try:
+            v = float(x)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(v):
+            vals.append(v)
+    if not vals:
+        return out
+    window = vals[-20:]
+    pos = [v for v in window if v > 0]
+    avg_pos = (sum(pos) / len(pos)) if pos else 0.0
+    net5 = sum(window[-5:])
+    last1 = window[-1]
+    out.update({"net_5d": net5, "avg_20d_pos": avg_pos, "last_1d": last1})
+    if avg_pos <= 0:
+        return out  # baseline nol → bukan spike (sudah distribusi)
+    spike_a = net5 > FLOW_SPIKE_NET5D_MULT * avg_pos * 5.0
+    spike_b = last1 > FLOW_SPIKE_1D_MULT * avg_pos
+    if spike_a:
+        out["spike"], out["kind"] = True, "5d"
+    elif spike_b:
+        out["spike"], out["kind"] = True, "1d"
+    return out
+
+
 def factor_broker_trend(code: str, days: int = 20) -> dict:
     """Broker Flow TREND Factor (IDE4) — bandarmologi PEMBEDA, non-jenuh.
 
@@ -421,8 +471,23 @@ def factor_broker_trend(code: str, days: int = 20) -> dict:
             score += 5
             parts.append(f"streak{streak}")
 
+        # ── L2-A: flow spike — net buy MENDADAK = jebakan distribusi (bandar) ──
+        # Insight user: bandar bergerak DIAM; net buy besar yang tiba-tiba
+        # muncul sering persiapan DISTRIBUSI besok. Kalau spike → JANGAN beri
+        # bonus akumulasi: skor di-cap netral 50 + detail peringatan.
+        spk = detect_flow_spike(nets)
+        flow_spike = spk["spike"]
+        if flow_spike:
+            score = min(score, 50.0)
+            parts.append(f"flow_spike_{spk['kind']}")
+
+        detail = "trend " + (" ".join(parts) if parts else "flat")
+        if flow_spike:
+            detail += " | ⚠️ flow spike — waspada distribusi"
+
         return {"score": round(max(0.0, min(100.0, score)), 1),
-                "detail": "trend " + (" ".join(parts) if parts else "flat")}
+                "detail": detail,
+                "flow_spike": flow_spike}
 
     except Exception as e:
         logger.debug("Broker trend error %s: %s", code, e)
@@ -742,6 +807,7 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
             "broker_detail": bf["detail"],
             "broker_trend": bt["score"],              # IDE4
             "broker_trend_detail": bt["detail"],      # IDE4
+            "flow_spike": bt.get("flow_spike", False),  # L2-A: net buy mendadak (jebakan distribusi)
             "foreign_flow": ff["score"],
             "foreign_detail": ff["detail"],
             "fundamental": fq["score"],

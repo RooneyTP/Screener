@@ -385,6 +385,31 @@ def aggregate_sector_flow(signals: list) -> str:
     return "🏭 Grup: " + " | ".join(parts[:5])
 
 
+def flow_spike_warnings(swing: list, intra: list, max_n: int = 3) -> list:
+    """L2-A — warning FLOW SPIKE utk section MANAJEMEN RISIKO (maks max_n).
+
+    Ticker dengan flag flow_spike True (factor_broker_trend mendeteksi net buy
+    MENDADAK vs baseline 20d — insight bandarmologi user: bandar bergerak diam,
+    net buy besar yang tiba-tiba = jebakan distribusi besok) → peringatan
+    waspada distribusi. Cap 3 ticker TOP SKOR saja (hindari spam). Ticker yang
+    muncul di swing & intraday dihitung sekali (skor tertinggi).
+    """
+    best = {}
+    for _s in list(swing) + list(intra):
+        if not _s.get("flow_spike"):
+            continue
+        t = _s.get("tkr", "")
+        if not t:
+            continue
+        sc = float(_s.get("score", 0) or 0)
+        if t not in best or sc > best[t]:
+            best[t] = sc
+    out = []
+    for _t in sorted(best, key=best.get, reverse=True)[:int(max_n)]:
+        out.append(f"⚠️ FLOW SPIKE: {_t} net buy mendadak — waspada distribusi (jebakan bandar)")
+    return out
+
+
 def main():
     # Config
     with open(os.path.join(ROOT, "config.yaml"), encoding="utf-8", errors="replace") as f:
@@ -620,6 +645,7 @@ def main():
                     "exit": ex, "sizing": sz,
                     "bf": bf, "ff": ff, "earn": earn, "weekly": weekly, "brokers": brokers_raw,
                     "entry_rec": entry_rec, "group": group_of(tkr),
+                    "flow_spike": bool(v7r["factors"].get("flow_spike", False)),
                     "rsi": float(row.get("rsi", 0) or 0),
                     "vol_ratio": vol_ratio,
                 })
@@ -654,6 +680,7 @@ def main():
                     "tkr": tkr, "score": v7r["score"], "price": price,
                     "exit": ex2, "sizing": sz2, "bf": bf, "ff": ff, "earn": earn, "vol": vol_ratio,
                     "entry_rec": entry_rec, "group": group_of(tkr),
+                    "flow_spike": bool(v7r["factors"].get("flow_spike", False)),
                 })
                 logged_signals.append({
                     "ticker": tkr, "mode": "intraday", "score": v7r["score"],
@@ -722,6 +749,25 @@ def main():
         concentration_warnings.extend(risk_warnings)
         for w in risk_warnings:
             logger.warning("IDE6: %s", w)
+
+    # ── L2-A: FLOW SPIKE — net buy mendadak = jebakan distribusi (bandarmologi) ──
+    # Insight user: bandar bergerak DIAM; net buy besar yang tiba-tiba muncul
+    # sering persiapan distribusi besok. Warning di MANAJEMEN RISIKO, maks 3
+    # ticker TOP SKOR (hindari spam).
+    flow_warnings = flow_spike_warnings(swing, intra, max_n=3)
+    concentration_warnings.extend(flow_warnings)
+    for w in flow_warnings:
+        logger.warning("L2-A: %s", w)
+
+    # ── L2-B: IHSG LATE-SESSION SURGE — loncat kodok penutupan (bandarmologi) ──
+    # Insight user: IHSG meloncat 15.30-16.00 = bandar ajak ritel beli →
+    # waspada distribusi besok. Flag dari predict_market_sentiment (data
+    # intraday 5 menit get_index_intraday).
+    if sentiment.get("late_surge"):
+        _lbl = sentiment.get("late_surge_label", "")
+        _w = f"⚠️ IHSG LONCAT: {_lbl} — waspada distribusi besok"
+        concentration_warnings.append(_w)
+        logger.warning("L2-B: %s", _w)
 
     # ── Log performa sinyal ke CSV (dedup persistén: ±1% harga & <14 hari) ──
     # N7-FIX: path SELALU data/perf_tracker_v7.csv (hardcode, sama seperti
