@@ -636,6 +636,7 @@ def main():
                     "regime": regime,
                     # IDE1 (faktor DNA): nilai faktor 0-100 + atr_pct/vol_ratio + event CA
                     "broker_flow": round(float(v7r["factors"].get("broker_flow", 0) or 0), 1),
+                    "broker_trend": round(float(v7r["factors"].get("broker_trend", 0) or 0), 1),
                     "foreign_flow": round(float(v7r["factors"].get("foreign_flow", 0) or 0), 1),
                     "fundamental": round(float(v7r["factors"].get("fundamental", 0) or 0), 1),
                     "earnings_momentum": round(float(v7r["factors"].get("earnings_momentum", 0) or 0), 1),
@@ -666,6 +667,7 @@ def main():
                     "regime": regime,
                     # IDE1 (faktor DNA): nilai faktor 0-100 + atr_pct/vol_ratio + event CA
                     "broker_flow": round(float(v7r["factors"].get("broker_flow", 0) or 0), 1),
+                    "broker_trend": round(float(v7r["factors"].get("broker_trend", 0) or 0), 1),
                     "foreign_flow": round(float(v7r["factors"].get("foreign_flow", 0) or 0), 1),
                     "fundamental": round(float(v7r["factors"].get("fundamental", 0) or 0), 1),
                     "earnings_momentum": round(float(v7r["factors"].get("earnings_momentum", 0) or 0), 1),

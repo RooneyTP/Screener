@@ -179,15 +179,20 @@ v7:
     BEAR:              [58, 48, 42, 35, 28]
     RANGING:           [65, 55, 42, 35, 28]
     HIGH_VOLATILITY:   [65, 55, 42, 35, 28]
-  # Bobot faktor (total harus 1.0):
-  #   v4_score 0.40 | broker_flow 0.20 | foreign_flow 0.15
-  #   fundamental 0.15 | earnings_momentum 0.10
+  # Bobot faktor (total harus 1.0) — IDE4 (bandarmologi pembeda):
+  #   v4_score 0.30 | broker_flow 0.20 | foreign_flow 0.15
+  #   fundamental 0.15 | earnings_momentum 0.10 | broker_trend 0.10
+  # broker_trend = faktor TREN flow broker harian (5d/10d/20d/streak/momentum,
+  # dari get_inventory_chart_stock) — pembeda non-jenuh pengganti snapshot
+  # yang jenuh; v4_score digeser 0.40 → 0.30. Snapshot broker_flow tetap
+  # (informasi harian) dengan bobot 0.20.
   weights:
-    v4_score: 0.40
+    v4_score: 0.30
     broker_flow: 0.20
     foreign_flow: 0.15
     fundamental: 0.15
     earnings_momentum: 0.10
+    broker_trend: 0.10
 
 # ═══════════════════════════════════════════════════════════════
 # EXIT STRATEGY — Kapan keluar dari posisi (P0)

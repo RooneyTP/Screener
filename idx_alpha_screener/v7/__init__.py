@@ -21,11 +21,12 @@ THRESHOLDS = {"BULL":[62,52,45,38,30],"BEAR":[58,48,42,35,28],"RANGING":[60,50,4
 
 # Bobot default faktor V7 — total HARUS 1.0 (bisa di-override via config.yaml section v7)
 _V7_DEFAULT_WEIGHTS = {
-    "v4_score": 0.40,          # V4 core scoring (digeser 0.50 -> 0.40 utk earnings momentum)
-    "broker_flow": 0.20,       # Broker accumulation
+    "v4_score": 0.30,          # V4 core scoring (IDE4: digeser 0.40 -> 0.30 utk broker_trend)
+    "broker_flow": 0.20,       # Broker accumulation (snapshot harian — informasi hari ini)
     "foreign_flow": 0.15,      # Foreign flow
     "fundamental": 0.15,       # Fundamental quality
     "earnings_momentum": 0.10, # Earnings momentum (B1) — revenue growth, margin trend, D/E
+    "broker_trend": 0.10,      # IDE4: trend flow broker HISTORIS 5d/10d/20d — pembeda non-jenuh
 }
 _V7_WEIGHTS = dict(_V7_DEFAULT_WEIGHTS)
 
@@ -310,6 +311,124 @@ def factor_broker_flow(code: str) -> dict:
         return {"score": 40, "detail": "error", "brokers": ""}
 
 
+# ── IDE4: riwayat broker flow harian (bandarmologi pembeda) ──
+# Sumber: provider.get_broker_flow_history → get_inventory_chart_stock SDK
+# (get_summary_chart_stock ternyata infographic 4 item, BUKAN deret harian —
+# verifikasi API nyata 08/2026). Cache file TTL 24 jam DI KELOLA provider
+# (data/broker_flow_hist_{CODE}.json); memo in-memory di sini agar scan tidak
+# membaca file berulang dalam satu run.
+_broker_trend_mem_cache: dict = {}
+
+
+def _get_broker_flow_history_cached(code: str, days: int = 20) -> list:
+    """Riwayat net buy harian (ascending) — sekali per ticker per run.
+
+    Provider menangani cache file (TTL 24 jam); helper ini hanya memo
+    in-memory per run + guard provider None (→ [] netral, tidak crash).
+    """
+    code = _safe_code(code)
+    if code in _broker_trend_mem_cache:
+        return _broker_trend_mem_cache[code]
+    hist = []
+    provider = get_provider()
+    if provider is not None:
+        try:
+            hist = provider.get_broker_flow_history(code, days=days) or []
+        except Exception as e:
+            logger.debug("Broker flow history gagal %s: %s", code, e)
+            hist = []
+    if not isinstance(hist, list):
+        hist = []
+    _broker_trend_mem_cache[code] = hist
+    return hist
+
+
+def factor_broker_trend(code: str, days: int = 20) -> dict:
+    """Broker Flow TREND Factor (IDE4) — bandarmologi PEMBEDA, non-jenuh.
+
+    Memakai RIWAYAT net buy harian (get_broker_flow_history, cache 24 jam),
+    bukan snapshot 3 hari (yang jenuh di 85 untuk hampir semua saham).
+
+    Metrik dari deret net_buy (ascending, terbaru di akhir):
+      net_5d / net_10d / net_20d : Σ net buy jendela tsb
+      streak                     : hari berturut-turut net_buy > 0 (dari akhir)
+      momentum                   : rata-rata harian 5d vs 10d (naik/turun)
+
+    Skor 0-100 basis 50 — TIDAK jenuh: tiap komponen diskalakan relatif
+    terhadap total aktivitas (Σ|net|) sehingga magnitudo kecil tidak
+    mendapat skor penuh; skor TINGGI (>70) hanya tercapai kalau 20d positif
+    KUAT, fase 5d tidak melemah, momentum naik, DAN streak >= 2:
+      ±20 arah 20d | ±10 arah 10d | ±10 arah 5d | ±10 momentum | +5..+10 streak
+    Data tidak tersedia / error → netral 50 (TIDAK menghukum).
+    """
+    try:
+        hist = _get_broker_flow_history_cached(code, days=days)
+        if not hist or not isinstance(hist, list):
+            return {"score": 50, "detail": "no_data"}
+        nets = []
+        for h in hist:
+            if not isinstance(h, dict):
+                continue
+            try:
+                v = float(h.get("net_buy"))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(v):
+                nets.append(v)
+        if not nets:
+            return {"score": 50, "detail": "no_data"}
+
+        n = len(nets)
+        net5 = sum(nets[-5:]) if n >= 5 else None
+        net10 = sum(nets[-10:]) if n >= 10 else None
+        net20 = sum(nets[-20:]) if n >= 20 else None
+
+        streak = 0
+        for x in reversed(nets):
+            if x > 0:
+                streak += 1
+            else:
+                break
+
+        score = 50.0
+        parts = []
+
+        # 1) Arah & magnitudo RELATIF per jendela (±20 / ±10 / ±10)
+        for label, net_k, k in (("20d", net20, 20), ("10d", net10, 10), ("5d", net5, 5)):
+            if net_k is None:
+                continue
+            denom = sum(abs(x) for x in nets[-k:]) or 1.0
+            rel = max(-1.0, min(1.0, net_k / denom))  # -1..+1 — skala membedakan
+            score += (20.0 if k == 20 else 10.0) * rel
+            parts.append(f"{label} {net_k/1e9:+.1f}B")
+
+        # 2) Momentum: rata-rata harian 5d vs 10d
+        if net5 is not None and net10 is not None:
+            avg5, avg10 = net5 / 5.0, net10 / 10.0
+            base = (abs(avg5) + abs(avg10)) / 2.0
+            mom = 0.0 if base == 0 else max(-1.0, min(1.0, (avg5 - avg10) / base))
+            score += 10.0 * mom
+            parts.append("mom " + ("naik" if mom > 0.05 else "turun" if mom < -0.05 else "datar"))
+
+        # 3) Streak positif berturut-turut (bonus non-linear)
+        if streak >= 5:
+            score += 10
+            parts.append(f"streak{streak}")
+        elif streak >= 3:
+            score += 8
+            parts.append(f"streak{streak}")
+        elif streak >= 2:
+            score += 5
+            parts.append(f"streak{streak}")
+
+        return {"score": round(max(0.0, min(100.0, score)), 1),
+                "detail": "trend " + (" ".join(parts) if parts else "flat")}
+
+    except Exception as e:
+        logger.debug("Broker trend error %s: %s", code, e)
+        return {"score": 50, "detail": "error"}
+
+
 def factor_foreign_flow(code: str) -> dict:
     """Foreign Flow Factor — asing beli atau jual?"""
     try:
@@ -570,15 +689,22 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
     ff = factor_foreign_flow(code)
     fq = factor_fundamental_quality(code)
     em = factor_earnings_momentum(code)
+    bt = factor_broker_trend(code)  # IDE4: trend flow harian (pembeda non-jenuh)
     w = _V7_WEIGHTS
 
     # Weighted score (total bobot = 1.0)
+    # IDE4: broker_trend (riwayat 5d/10d/20d) FAKTOR TERPISAH berbobot 0.10 —
+    # desain terpilih: snapshot broker_flow (0.20) tetap sebagai informasi
+    # harian; trend historis punya bobot sendiri sehingga tidak saling
+    # meniadakan dan skor total tidak jenuh (alih-alih menggabung 60/40
+    # menjadi satu faktor, dua bobot terpisah lebih bersih & transparan).
     v7_score = (
         v4_score * w["v4_score"] +
         bf["score"] * w["broker_flow"] +
         ff["score"] * w["foreign_flow"] +
         fq["score"] * w["fundamental"] +
-        em["score"] * w["earnings_momentum"]
+        em["score"] * w["earnings_momentum"] +
+        bt["score"] * w["broker_trend"]
     )
 
     # ── V7 akurasi: weekly trend — post-adjustment di luar weighted sum ──
@@ -614,6 +740,8 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
             "v4_core": round(v4_score, 1),
             "broker_flow": bf["score"],
             "broker_detail": bf["detail"],
+            "broker_trend": bt["score"],              # IDE4
+            "broker_trend_detail": bt["detail"],      # IDE4
             "foreign_flow": ff["score"],
             "foreign_detail": ff["detail"],
             "fundamental": fq["score"],

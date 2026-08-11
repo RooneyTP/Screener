@@ -59,14 +59,15 @@ logger = logging.getLogger("perf_tracker")
 
 DEFAULT_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "perf_tracker_v7.csv")
 FIELDS = ["date", "ticker", "mode", "score", "signal", "entry_price", "sl", "tp", "lots", "cost", "fresh", "regime",
-          "broker_flow", "foreign_flow", "fundamental", "earnings_momentum", "weekly_trend",
+          "broker_flow", "broker_trend", "foreign_flow", "fundamental", "earnings_momentum", "weekly_trend",
           "atr_pct", "vol_ratio", "event", "risk_amount"]
 
 # Nilai default saat migrasi CSV lama (kolom ditambahkan ke header + baris lama di-backfill)
 # IDE1: kolom faktor DNA lama → 'unknown' (jujur: nilainya tidak diketahui, bukan 0);
 # event → '' (tidak ada event tercatat).
 FIELD_DEFAULTS = {"fresh": "1", "regime": "unknown",
-                  "broker_flow": "unknown", "foreign_flow": "unknown", "fundamental": "unknown",
+                  "broker_flow": "unknown", "broker_trend": "unknown",  # IDE4: kolom trend flow harian
+                  "foreign_flow": "unknown", "fundamental": "unknown",
                   "earnings_momentum": "unknown", "weekly_trend": "unknown",
                   "atr_pct": "unknown", "vol_ratio": "unknown", "event": "",
                   "risk_amount": "0"}
@@ -194,7 +195,7 @@ def find_previous_signal(csv_path, ticker, mode, entry_price,
 
 def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
                lots, cost, fresh=True, regime="unknown",
-               broker_flow="", foreign_flow="", fundamental="",
+               broker_flow="", broker_trend="", foreign_flow="", fundamental="",
                earnings_momentum="", weekly_trend="", atr_pct="",
                vol_ratio="", event="", risk_amount=0) -> bool:
     """Log satu sinyal ke CSV. Return True jika sukses.
@@ -206,6 +207,7 @@ def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
     IDE1 (faktor DNA) — kolom faktor dari v7r['factors'] + baris harga:
       broker_flow / foreign_flow / fundamental / earnings_momentum : nilai
       numerik faktor 0-100 (default '' kalau pemanggil lama tidak mengirim).
+      broker_trend : nilai faktor trend flow harian 0-100 (IDE4; default '').
       weekly_trend : string (BULLISH/BEARISH/NO_DATA; default 'unknown').
       atr_pct / vol_ratio : angka (default '').
       event : nama corporate action + tanggal atau '' (CA calendar IDE5).
@@ -227,6 +229,7 @@ def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
             "fresh": 1 if fresh else 0,
             "regime": regime if regime else "unknown",
             "broker_flow": broker_flow if broker_flow not in (None, "") else "",
+            "broker_trend": broker_trend if broker_trend not in (None, "") else "",
             "foreign_flow": foreign_flow if foreign_flow not in (None, "") else "",
             "fundamental": fundamental if fundamental not in (None, "") else "",
             "earnings_momentum": earnings_momentum if earnings_momentum not in (None, "") else "",

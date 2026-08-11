@@ -9,7 +9,7 @@ Cara pakai:
   df = provider.fetch_historical("BBCA", period="1y")
 """
 
-import os, logging, re, warnings, time, json
+import os, logging, re, warnings, time, json, math
 from datetime import datetime, timedelta
 from typing import Optional
 import pandas as pd
@@ -410,6 +410,85 @@ class InvezgoProvider:
         except Exception as e:
             logger.debug("Gagal ambil broker summary %s: %s", code, e)
             return {}
+
+    def get_broker_flow_history(self, code: str, days: int = 20, use_cache: bool = True) -> list:
+        """Broker flow HISTORIS harian (IDE4 — bandarmologi pembeda).
+
+        Sumber: SDK analysis.get_inventory_chart_stock (bukan
+        get_summary_chart_stock — verifikasi API nyata 08/2026: endpoint itu
+        hanya infographic 4 item {label,value,fill} = D/F Buy/Sell untuk SATU
+        periode, BUKAN deret harian). get_inventory_chart_stock mengembalikan
+        time series per broker: {"price": [{date,open,high,low,close,volume}],
+        "broker": [{"broker": kode, "data": [{date, value}]}]} dengan value =
+        net harian broker tsb (rupiah; negatif = jual bersih, positif = beli
+        bersih — terverifikasi non-kumulatif dari data BRPT).
+
+        Net buy per hari = Σ value semua broker pada tanggal tsb (investor
+        ALL — asing + lokal; breakdown terpisah bisa didapat via
+        investor='f'/'d' tapi butuh 1 call tambahan per ticker per hari).
+
+        Return list of dict ascending by date:
+            [{"date": "YYYY-MM-DD", "net_buy": float}, ...]
+        (maks `days` entri terbaru). Error / bentuk respons tak dikenal → []
+        + warning (scan TIDAK boleh crash). Cache data/broker_flow_hist_{CODE}.json
+        TTL 24 jam (pola get_corporate_calendar); hasil KOSONG tidak dicache
+        supaya data yang baru tersedia muncul di scan berikutnya.
+        """
+        api_code = _api_code(code)
+        safe = _safe_code(code)
+        cache_path = os.path.join(_DATA_DIR, f"broker_flow_hist_{safe}.json")
+        if use_cache and os.path.exists(cache_path):
+            age_hours = (time.time() - os.path.getmtime(cache_path)) / 3600
+            if age_hours < 24:
+                try:
+                    with open(cache_path, encoding="utf-8") as f:
+                        cached = json.load(f)
+                    if isinstance(cached, list) and cached:
+                        return cached
+                except Exception:
+                    pass
+
+        rows = []
+        try:
+            to_date = datetime.now().strftime("%Y-%m-%d")
+            # Buffer kalender ~1.8x+10 hari supaya dapat >= days hari trading
+            # (akhir pekan/libur); 30 hari kalender → 21 hari trading (nyata).
+            from_date = (datetime.now() - timedelta(days=int(days * 1.8) + 10)).strftime("%Y-%m-%d")
+            data = self.client.analysis.get_inventory_chart_stock(
+                code=api_code, from_date=from_date, to_date=to_date,
+                scope="val", investor="all", market="ALL",
+            )
+            if isinstance(data, dict):
+                by_date = {}
+                for br in (data.get("broker") or []):
+                    if not isinstance(br, dict):
+                        continue
+                    for item in (br.get("data") or []):
+                        if not isinstance(item, dict):
+                            continue
+                        d = str(item.get("date", "") or "").strip()
+                        if not d:
+                            continue
+                        try:
+                            v = float(item.get("value"))
+                        except (TypeError, ValueError):
+                            continue
+                        if not math.isfinite(v):
+                            continue
+                        by_date[d] = by_date.get(d, 0.0) + v
+                rows = [{"date": d, "net_buy": by_date[d]} for d in sorted(by_date)][-int(days):]
+        except Exception as e:
+            logger.warning("Gagal ambil broker flow history %s: %s", code, e)
+            rows = []
+        if use_cache and rows:
+            try:
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(rows, f)
+            except Exception:
+                pass
+        return rows
+
     
     def get_intraday(self, code: str):
         """Ambil snapshot harga real-time."""

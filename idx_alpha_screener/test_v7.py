@@ -46,6 +46,7 @@ from perf_tracker import (                                  # noqa: E402
     DEDUP_MAX_AGE_DAYS,
     DEDUP_TOLERANCE,
     FIELDS,
+    FIELD_DEFAULTS,
     dedup_and_log_batch,
     find_previous_signal,
     load_signals,
@@ -1324,6 +1325,10 @@ class TestV7WeeklyTrendScoring(unittest.TestCase):
                               return_value={"score": 80, "detail": "x"}),
             mock.patch.object(v7_engine, "factor_earnings_momentum",
                               return_value={"score": 80, "detail": "x"}),
+            # IDE4: faktor baru — di-mock sama (80) supaya tidak ada network
+            # call & weighted sum tetap teruji (base = 80 utk semua non-v4).
+            mock.patch.object(v7_engine, "factor_broker_trend",
+                              return_value={"score": 80, "detail": "x"}),
         ]
         for p in self._patchers:
             p.start()
@@ -1372,6 +1377,145 @@ class TestV7WeeklyTrendScoring(unittest.TestCase):
     def test_weights_total_stays_1_point_0(self):
         self.assertAlmostEqual(sum(v7_engine._V7_WEIGHTS.values()), 1.0, places=6,
                                msg="bobot faktor harus tetap total 1.0")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TEST 5c (IDE4) — factor_broker_trend: pembeda non-jenuh (bandarmologi)
+# ══════════════════════════════════════════════════════════════════════════
+
+def _broker_hist(vals):
+    """Deret history sintetis [{date, net_buy}] ascending — hari mulai 2026-07-01."""
+    start = datetime(2026, 7, 1)
+    return [{"date": (start + timedelta(days=i)).strftime("%Y-%m-%d"), "net_buy": v}
+            for i, v in enumerate(vals)]
+
+
+class TestBrokerTrendFactor(unittest.TestCase):
+    """IDE4 — skor factor_broker_trend harus MEMBEDAKAN (tidak jenuh seperti
+    snapshot lama yang 85 utk semua saham):
+      A. 20d positif kuat + streak 5 + momentum naik → skor > 70
+      B. 20d negatif → skor < 40
+      C. data kosong/error → netral 50 (TIDAK menghukum)
+      + campuran/melemah tidak boleh dapat skor tinggi."""
+
+    def setUp(self):
+        self._patchers = []
+        v7_engine._broker_trend_mem_cache.clear()
+
+    def tearDown(self):
+        v7_engine._broker_trend_mem_cache.clear()
+
+    def _patch_hist(self, hist):
+        return mock.patch.object(v7_engine, "_get_broker_flow_history_cached",
+                                 return_value=hist)
+
+    def test_scenario_a_bullish_streak_scores_above_70(self):
+        # 20 hari net buy positif & NAIK (avg5 > avg10, streak 20)
+        vals = [1e9 + i * 0.5e9 for i in range(20)]
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertGreater(r["score"], 70, "trend bullish kuat harus skor tinggi")
+        self.assertLessEqual(r["score"], 100)
+        self.assertIn("streak", r["detail"])
+        self.assertIn("trend", r["detail"])
+
+    def test_scenario_b_bearish_scores_below_40(self):
+        vals = [-1e9 for _ in range(20)]
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertLess(r["score"], 40, "20d negatif harus skor rendah")
+
+    def test_scenario_c_empty_data_neutral_50(self):
+        for hist in ([], None, [{"date": "2026-07-01", "net_buy": "abc"}],
+                     [{"date": "2026-07-01"}]):
+            with self._patch_hist(hist):
+                r = v7_engine.factor_broker_trend("BRPT")
+            self.assertEqual(r["score"], 50, f"data {hist!r} → netral 50")
+            self.assertEqual(r["detail"], "no_data")
+
+    def test_mixed_flow_not_saturated(self):
+        # 10 hari +1B lalu 10 hari -1B: 20d ≈ 0, 5d negatif → JANGAN skor tinggi
+        vals = [1e9] * 10 + [-1e9] * 10
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertLess(r["score"], 50, "flow campuran ≠ akumulasi → di bawah netral")
+
+    def test_weakening_trend_below_strong(self):
+        # 20d positif tapi 5 hari terakhir negatif (melemah) → skor sedang,
+        # JAUH di bawah skenario A (skor tinggi HANYA kalau 5d tidak melemah)
+        vals = [2e9] * 15 + [-1e9] * 5
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertLess(r["score"], 70, "fase 5d melemah → bukan skor tinggi")
+        with self._patch_hist(_broker_hist([1e9 + i * 0.5e9 for i in range(20)])):
+            strong = v7_engine.factor_broker_trend("BRPT")
+        self.assertLess(r["score"], strong["score"])
+
+    def test_streak_bonus_only_for_consecutive_positive(self):
+        # 20d positif tapi 2 hari terakhir negatif (streak 0) → tanpa bonus streak
+        vals = [1e9] * 18 + [-1e9, -1e9]
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertNotIn("streak", r["detail"])
+
+    def test_short_history_still_scores_partial(self):
+        # hanya 8 hari data positif → 20d tidak dihitung, tapi 10d/5d jalan
+        vals = [1e9] * 8
+        with self._patch_hist(_broker_hist(vals)):
+            r = v7_engine.factor_broker_trend("BRPT")
+        self.assertGreater(r["score"], 50)
+
+
+class TestBrokerTrendWeightsIntegration(unittest.TestCase):
+    """IDE4 — bobot baru: v4 0.30 + broker_trend 0.10 (total 1.0), konsisten
+    dengan config.yaml, dan compute() memakai faktor broker_trend."""
+
+    def test_default_weights_total_1_with_broker_trend(self):
+        w = v7_engine._V7_WEIGHTS
+        self.assertAlmostEqual(sum(w.values()), 1.0, places=6)
+        self.assertAlmostEqual(w["v4_score"], 0.30)
+        self.assertAlmostEqual(w["broker_trend"], 0.10)
+        self.assertAlmostEqual(w["broker_flow"], 0.20)
+
+    def test_config_yaml_weights_consistent_and_applied(self):
+        import yaml
+        with open(os.path.join(_HERE, "config.yaml"), encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        w = cfg["v7"]["weights"]
+        self.assertAlmostEqual(sum(w.values()), 1.0, places=6,
+                               msg="bobot config.yaml harus total 1.0")
+        self.assertEqual(w["v4_score"], 0.30)
+        self.assertEqual(w["broker_trend"], 0.10)
+        old = dict(v7_engine._V7_WEIGHTS)
+        try:
+            v7_engine.configure({"weights": w})
+            for k, v in w.items():
+                self.assertAlmostEqual(v7_engine._V7_WEIGHTS[k], float(v))
+            self.assertAlmostEqual(sum(v7_engine._V7_WEIGHTS.values()), 1.0, places=6)
+        finally:
+            v7_engine._V7_WEIGHTS = old
+
+    def test_compute_uses_broker_trend_weight(self):
+        old_enabled = v7_engine.enabled
+        v7_engine.enabled = True
+        base = {"score": 50, "detail": "x"}
+        trend_scores = iter([100, 0])  # call #1: trend 100; call #2: trend 0
+        try:
+            with mock.patch.object(v7_engine, "factor_broker_flow", return_value=dict(base)), \
+                 mock.patch.object(v7_engine, "factor_foreign_flow", return_value=dict(base)), \
+                 mock.patch.object(v7_engine, "factor_fundamental_quality", return_value=dict(base)), \
+                 mock.patch.object(v7_engine, "factor_earnings_momentum", return_value=dict(base)), \
+                 mock.patch.object(v7_engine, "factor_broker_trend",
+                                   side_effect=lambda code: {"score": next(trend_scores),
+                                                             "detail": "trend 20d +5.0B streak5"}):
+                r_hi = v7_engine.compute("BRPT", 50.0, "RANGING")
+                r_lo = v7_engine.compute("BRPT", 50.0, "RANGING")
+            self.assertEqual(r_hi["factors"]["broker_trend"], 100)
+            self.assertEqual(r_hi["factors"]["broker_trend_detail"], "trend 20d +5.0B streak5")
+            # beda skor = bobot 0.10 × selisih 100 poin = 10.0
+            self.assertAlmostEqual(r_hi["score"] - r_lo["score"], 10.0, places=6)
+        finally:
+            v7_engine.enabled = old_enabled
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -2019,9 +2163,10 @@ class TestScanSkipLogLevelAndConfig(unittest.TestCase):
 class _FakeAnalysis:
     """Fake Invezgo analysis — meniru interface SDK (tanpa network)."""
 
-    def __init__(self, chart=None, intraday=None, keystat=None):
+    def __init__(self, chart=None, intraday=None, keystat=None, inventory=None):
         self.chart = chart or []
         self.keystat = keystat or {}
+        self.inventory = inventory or {}
         self.intraday = intraday or {
             "price": 7080.5, "change": "0,55%", "open": 7000.0,
             "high": 7100.0, "low": 6990.0, "close": 7080.5,
@@ -2045,10 +2190,15 @@ class _FakeAnalysis:
         self.calls.append(("get_keystat", code))
         return self.keystat
 
+    def get_inventory_chart_stock(self, code, from_date, to_date,
+                                  scope="val", investor="all", market="ALL"):
+        self.calls.append(("get_inventory_chart_stock", code))
+        return self.inventory
+
 
 class _FakeClient:
-    def __init__(self, chart=None, intraday=None, keystat=None):
-        self.analysis = _FakeAnalysis(chart, intraday, keystat)
+    def __init__(self, chart=None, intraday=None, keystat=None, inventory=None):
+        self.analysis = _FakeAnalysis(chart, intraday, keystat, inventory)
 
 
 class TestDataInvezgoParsing(unittest.TestCase):
@@ -2193,6 +2343,106 @@ class TestDataInvezgoNumberHelpers(unittest.TestCase):
     def test_to_int_plain(self):
         self.assertEqual(data_invezgo._to_int(1000), 1000)
         self.assertEqual(data_invezgo._to_int("abc"), 0)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TEST 4b (IDE4) — get_broker_flow_history: parsing inventory chart,
+# normalisasi net buy harian, cache TTL 24 jam, error → [] (tidak crash)
+# ══════════════════════════════════════════════════════════════════════════
+
+def _inventory_payload(brokers):
+    """Response get_inventory_chart_stock sintetis: {price, broker:[{broker,data}]}."""
+    return {"price": [{"code": "BRPT", "date": "2026-07-13", "open": 1, "high": 2,
+                       "low": 1, "close": 2, "volume": 100}],
+            "broker": brokers}
+
+
+class TestDataInvezgoBrokerFlowHistory(unittest.TestCase):
+    """IDE4 — history broker flow dari get_inventory_chart_stock (mock, tanpa
+    network): normalisasi Σ net broker per hari, cache file TTL 24 jam
+    (2 call → 1 fetch), error/response aneh → []."""
+
+    def _provider(self, inventory=None, tmp=None):
+        fake = _FakeClient(inventory=inventory)
+        if tmp is None:
+            tmp = tempfile.TemporaryDirectory()
+            self.addCleanup(tmp.cleanup)
+        # _DATA_DIR di-patch ke tempdir supaya cache file TIDAK menyentuh
+        # data/ asli dan tidak bocor antar-test (pola test cache lain).
+        self._data_dir_patch = mock.patch.object(data_invezgo, "_DATA_DIR", tmp.name)
+        self._data_dir_patch.start()
+        self.addCleanup(self._data_dir_patch.stop)
+        with mock.patch.object(data_invezgo, "get_client", return_value=fake):
+            p = data_invezgo.InvezgoProvider()
+        p._cache_dir = tmp.name
+        return p, fake, tmp
+
+    def test_normalizes_daily_net_buy_sum_of_brokers(self):
+        inv = _inventory_payload([
+            {"broker": "AI", "data": [{"date": "2026-07-13", "value": -5_962_730_500},
+                                      {"date": "2026-07-14", "value": 1_000_000_000}]},
+            {"broker": "AK", "data": [{"date": "2026-07-13", "value": 2_000_000_000},
+                                      {"date": "2026-07-14", "value": -500_000_000}]},
+        ])
+        p, fake, _ = self._provider(inv)
+        hist = p.get_broker_flow_history("BRPT", days=20)
+        self.assertEqual(len(hist), 2)
+        self.assertEqual(hist[0]["date"], "2026-07-13")
+        self.assertEqual(hist[0]["net_buy"], -3_962_730_500.0)   # -5.96B + 2B
+        self.assertEqual(hist[1]["date"], "2026-07-14")
+        self.assertEqual(hist[1]["net_buy"], 500_000_000.0)      # 1B + (-0.5B)
+        self.assertEqual(fake.analysis.calls[0][0], "get_inventory_chart_stock")
+        self.assertEqual(fake.analysis.calls[0][1], "BRPT", "kode API tanpa .JK")
+
+    def test_sorted_ascending_and_limited_to_days(self):
+        inv = _inventory_payload([
+            {"broker": "AI", "data": [{"date": f"2026-07-{d:02d}", "value": 1_000_000_000}
+                                      for d in range(1, 26)]},
+        ])
+        p, fake, _ = self._provider(inv)
+        hist = p.get_broker_flow_history("BRPT", days=10)
+        self.assertEqual(len(hist), 10, "hanya `days` entri terbaru")
+        self.assertEqual(hist[0]["date"], "2026-07-16")
+        self.assertEqual(hist[-1]["date"], "2026-07-25")
+
+    def test_cache_file_ttl_24h_second_call_no_fetch(self):
+        inv = _inventory_payload([
+            {"broker": "AI", "data": [{"date": "2026-07-13", "value": 1_000_000_000}]},
+        ])
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with mock.patch.object(data_invezgo, "_DATA_DIR", tmp.name):
+            p, fake, _ = self._provider(inv, tmp=tmp)
+            h1 = p.get_broker_flow_history("BRPT", days=20)
+            h2 = p.get_broker_flow_history("BRPT", days=20)   # dari cache file
+        self.assertEqual(h1, h2)
+        inventory_calls = [c for c in fake.analysis.calls if c[0] == "get_inventory_chart_stock"]
+        self.assertEqual(len(inventory_calls), 1, "2 call → 1 fetch (cache TTL 24 jam)")
+        cache_path = os.path.join(tmp.name, "broker_flow_hist_BRPT.json")
+        self.assertTrue(os.path.exists(cache_path), "cache data/broker_flow_hist_BRPT.json")
+
+    def test_error_returns_empty_list_no_crash(self):
+        p, fake, _ = self._provider(_inventory_payload([]))
+        with mock.patch.object(fake.analysis, "get_inventory_chart_stock",
+                               side_effect=RuntimeError("API down")):
+            hist = p.get_broker_flow_history("BRPT", days=20)
+        self.assertEqual(hist, [], "error → [] — scan tidak boleh crash")
+
+    def test_unknown_response_shape_returns_empty(self):
+        p, fake, _ = self._provider([{"label": "D Buy", "value": 0}])  # bukan dict payload
+        hist = p.get_broker_flow_history("BRPT", days=20)
+        self.assertEqual(hist, [])
+
+    def test_invalid_values_skipped_not_crash(self):
+        inv = _inventory_payload([
+            {"broker": "AI", "data": [{"date": "2026-07-13", "value": "1.000"},
+                                      {"date": "2026-07-14", "value": None},
+                                      {"date": "2026-07-15"}]},
+        ])
+        p, fake, _ = self._provider(inv)
+        hist = p.get_broker_flow_history("BRPT", days=20)
+        self.assertEqual(len(hist), 1, "hanya tanggal dengan value valid")
+        self.assertEqual(hist[0]["net_buy"], 1.0)  # float("1.000") = 1.0
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -3239,12 +3489,37 @@ class TestFaktorDnaLogging(unittest.TestCase):
             rows = load_signals(csvp)
             self.assertEqual(len(rows), 2, "baris lama + baris baru")
             old, new = rows[0], rows[1]
-            for c in ("broker_flow", "foreign_flow", "fundamental",
+            for c in ("broker_flow", "broker_trend", "foreign_flow", "fundamental",
                       "earnings_momentum", "weekly_trend", "atr_pct", "vol_ratio"):
                 self.assertEqual(old[c], "unknown", f"baris lama {c} = 'unknown'")
             self.assertEqual(old["event"], "", "baris lama event = ''")
             self.assertEqual(new["broker_flow"], "72.0")
             self.assertEqual(new["event"], "DIVIDEND 12/08")
+
+    def test_broker_trend_column_written_and_backfilled(self):
+        """IDE4 — kolom broker_trend (faktor DNA baru) ditulis log_signal;
+        default migrasi 'unknown' (sama seperti kolom faktor lain)."""
+        self.assertIn("broker_trend", FIELDS, "FIELDS perf_tracker harus punya broker_trend")
+        self.assertEqual(FIELD_DEFAULTS["broker_trend"], "unknown")
+        with tempfile.TemporaryDirectory(prefix="bt_dna_") as td:
+            csvp = os.path.join(td, "perf.csv")
+            ok = log_signal(
+                csvp, ticker="BRPT", mode="swing", score=62.0, signal="BUY",
+                entry_price=5000, sl=4750, tp=5500, lots=5, cost=2500000,
+                regime="BULL", broker_flow=72.0, broker_trend=88.5,
+                weekly_trend="BULLISH", atr_pct=2.3, vol_ratio=1.8)
+            self.assertTrue(ok)
+            rows = load_signals(csvp)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["broker_trend"], "88.5")
+            self.assertEqual(rows[0]["broker_flow"], "72.0")
+            # Pemanggil lama (tanpa broker_trend) → kolom tetap ada, isi ''
+            csvp2 = os.path.join(td, "perf2.csv")
+            log_signal(csvp2, ticker="BBCA", mode="swing", score=60.0, signal="BUY",
+                       entry_price=10000, sl=9500, tp=11000, lots=2, cost=2000000)
+            rows2 = load_signals(csvp2)
+            self.assertEqual(rows2[0]["broker_trend"], "",
+                             "pemanggil lama tanpa broker_trend → kolom kosong")
 
 
 if __name__ == "__main__":
