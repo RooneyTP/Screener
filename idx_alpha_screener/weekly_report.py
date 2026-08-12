@@ -19,10 +19,15 @@ R3 (audit Round 3):
   exit tsb; close_price tetap disimpan sebagai konteks (return-to-now).
   Catatan: baris OPEN tidak pernah ditulis ke CSV (dievaluasi ulang), jadi
   return_pct di CSV selalu berbasis harga exit; label 'open' tidak relevan.
+- R3-hardening (IDE4): exit price tidak valid (NaN/<=0) TIDAK di-fallback
+  diam-diam ke close — log warning & kolom exit_price ditandai 'nan' (fallback
+  ke close hanya dengan penanda eksplisit itu). Konsistensi status-vs-return
+  dicek: LOSS_SL dengan return >= 0 (atau WIN_TP <= 0) di-log warning.
 - Evaluasi di-dedup: (ticker, mode, entry ±1%, jarak tanggal <= 14 hari)
   dianggap SATU sinyal — hanya baris TERBARU yang dievaluasi; duplikat
-  (termasuk yang sudah pernah dievaluasi di run sebelumnya) di-skip &
-  key-nya di-mark supaya tidak muncul lagi. Jumlah yang di-skip dilaporkan.
+  (termasuk yang sudah pernah dievaluasi di run sebelumnya) di-skip,
+  key-nya di-mark & tiap skip di-log 'Dup-skip evaluasi' (jejak audit per
+  baris). Jumlah yang di-skip dilaporkan.
 
 Hasil disimpan di data/evaluations_v7.csv + kirim ringkasan ke Telegram.
 
@@ -33,10 +38,12 @@ Cara pakai:
                                      # (CSV/mark) & TANPA kirim Telegram
   python weekly_report.py --roi      # paksa section ROI Invezgo (E3)
 """
-import sys, os, json, csv, argparse
+import sys, os, json, csv, argparse, logging
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+logger = logging.getLogger("weekly_report")
 
 import pandas as pd
 import numpy as np
@@ -132,8 +139,10 @@ def _save_missing_attempts(attempts: dict):
     try:
         with open(MISSING_ATTEMPTS_FILE, "w", encoding="utf-8") as f:
             json.dump(attempts, f)
-    except Exception:
-        pass
+    except Exception as e:
+        # R4: counter DATA_MISSING gagal disimpan → sinyal akan dicoba lagi
+        # run berikutnya (tidak fatal), tapi jejak error tetap perlu terlihat.
+        logger.warning("Gagal simpan data_missing_attempts.json: %s", e)
 
 
 def _record_data_missing(key, s, mode, today, results, attempts, dry_run=False) -> bool:
@@ -463,6 +472,15 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
     _LAST_EVAL_SKIPPED = len(skipped)
     if not dry_run:
         new_marks.extend(k for (_s, _dt, _m, k) in skipped)
+    # R3-hardening: tiap duplikat yang di-skip di-log eksplisit (jejak audit
+    # 'dup-skip' per baris — dulu hanya counter _LAST_EVAL_SKIPPED).
+    for _s, _dt, _m, _k in skipped:
+        logger.warning(
+            "Dup-skip evaluasi: %s (%s) entry=%s — sinyal sama (entry ±%d%%, "
+            "jarak <=%d hari) sudah dievaluasi/tercatat; key di-mark, tidak "
+            "dievaluasi ulang",
+            _s.get("ticker"), _m, _s.get("entry_price"),
+            int(round(DEDUP_TOLERANCE * 100)), DEDUP_MAX_AGE_DAYS)
 
     for s, dt, mode, key, eval_from in uniq:
         try:
@@ -538,8 +556,36 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
             # ISAT WIN_TP tampil +11.86% padahal TP-nya cuma +3.9% — data
             # menyesatkan untuk WR/avg return.) close_price tetap dicatat
             # sebagai konteks (harga saat evaluasi), exit_price = harga exit.
+            # R3-hardening: exit price tidak valid (NaN/<=0) JANGAN di-fallback
+            # diam-diam ke close — log warning & exit_price ditandai 'nan';
+            # return_pct fallback ke close HANYA dengan penanda eksplisit itu.
             exit_price = tp if status == "WIN_TP" else sl
-            ret_pct = (exit_price - entry) / entry * 100
+            if exit_price is None or not np.isfinite(exit_price) or exit_price <= 0:
+                logger.warning(
+                    "Exit price tidak tersedia utk %s (%s, %s): %s=%r → "
+                    "exit_price ditandai 'nan', return_pct fallback ke close "
+                    "%.2f (data perlu dicek)",
+                    ticker, mode, status,
+                    "TP" if status == "WIN_TP" else "SL", exit_price, close)
+                exit_price = float("nan")
+                ret_pct = (close - entry) / entry * 100
+            else:
+                ret_pct = (exit_price - entry) / entry * 100
+            # R3-hardening: konsistensi status vs return — LOSS_SL harus
+            # negatif & WIN_TP harus positif; anomali di-log (tidak diubah,
+            # karena bisa jadi data aneh yang perlu dilihat manusia).
+            if status == "LOSS_SL" and ret_pct >= 0:
+                logger.warning(
+                    "Konsistensi status-vs-return: %s (%s) LOSS_SL tapi "
+                    "return_pct %+.2f%% (entry=%.2f, SL=%.2f, close=%.2f) — "
+                    "status aneh, cek data!",
+                    ticker, mode, ret_pct, entry, sl, close)
+            elif status == "WIN_TP" and ret_pct <= 0:
+                logger.warning(
+                    "Konsistensi status-vs-return: %s (%s) WIN_TP tapi "
+                    "return_pct %+.2f%% (entry=%.2f, TP=%.2f, close=%.2f) — "
+                    "status aneh, cek data!",
+                    ticker, mode, ret_pct, entry, tp, close)
             row = {
                 "date": s["date"], "ticker": ticker, "mode": mode,
                 "score": s.get("score", ""), "signal": s.get("signal", ""),
@@ -561,6 +607,9 @@ def evaluate_signals(provider=None, dry_run: bool = False) -> list:
             if not dry_run:
                 new_marks.append(key)
         except (ValueError, KeyError, TypeError) as e:
+            # Jangan senyap: sinyal yang gagal diproses tetap dicoba lagi di
+            # run berikutnya (tidak di-mark), tapi error perlu terlihat di log.
+            logger.warning("Skip evaluasi %s|%s: %s", s.get("ticker"), mode, e)
             continue
 
     if new_marks:

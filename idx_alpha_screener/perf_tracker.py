@@ -13,6 +13,10 @@ Kolom: date, ticker, mode, score, signal, entry_price, sl, tp, lots, cost, fresh
     event (nama corporate action + tanggal, atau '' — dari CA calendar IDE5).
     Baris lama (CSV migrasi) di-backfill 'unknown' (event → '').
     Dipakai factor_analysis (A2) untuk pivot WR per faktor DNA.
+  - flow_spike (IDE4-hardening): flag deteksi flow spike (net buy mendadak vs
+    baseline 20d) — '1'/'0' kalau pemanggil mengirim bool, 'unknown' kalau
+    tidak disediakan (default aman, jangan crash). broker_trend_detail (IDE5):
+    rincian faktor broker trend (streak/arah) — string bebas, default 'unknown'.
   - fresh: 1 = sinyal baru, 0 = lanjutan (duplikat sinyal lama <14 hari, ±1% harga)
     N10 (P1, fix noise): fresh=1 HANYA jika TIDAK ada baris (ticker+mode,
     entry ±1%) dalam 7 hari kalender terakhir ATAU anchor fresh=1 <7 hari.
@@ -59,18 +63,24 @@ logger = logging.getLogger("perf_tracker")
 
 DEFAULT_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "perf_tracker_v7.csv")
 FIELDS = ["date", "ticker", "mode", "score", "signal", "entry_price", "sl", "tp", "lots", "cost", "fresh", "regime",
-          "broker_flow", "broker_trend", "foreign_flow", "fundamental", "earnings_momentum", "weekly_trend",
-          "atr_pct", "vol_ratio", "event", "risk_amount"]
+          "broker_flow", "broker_trend", "flow_spike", "broker_trend_detail",
+          "foreign_flow", "fundamental", "earnings_momentum", "weekly_trend",
+          "atr_pct", "vol_ratio", "event", "risk_amount",
+          "gate_vol", "gate_quality"]  # IDE3: hasil gate kualitas swing (pass/alasan downgrade)
 
 # Nilai default saat migrasi CSV lama (kolom ditambahkan ke header + baris lama di-backfill)
 # IDE1: kolom faktor DNA lama → 'unknown' (jujur: nilainya tidak diketahui, bukan 0);
 # event → '' (tidak ada event tercatat).
+# IDE3: gate_vol/gate_quality → 'unknown' (baris lama tidak melalui gate kualitas).
 FIELD_DEFAULTS = {"fresh": "1", "regime": "unknown",
                   "broker_flow": "unknown", "broker_trend": "unknown",  # IDE4: kolom trend flow harian
+                  "flow_spike": "unknown",  # IDE4-hardening: flag flow spike (default aman utk pemanggil lama)
+                  "broker_trend_detail": "unknown",  # IDE5: rincian faktor broker trend (streak/arah)
                   "foreign_flow": "unknown", "fundamental": "unknown",
                   "earnings_momentum": "unknown", "weekly_trend": "unknown",
                   "atr_pct": "unknown", "vol_ratio": "unknown", "event": "",
-                  "risk_amount": "0"}
+                  "risk_amount": "0",
+                  "gate_vol": "unknown", "gate_quality": "unknown"}
 
 # ── Parameter dedup ──
 DEDUP_TOLERANCE = 0.01      # toleransi entry_price ±1%
@@ -193,11 +203,27 @@ def find_previous_signal(csv_path, ticker, mode, entry_price,
     return True, best_dt.strftime("%d/%m")
 
 
+def _dna_str(v, default="unknown"):
+    """Normalisasi nilai kolom faktor DNA: None/'' → default ('unknown'),
+    bool → '1'/'0' (konsisten dgn kolom fresh), lainnya → str(v).
+
+    IDE4/5-hardening: flow_spike & broker_trend_detail TIDAK selalu
+    disediakan pemanggil (v7_scan lama) — default aman, tidak crash.
+    """
+    if v is None or v == "":
+        return default
+    if isinstance(v, bool):
+        return "1" if v else "0"
+    return str(v)
+
+
 def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
                lots, cost, fresh=True, regime="unknown",
                broker_flow="", broker_trend="", foreign_flow="", fundamental="",
                earnings_momentum="", weekly_trend="", atr_pct="",
-               vol_ratio="", event="", risk_amount=0) -> bool:
+               vol_ratio="", event="", risk_amount=0,
+               flow_spike="unknown", broker_trend_detail="unknown",
+               gate_vol="", gate_quality="") -> bool:
     """Log satu sinyal ke CSV. Return True jika sukses.
 
     fresh=True  → sinyal baru (fresh=1 di CSV)
@@ -208,10 +234,18 @@ def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
       broker_flow / foreign_flow / fundamental / earnings_momentum : nilai
       numerik faktor 0-100 (default '' kalau pemanggil lama tidak mengirim).
       broker_trend : nilai faktor trend flow harian 0-100 (IDE4; default '').
+      flow_spike : flag deteksi flow spike (bool; default 'unknown' — kalau
+        pemanggil lama tidak mengirim, kolom diisi 'unknown', TIDAK crash).
+      broker_trend_detail : rincian faktor broker trend (string; default
+        'unknown' — aman untuk pemanggil yang belum mengirim kolom ini).
       weekly_trend : string (BULLISH/BEARISH/NO_DATA; default 'unknown').
       atr_pct / vol_ratio : angka (default '').
       event : nama corporate action + tanggal atau '' (CA calendar IDE5).
       risk_amount : risiko sejati (entry−SL)/entry×cost (N10 P3); default 0.
+    IDE3 (gate kualitas) — kolom hasil gate swing:
+      gate_vol / gate_quality : 'pass' atau alasan downgrade (mis.
+      'fail_vol<1.0', 'downgrade_sb_vol<1.2', 'downgrade_SB->BUY'); default ''
+      untuk pemanggil lama / mode intraday (gate tidak berlaku).
     """
     try:
         os.makedirs(os.path.dirname(csv_path), exist_ok=True)
@@ -230,6 +264,8 @@ def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
             "regime": regime if regime else "unknown",
             "broker_flow": broker_flow if broker_flow not in (None, "") else "",
             "broker_trend": broker_trend if broker_trend not in (None, "") else "",
+            "flow_spike": _dna_str(flow_spike),  # IDE4-hardening: default 'unknown' utk pemanggil lama
+            "broker_trend_detail": _dna_str(broker_trend_detail),  # IDE5: rincian broker trend
             "foreign_flow": foreign_flow if foreign_flow not in (None, "") else "",
             "fundamental": fundamental if fundamental not in (None, "") else "",
             "earnings_momentum": earnings_momentum if earnings_momentum not in (None, "") else "",
@@ -238,6 +274,8 @@ def log_signal(csv_path, ticker, mode, score, signal, entry_price, sl, tp,
             "vol_ratio": vol_ratio if vol_ratio not in (None, "") else "",
             "event": event if event else "",
             "risk_amount": int(risk_amount or 0),
+            "gate_vol": gate_vol if gate_vol not in (None, "") else "",   # IDE3
+            "gate_quality": gate_quality if gate_quality not in (None, "") else "",  # IDE3
         }
         new_file = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0  # L10: file 0 byte = baru → header wajib
         _ensure_header(csv_path)  # migrasi header kalau CSV lama (no-op jika sudah lengkap)

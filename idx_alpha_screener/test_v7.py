@@ -3857,5 +3857,603 @@ class TestFaktorDnaLogging(unittest.TestCase):
                              "pemanggil lama tanpa broker_trend → kolom kosong")
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# IDE1 — FLOW REGIME CONFLICT CAP (snapshot akumulasi vs trend distribusi)
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestFlowRegimeConflictCap(unittest.TestCase):
+    """IDE1 — snapshot broker 3 hari akumulasi > 65 di tengah trend 20 hari
+    distribusi < 35 → kontribusi broker_flow di-cap PARSIAL netral 50 +
+    detail conflict + warning (BUKAN veto):
+      a. konflik → broker_flow = 50, broker_flow_raw = 75, flag True, detail
+      b. trend akumulasi + snapshot netral → TIDAK di-cap
+      c. snapshot > 65 + trend >= 35 → normal (tidak di-cap)
+      d. awal akumulasi (spike 3d, trend masih netral 50 karena cap flow_spike)
+         → TIDAK kena cap
+      e. cap parsial: selisih skor = bobot 0.20 × (75 − 50) = 5 poin,
+         bukan veto (skor tetap dihitung, hanya kontribusi snapshot di-cap)"""
+
+    def setUp(self):
+        self._old_enabled = v7_engine.enabled
+        v7_engine.enabled = True
+
+    def tearDown(self):
+        v7_engine.enabled = self._old_enabled
+
+    def _compute(self, bf_score, bt_score, bf_detail="akumulasi_12.3B",
+                 bt_detail="trend 20d -5.0B", weekly="NO_DATA"):
+        base = {"score": 50, "detail": "x"}
+        with mock.patch.object(v7_engine, "factor_broker_flow",
+                               return_value={"score": bf_score, "detail": bf_detail,
+                                             "brokers": "🔵DB(+1B)"}), \
+             mock.patch.object(v7_engine, "factor_foreign_flow", return_value=dict(base)), \
+             mock.patch.object(v7_engine, "factor_fundamental_quality", return_value=dict(base)), \
+             mock.patch.object(v7_engine, "factor_earnings_momentum", return_value=dict(base)), \
+             mock.patch.object(v7_engine, "factor_broker_trend",
+                               return_value={"score": bt_score, "detail": bt_detail,
+                                             "flow_spike": False}):
+            return v7_engine.compute("BNBR", 50.0, "RANGING", weekly_trend=weekly)
+
+    def test_a_conflict_snapshot_accum_trend_distribution_capped(self):
+        r = self._compute(bf_score=75, bt_score=30)
+        f = r["factors"]
+        self.assertEqual(f["broker_flow"], 50, "kontribusi snapshot di-cap netral 50")
+        self.assertEqual(f["broker_flow_raw"], 75, "skor asli tetap di-audit")
+        self.assertTrue(f["conflict_snapshot_vs_trend"])
+        self.assertIn("conflict snapshot vs trend", f["broker_detail"])
+        self.assertIn("waspada distribusi", f["broker_detail"])
+
+    def test_b_trend_accum_snapshot_neutral_not_capped(self):
+        r = self._compute(bf_score=50, bt_score=80, bt_detail="trend 20d +5.0B streak5")
+        f = r["factors"]
+        self.assertEqual(f["broker_flow"], 50, "snapshot netral tidak di-cap (bukan konflik)")
+        self.assertFalse(f["conflict_snapshot_vs_trend"])
+        self.assertNotIn("conflict", f["broker_detail"])
+
+    def test_c_snapshot_accum_trend_ok_normal(self):
+        r = self._compute(bf_score=75, bt_score=60, bt_detail="trend 20d +3.0B")
+        f = r["factors"]
+        self.assertEqual(f["broker_flow"], 75, "trend >= 35 → akumulasi snapshot normal")
+        self.assertFalse(f["conflict_snapshot_vs_trend"])
+        self.assertNotIn("conflict", f["broker_detail"])
+
+    def test_d_early_accumulation_spike_not_vetoed(self):
+        # Awal akumulasi baru: trend di-cap 50 oleh flow_spike (L2-A) atau
+        # masih 40 — snapshot akumulasi TIDAK boleh kena cap/veto.
+        for bt in (50, 40):
+            r = self._compute(bf_score=75, bt_score=bt)
+            self.assertFalse(r["factors"]["conflict_snapshot_vs_trend"],
+                             f"trend {bt} (awal tren) → tidak conflict")
+            self.assertEqual(r["factors"]["broker_flow"], 75,
+                             f"trend {bt} → snapshot tetap dihitung penuh")
+
+    def test_e_partial_cap_score_delta_5_points(self):
+        # Konflik: bf 75 → dipakai 50 (selisih 25 × 0.20 = 5 poin).
+        # Bukti 1: dengan trend sama (30), bf 75 yang di-cap memberi skor
+        # IDENTIK dengan bf 50 (kontribusi benar-benar 50, bukan veto).
+        r_cap = self._compute(bf_score=75, bt_score=30)   # conflict → bf 75 dipakai 50
+        r_ref = self._compute(bf_score=50, bt_score=30)   # netral → bf 50
+        self.assertAlmostEqual(r_cap["score"], r_ref["score"], places=6,
+                               msg="bf 75 saat konflik = bf 50 (cap parsial ke 50)")
+        # Bukti 2: vs skenario normal (bf 75, trend 60) selisih total 8.0 =
+        # 5.0 (cap broker_flow) + 3.0 (beda broker_trend 30 poin × 0.10).
+        r_normal = self._compute(bf_score=75, bt_score=60)
+        self.assertAlmostEqual(r_normal["score"] - r_cap["score"], 8.0,
+                               places=6,
+                               msg="5.0 cap broker_flow + 3.0 beda broker_trend")
+
+    def test_boundaries_35_and_65(self):
+        # trend tepat 35 → TIDAK konflik (syarat < 35); snapshot tepat 65 → TIDAK
+        self.assertFalse(self._compute(bf_score=75, bt_score=35)["factors"]["conflict_snapshot_vs_trend"])
+        self.assertFalse(self._compute(bf_score=65, bt_score=30)["factors"]["conflict_snapshot_vs_trend"])
+        self.assertTrue(self._compute(bf_score=66, bt_score=34.9)["factors"]["conflict_snapshot_vs_trend"])
+
+
+class TestConflictWarningsV7Scan(unittest.TestCase):
+    """IDE1 — conflict_warnings di v7_scan: maks 3, top skor, dedup ticker
+    antar mode, tampil di section MANAJEMEN RISIKO Telegram (pola
+    flow_spike_warnings)."""
+
+    @classmethod
+    def setUpClass(cls):
+        class _NullHandler:
+            level = 1000
+            def setFormatter(self, *a, **k):
+                return None
+        with mock.patch("logging.FileHandler", _NullHandler):
+            import v7_scan as v7s
+        cls.v7s = v7s
+
+    def _sig(self, tkr, score, conflict=True):
+        return {"tkr": tkr, "score": score,
+                "conflict_snapshot_vs_trend": conflict}
+
+    def test_top3_only_and_dedup_across_modes(self):
+        swing = [self._sig("BNBR", 70.0), self._sig("BUMI", 60.0)]
+        intra = [self._sig("BUMI", 75.0), self._sig("ASII", 50.0), self._sig("TPIA", 40.0)]
+        warns = self.v7s.conflict_warnings(swing, intra, max_n=3)
+        self.assertEqual(len(warns), 3, "cap 3 warning (top skor)")
+        self.assertEqual(warns[0].count("BUMI"), 1, "BUMI dihitung sekali (skor tertinggi 75)")
+        self.assertIn("BNBR", warns[1])
+        self.assertIn("ASII", warns[2])
+        self.assertNotIn("TPIA", " ".join(warns), "skor terendah dibuang")
+        for w in warns:
+            self.assertIn("CONFLICT FLOW", w)
+            self.assertIn("waspada jebakan distribusi", w)
+
+    def test_no_conflict_no_warnings(self):
+        swing = [self._sig("BNBR", 70.0, conflict=False), self._sig("BUMI", 60.0, conflict=False)]
+        self.assertEqual(self.v7s.conflict_warnings(swing, []), [])
+        self.assertEqual(self.v7s.conflict_warnings([], []), [])
+
+    def test_warnings_render_in_telegram_risk_section(self):
+        warns = [
+            "⚠️ CONFLICT FLOW: BNBR snapshot akumulasi vs trend distribusi 20d — "
+            "kontribusi broker flow di-cap netral (waspada jebakan distribusi)",
+        ]
+        msg = telegram_formatter.format_message([], [], capital=20_000_000,
+                                                concentration_warnings=warns)
+        self.assertIn("⚠️ Warning: Conflict flow BNBR snapshot akumulasi", msg)
+        self.assertIn("waspada jebakan distribusi", msg)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# IDE2 — FOREIGN FLOW: snapshot investor='f' (net asing sejati) + fallback
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestForeignFlowFactor(unittest.TestCase):
+    """IDE2 — factor_foreign_flow memakai snapshot investor='f' (net asing
+    SEJATI via cache broker_flow_foreign_{CODE}.json) — skor bervariasi
+    mengikuti logika factor_broker_flow (akumulasi besar → skor tinggi),
+    bukan statis 50; fallback daftar kode broker DIPERBAIKI (AG/RG/CS dibuang,
+    AI=UOB Kay Hian ditambahkan)."""
+
+    def setUp(self):
+        v7_engine._foreign_mem_cache.clear()
+        v7_engine._broker_mem_cache.clear()
+
+    def tearDown(self):
+        v7_engine._foreign_mem_cache.clear()
+        v7_engine._broker_mem_cache.clear()
+
+    @staticmethod
+    def _summary(net: float, n_brokers: int = 3) -> list:
+        """List broker mock: broker pertama membawa net, sisanya nol."""
+        rows = []
+        if n_brokers >= 1:
+            bv = str(int(max(net, 0)))
+            sv = str(int(max(-net, 0)))
+            rows.append({"code": "DB", "buy_value": bv, "sell_value": sv,
+                         "net_value": str(int(net))})
+        for i in range(1, n_brokers):
+            rows.append({"code": f"B{i}", "buy_value": "0", "sell_value": "0",
+                         "net_value": "0"})
+        return rows
+
+    def test_real_foreign_summary_scoring_varied(self):
+        cases = [
+            (150e9, 85), (50e9, 75), (15e9, 75), (5e9, 65), (1.5e9, 65),
+            (0.3e9, 50), (-0.3e9, 50), (-1.5e9, 30), (-50e9, 30),
+        ]
+        for net, want in cases:
+            with mock.patch.object(v7_engine, "_get_broker_foreign_summary_cached",
+                                   return_value=self._summary(net)):
+                r = v7_engine.factor_foreign_flow("BRPT")
+            self.assertEqual(r["score"], want, f"net {net/1e9:.1f}B → skor {want}")
+            self.assertIn("asing_", r["detail"])
+
+    def test_13_of_15_tickers_not_all_50(self):
+        # Sebelum IDE2: 13/15 ticker statis 50 (daftar broker asing salah).
+        # Dengan snapshot 'f' mock yang bervariasi, skor HARUS membedakan.
+        nets = [-120e9, -50e9, -30e9, -8e9, -5e9, -2e9, -1.5e9,
+                0.1e9, 0.3e9, 1.5e9, 5e9, 8e9, 30e9, 80e9, 150e9]
+        by_code = {f"T{i:02d}": self._summary(net) for i, net in enumerate(nets)}
+        scores = {}
+        with mock.patch.object(v7_engine, "_get_broker_foreign_summary_cached",
+                               side_effect=lambda code, days=3: by_code.get(code, [])):
+            for code in by_code:
+                scores[code] = v7_engine.factor_foreign_flow(code)["score"]
+        non_neutral = [s for s in scores.values() if s != 50]
+        self.assertGreaterEqual(len(non_neutral), 13,
+                                "maks 2 ticker boleh netral 50 — skor harus membedakan")
+        self.assertGreater(len(set(scores.values())), 3,
+                           "distribusi skor bervariasi (30/50/65/75/85)")
+
+    def test_fallback_fixed_broker_list(self):
+        """Snapshot 'f' kosong → fallback daftar kode yang DIPERBAIKI:
+        AG (KIWOOM, domestik) & CS (merger ke UBS) TIDAK dihitung;
+        AI (UOB Kay Hian) dihitung."""
+        summary_all = [
+            {"code": "AG", "buy_value": "50000000000", "sell_value": "0"},  # domestik — TIDAK dihitung
+            {"code": "CS", "buy_value": "40000000000", "sell_value": "0"},  # merger UBS — TIDAK dihitung
+            {"code": "AI", "buy_value": "5000000000", "sell_value": "0"},   # UOB Kay Hian — DIHITUNG
+            {"code": "UBS", "buy_value": "0", "sell_value": "500000000"},   # asing — DIHITUNG
+        ]
+        with mock.patch.object(v7_engine, "_get_broker_foreign_summary_cached",
+                               return_value=[]), \
+             mock.patch.object(v7_engine, "_get_broker_summary_cached",
+                               return_value=summary_all):
+            r = v7_engine.factor_foreign_flow("AKRA")
+        # net asing sejati = AI 5B − UBS 0.5B = 4.5B → asing_beli (65).
+        # Daftar LAMA (AG+CS+UBS, tanpa AI) = 89.5B → asing_beli_besar (80).
+        self.assertEqual(r["score"], 65, "fallback harus pakai daftar yang diperbaiki")
+        self.assertEqual(r["detail"], "asing_beli")
+
+    def test_foreign_cache_file_and_single_call(self):
+        calls = []
+
+        class FProvider:
+            def get_broker_foreign_summary(self, code, days=3):
+                calls.append(code)
+                return [{"code": "DB", "buy_value": "2000000000", "sell_value": "0"},
+                        {"code": "GS", "buy_value": "0", "sell_value": "0"}]
+
+        tmp = tempfile.mkdtemp()
+        v7_engine._foreign_mem_cache.clear()
+        with mock.patch.object(v7_engine, "get_provider", return_value=FProvider()), \
+             mock.patch.object(v7_engine, "_DATA_DIR", tmp):
+            r1 = v7_engine.factor_foreign_flow("BBCA")
+            r2 = v7_engine.factor_foreign_flow("BBCA")
+        self.assertEqual(calls, ["BBCA"], "hanya 1 call per ticker (memori cache)")
+        self.assertEqual(r1["score"], r2["score"])
+        cache_file = os.path.join(tmp, "broker_flow_foreign_BBCA.json")
+        self.assertTrue(os.path.exists(cache_file),
+                        "cache broker_flow_foreign_BBCA.json harus dibuat (TTL 24 jam)")
+
+    def test_no_foreign_data_netral_40(self):
+        with mock.patch.object(v7_engine, "_get_broker_foreign_summary_cached",
+                               return_value=[]), \
+             mock.patch.object(v7_engine, "_get_broker_summary_cached",
+                               return_value=[]):
+            r = v7_engine.factor_foreign_flow("ZZZZ")
+        self.assertEqual(r["score"], 40)
+        self.assertEqual(r["detail"], "no_data")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# IDE3 — GATE KUALITAS SWING (volume confirmation + quality_gate)
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestV7SwingQualityGate(unittest.TestCase):
+    """IDE3 — gate_swing_signal di v7_scan: volume confirmation
+    (vol_ratio >= 1.0 utk sinyal; STRONG_BUY butuh >= 1.2 — >= 1.0 di BULL;
+    NaN/0 = GAGAL gate) + quality_gate (downgrade bertingkat
+    SB→BUY→WEAK_BUY→HOLD). Threshold skor SB65/BUY55 TIDAK diubah — gate
+    bekerja di ATAS label sinyal, kolom score tetap skor v7 asli."""
+
+    @classmethod
+    def setUpClass(cls):
+        class _NullHandler:
+            level = 1000
+            def setFormatter(self, *a, **k):
+                return None
+        with mock.patch("logging.FileHandler", _NullHandler):
+            import v7_scan as v7s
+        cls.v7s = v7s
+
+    @staticmethod
+    def _row(vol_ratio=1.5, rsi=55.0, ret_20d=0.02, atr=200.0, close=5000.0, adx=25.0):
+        return {"rsi": rsi, "vol_ratio": vol_ratio, "ret_20d": ret_20d,
+                "atr": atr, "close": close, "adx": adx}
+
+    def test_high_score_low_vol_056_downgraded_to_hold(self):
+        # Kasus AKRA 11/08: STRONG_BUY skor 67.5 dengan vol_ratio 0.56
+        g = self.v7s.gate_swing_signal(True, "STRONG_BUY", 0.56, "RANGING",
+                                       self._row(vol_ratio=0.56))
+        self.assertFalse(g["ok"], "vol 0.56 < 1.0 → sinyal dibatalkan (HOLD/skip)")
+        self.assertEqual(g["signal"], "HOLD")
+        self.assertEqual(g["gate_vol"], "fail_vol<1.0")
+        self.assertEqual(g["gate_quality"], "pass")
+
+    def test_high_score_vol_13_normal(self):
+        g = self.v7s.gate_swing_signal(True, "STRONG_BUY", 1.3, "RANGING",
+                                       self._row(vol_ratio=1.3))
+        self.assertTrue(g["ok"])
+        self.assertEqual(g["signal"], "STRONG_BUY")
+        self.assertEqual(g["gate_vol"], "pass")
+        self.assertEqual(g["gate_quality"], "pass")
+
+    def test_sb_vol_11_downgraded_to_buy_non_bull(self):
+        g = self.v7s.gate_swing_signal(True, "STRONG_BUY", 1.1, "RANGING",
+                                       self._row(vol_ratio=1.1))
+        self.assertTrue(g["ok"], "downgrade BUKAN veto — BUY tetap lolos di RANGING")
+        self.assertEqual(g["signal"], "BUY")
+        self.assertEqual(g["gate_vol"], "downgrade_sb_vol<1.2")
+
+    def test_sb_vol_11_allowed_in_bull(self):
+        g = self.v7s.gate_swing_signal(True, "STRONG_BUY", 1.1, "BULL",
+                                       self._row(vol_ratio=1.1))
+        self.assertTrue(g["ok"])
+        self.assertEqual(g["signal"], "STRONG_BUY", "BULL: SB cukup vol_ratio >= 1.0")
+
+    def test_nan_vol_ratio_fails_gate(self):
+        g = self.v7s.gate_swing_signal(True, "BUY", float("nan"), "RANGING",
+                                       self._row(vol_ratio=float("nan")))
+        self.assertFalse(g["ok"], "NaN → dianggap GAGAL gate")
+        self.assertEqual(g["gate_vol"], "fail_vol<1.0")
+
+    def test_zero_vol_ratio_fails_gate(self):
+        g = self.v7s.gate_swing_signal(True, "BUY", 0.0, "RANGING",
+                                       self._row(vol_ratio=0.0))
+        self.assertFalse(g["ok"], "0 → dianggap GAGAL gate")
+        self.assertEqual(g["gate_vol"], "fail_vol<1.0")
+
+    def test_quality_gate_no_trend_downgrades_sb_to_buy(self):
+        # ADX < 15 (no trend) → SB turun ke BUY via quality_gate
+        g = self.v7s.gate_swing_signal(True, "STRONG_BUY", 1.5, "RANGING",
+                                       self._row(adx=10.0))
+        self.assertTrue(g["ok"])
+        self.assertEqual(g["signal"], "BUY")
+        self.assertEqual(g["gate_quality"], "downgrade_STRONG_BUY->BUY")
+
+    def test_quality_gate_low_liquidity_to_hold(self):
+        # ATR < 0.3% harga → HOLD (quality_gate low_liquidity)
+        g = self.v7s.gate_swing_signal(True, "BUY", 1.5, "RANGING",
+                                       self._row(atr=10.0, close=5000.0))
+        self.assertFalse(g["ok"], "HOLD tidak lolos allowed_signals → skip")
+        self.assertEqual(g["signal"], "HOLD")
+        self.assertEqual(g["gate_quality"], "downgrade_BUY->HOLD")
+
+    def test_swing_ok_false_short_circuits(self):
+        g = self.v7s.gate_swing_signal(False, "STRONG_BUY", 0.5, "RANGING",
+                                       self._row(vol_ratio=0.5))
+        self.assertFalse(g["ok"])
+        self.assertEqual(g["gate_vol"], "pass", "tidak lolos _swing_gate → gate tak berlaku")
+        self.assertEqual(g["gate_quality"], "pass")
+
+    def test_gate_columns_written_to_perf_csv(self):
+        with tempfile.TemporaryDirectory(prefix="gate_") as td:
+            csvp = os.path.join(td, "perf.csv")
+            ok = log_signal(csvp, ticker="AKRA", mode="swing", score=67.5,
+                            signal="BUY", entry_price=5000, sl=4750, tp=5500,
+                            lots=5, cost=2500000, regime="RANGING",
+                            gate_vol="downgrade_sb_vol<1.2", gate_quality="pass")
+            self.assertTrue(ok)
+            rows = load_signals(csvp)
+            self.assertEqual(rows[0]["gate_vol"], "downgrade_sb_vol<1.2")
+            self.assertEqual(rows[0]["gate_quality"], "pass")
+            # Pemanggil lama (tanpa gate) → kolom tetap ada, isi ''
+            csvp2 = os.path.join(td, "perf2.csv")
+            log_signal(csvp2, ticker="BBCA", mode="intraday", score=60.0,
+                       signal="BUY", entry_price=10000, sl=9500, tp=11000,
+                       lots=2, cost=2000000)
+            rows2 = load_signals(csvp2)
+            self.assertEqual(rows2[0]["gate_vol"], "")
+            self.assertEqual(rows2[0]["gate_quality"], "")
+
+    def test_old_csv_migrated_gate_unknown(self):
+        with tempfile.TemporaryDirectory(prefix="gate_mig_") as td:
+            csvp = os.path.join(td, "perf.csv")
+            with open(csvp, "w", newline="", encoding="utf-8") as f:
+                f.write("date,ticker,mode,score,signal,entry_price,sl,tp,lots,cost,fresh,regime\n")
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M')},BBCA,swing,55.4,BUY,10000,9500,11000,2,2000000,1,unknown\n")
+            log_signal(csvp, ticker="BBRI", mode="swing", score=62.0, signal="BUY",
+                       entry_price=5000, sl=4750, tp=5500, lots=5, cost=2500000)
+            rows = load_signals(csvp)
+            self.assertEqual(rows[0]["gate_vol"], "unknown",
+                             "baris lama (sebelum gate) di-backfill 'unknown'")
+            self.assertEqual(rows[0]["gate_quality"], "unknown")
+
+
+class TestIde4Ide5Hardening(unittest.TestCase):
+    """IDE4/IDE5-hardening — guard evaluasi weekly_report (exit price tidak
+    valid, log 'dup-skip', konsistensi status-vs-return) + kolom flow_spike &
+    broker_trend_detail di perf_tracker (default aman 'unknown', migrasi CSV).
+
+    Simulasi memakai mock data (path semua diarahkan ke temp dir — data
+    produksi data/*.csv TIDAK tersentuh).
+    """
+
+    # ── IDE4: INDF-like — LOSS_SL dengan close terakhir DI ATAS entry harus
+    # tetap return NEGATIF dari harga SL (bukan close). ──
+    def test_indf_like_loss_sl_negative_from_sl_not_close(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        sig_date = datetime.now() - timedelta(days=11)
+        # INDF audit: entry 7150, SL 7017, close terakhir 7450 (> entry)
+        row = (f"{sig_date.strftime('%Y-%m-%d %H:%M')},INDF,swing,60.1,BUY,"
+               f"7150,7017,7850,1,7150000,1\n")
+        # TP (7850) tidak pernah kena; SL (7017) kena di baris ke-3;
+        # close terakhir 7450 > entry → dulu tampil +4.2% (SALAH).
+        highs = [7200, 7300, 7350, 7400, 7450]
+        lows = [7150, 7100, 7017, 7000, 7020]
+        closes = [7200, 7300, 7350, 7400, 7450]
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, [row], sig_date, highs, lows)
+        provider._df["Close"] = closes
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json):
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "LOSS_SL")
+        self.assertEqual(results[0]["exit_price"], 7017.0,
+                         "exit_price = harga SL, bukan close")
+        self.assertAlmostEqual(results[0]["return_pct"],
+                               (7017 - 7150) / 7150 * 100, places=2,
+                               msg="LOSS_SL harus return NEGATIF dari harga SL "
+                                   "walau close terakhir > entry")
+        self.assertLess(results[0]["return_pct"], 0)
+        self.assertEqual(results[0]["close_price"], 7450.0,
+                         "close_price tetap konteks, bukan dasar return")
+        with open(eval_csv, encoding="utf-8") as f:
+            eval_rows = list(csv_reader(f))
+        self.assertEqual(eval_rows[0]["exit_price"], "7017.0",
+                         "kolom exit_price terisi harga SL di CSV")
+
+    # ── IDE4: ISAT-like — WIN_TP return dari harga TP, bukan close yang
+    # bahkan lebih tinggi dari TP. ──
+    def test_isat_like_win_tp_return_from_tp_not_close(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        sig_date = datetime.now() - timedelta(days=11)
+        row = (f"{sig_date.strftime('%Y-%m-%d %H:%M')},ISAT,swing,62.0,BUY,"
+               f"100,90,110,2,20000000,1\n")
+        highs = [105, 115, 116, 118, 120]
+        lows = [95, 96, 97, 98, 99]
+        closes = [105, 112, 116, 118, 120]  # close terakhir 120 > TP 110
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, [row], sig_date, highs, lows)
+        provider._df["Close"] = closes
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json):
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "WIN_TP")
+        self.assertEqual(results[0]["exit_price"], 110.0)
+        self.assertAlmostEqual(results[0]["return_pct"], 10.0, places=4,
+                               msg="return dari TP (+10%), bukan close (+20%)")
+        self.assertEqual(results[0]["close_price"], 120.0)
+
+    # ── IDE4: tiap duplikat evaluasi yang di-skip di-log 'Dup-skip' ──
+    def test_dup_eval_skip_logs_warning(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = datetime.now()
+        d_a = (base - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
+        d_b = (base - timedelta(days=4)).strftime("%Y-%m-%d %H:%M")
+        rows = [
+            f"{d_a},BUMI,intraday,60.5,STRONG_BUY,168.0,158.0,182.0,41,688800,1",
+            f"{d_b},BUMI,intraday,60.5,STRONG_BUY,168.0,158.0,182.0,41,688800,0",
+        ]
+        highs = [170, 182, 180, 179, 178]
+        lows = [165, 166, 167, 168, 169]
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, rows, base - timedelta(days=5), highs, lows)
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json), \
+             self.assertLogs("weekly_report", level="WARNING") as cm:
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+        self.assertEqual(len(results), 1, "1 sinyal unik → 1 evaluasi")
+        self.assertTrue(any("Dup-skip evaluasi" in m for m in cm.output),
+                        "log warning 'Dup-skip evaluasi' harus muncul per baris "
+                        f"duplikat — output: {cm.output}")
+
+    # ── IDE4: exit price tidak valid (TP=0) → log warning + exit_price 'nan'
+    # (fallback ke close TERTANDA, bukan diam-diam). ──
+    def test_exit_price_invalid_logged_and_nan(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        sig_date = datetime.now() - timedelta(days=11)
+        # TP=0 tidak valid → classify: high>=0 kena baris 1 → WIN_TP dgn TP 0
+        row = (f"{sig_date.strftime('%Y-%m-%d %H:%M')},BBCA,swing,55.4,BUY,"
+               f"100,90,0,2,20000000,1\n")
+        highs = [105, 106, 107, 108, 109]
+        lows = [95, 96, 97, 98, 99]
+        closes = [105, 106, 107, 108, 109]
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, [row], sig_date, highs, lows)
+        provider._df["Close"] = closes
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json), \
+             self.assertLogs("weekly_report", level="WARNING") as cm:
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+        self.assertEqual(len(results), 1)
+        self.assertTrue(any("Exit price tidak tersedia" in m for m in cm.output),
+                        "fallback ke close harus DITANDAI warning — "
+                        f"output: {cm.output}")
+        self.assertTrue(math.isnan(results[0]["exit_price"]),
+                        "exit_price ditandai NaN, bukan close diam-diam")
+        with open(eval_csv, encoding="utf-8") as f:
+            eval_rows = list(csv_reader(f))
+        self.assertEqual(eval_rows[0]["exit_price"], "nan",
+                         "kolom exit_price berisi 'nan' di CSV (penanda eksplisit)")
+        self.assertAlmostEqual(results[0]["return_pct"],
+                               (109 - 100) / 100 * 100, places=4,
+                               msg="return_pct fallback ke close TERAKHIR (tertanda)")
+
+    # ── IDE4: konsistensi status-vs-return — LOSS_SL dgn return >= 0 (SL di
+    # atas entry, kasus data aneh) harus di-log warning. ──
+    def test_loss_sl_positive_return_logs_consistency_warning(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        sig_date = datetime.now() - timedelta(days=11)
+        # SL=150 DI ATAS entry 100 → low<=150 kena baris 1 (SL dulu) → LOSS_SL
+        row = (f"{sig_date.strftime('%Y-%m-%d %H:%M')},BBCA,swing,55.4,BUY,"
+               f"100,150,110,2,20000000,1\n")
+        highs = [105, 112, 113, 114, 115]
+        lows = [95, 96, 97, 98, 99]
+        closes = [105, 106, 107, 108, 109]
+        perf_csv, eval_csv, mark_json, provider = _eval_setup(
+            tmp, [row], sig_date, highs, lows)
+        provider._df["Close"] = closes
+        with mock.patch.object(weekly_report_mod, "PERF_CSV", perf_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_CSV", eval_csv), \
+             mock.patch.object(weekly_report_mod, "EVAL_MARK", mark_json), \
+             self.assertLogs("weekly_report", level="WARNING") as cm:
+            results = weekly_report_mod.evaluate_signals(provider=provider)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "LOSS_SL")
+        self.assertGreaterEqual(results[0]["return_pct"], 0)
+        self.assertTrue(any("Konsistensi status-vs-return" in m for m in cm.output),
+                        "anomali LOSS_SL return positif harus di-log warning — "
+                        f"output: {cm.output}")
+
+    # ── IDE5: kolom flow_spike & broker_trend_detail — default aman
+    # 'unknown', nilai terisi kalau dikirim, migrasi CSV lama backfill. ──
+    def test_flow_spike_and_broker_trend_detail_columns(self):
+        self.assertIn("flow_spike", FIELDS, "FIELDS perf_tracker harus punya flow_spike")
+        self.assertIn("broker_trend_detail", FIELDS,
+                      "FIELDS perf_tracker harus punya broker_trend_detail")
+        self.assertEqual(FIELD_DEFAULTS["flow_spike"], "unknown")
+        self.assertEqual(FIELD_DEFAULTS["broker_trend_detail"], "unknown")
+        with tempfile.TemporaryDirectory(prefix="fs_dna_") as td:
+            # Pemanggil LAMA (dict sinyal tanpa flow_spike/broker_trend_detail)
+            # → default aman 'unknown', TIDAK crash (kasus dedup_and_log_batch).
+            csvp = os.path.join(td, "perf.csv")
+            ok = log_signal(csvp, ticker="BBCA", mode="swing", score=60.0,
+                            signal="BUY", entry_price=10000, sl=9500, tp=11000,
+                            lots=2, cost=2000000)
+            self.assertTrue(ok)
+            rows = load_signals(csvp)
+            self.assertEqual(rows[0]["flow_spike"], "unknown")
+            self.assertEqual(rows[0]["broker_trend_detail"], "unknown")
+            # Pemanggil BARU mengirim flow_spike (bool) + detail → tercatat.
+            csvp2 = os.path.join(td, "perf2.csv")
+            log_signal(csvp2, ticker="BBRI", mode="swing", score=62.0,
+                       signal="BUY", entry_price=5000, sl=4750, tp=5500,
+                       lots=5, cost=2500000,
+                       flow_spike=True, broker_trend_detail="streak=3 arah=up")
+            rows2 = load_signals(csvp2)
+            self.assertEqual(rows2[0]["flow_spike"], "1",
+                             "bool True → '1' (konsisten dgn kolom fresh)")
+            self.assertEqual(rows2[0]["broker_trend_detail"], "streak=3 arah=up")
+            # CSV lama tanpa kedua kolom → migrasi header + backfill 'unknown'.
+            old = os.path.join(td, "old.csv")
+            with open(old, "w", encoding="utf-8") as f:
+                f.write("date,ticker,mode,score,signal,entry_price,sl,tp,lots,cost,fresh,regime\n")
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M')},BBCA,swing,"
+                        f"55.4,BUY,10000,9500,11000,2,2000000,1,unknown\n")
+            log_signal(old, ticker="DSSA", mode="swing", score=60.0, signal="BUY",
+                       entry_price=10000, sl=9500, tp=11000, lots=2, cost=2000000)
+            rows3 = load_signals(old)
+            self.assertEqual(rows3[0]["flow_spike"], "unknown",
+                             "baris lama di-backfill flow_spike='unknown'")
+            self.assertEqual(rows3[0]["broker_trend_detail"], "unknown",
+                             "baris lama di-backfill broker_trend_detail='unknown'")
+
+    # ── IDE5: guard append duplikat batch SUDAH ada di perf_tracker
+    # (dedup_and_log_batch/_logged_today) — verifikasi end-to-end: 4 run
+    # malam yang sama = 1 baris per sinyal. ──
+    def test_same_night_four_runs_one_row_per_signal(self):
+        with tempfile.TemporaryDirectory(prefix="night4_") as td:
+            csvp = os.path.join(td, "perf.csv")
+            fixed = datetime(2026, 8, 8, 22, 2, 0)
+            with mock.patch("perf_tracker.datetime") as mdt:
+                mdt.now.return_value = fixed
+                mdt.strptime.side_effect = datetime.strptime
+                # 4 run malam 08/08 (22:02/22:32/22:44/23:01) — sinyal identik
+                for _ in range(4):
+                    dedup_and_log_batch(csvp, [_mk_signal()])
+            rows = load_signals(csvp)
+            self.assertEqual(len(rows), 1,
+                             "4 run malam sama → 1 baris per sinyal (bukan 4)")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
