@@ -411,6 +411,30 @@ class InvezgoProvider:
             logger.debug("Gagal ambil broker summary %s: %s", code, e)
             return {}
 
+    def get_broker_foreign_summary(self, code: str, days: int = 3):
+        """Ambil data broker summary KHUSUS investor ASING (investor='f').
+
+        IDE2: SDK get_summary_stock punya param `investor` (sekarang hardcode
+        'all' di get_broker_summary). Snapshot investor='f' memberikan net
+        asing SEJATI per broker — sebelumnya factor_foreign_flow menebak dari
+        daftar kode broker hardcode yang SALAH (AG=KIWOOM & RG=PROFINDO
+        ternyata domestik; CS sudah merger ke UBS sejak 2023) sehingga skor
+        asing hampir selalu netral 50. Terverifikasi API nyata 08/2026:
+        investor='f' mengembalikan list broker yang sama dengan 'all' (net
+        buy/sell per broker asing) — BRPT net asing +114.3B vs ~0 utk 'all'.
+        """
+        api_code = _api_code(code)
+        code = _safe_code(code)
+        try:
+            to_date = datetime.now().strftime("%Y-%m-%d")
+            from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            return self.client.analysis.get_summary_stock(
+                code=api_code, from_date=from_date, to_date=to_date, investor="f", market="RG"
+            )
+        except Exception as e:
+            logger.debug("Gagal ambil broker foreign summary %s: %s", code, e)
+            return {}
+
     def get_broker_flow_history(self, code: str, days: int = 20, use_cache: bool = True) -> list:
         """Broker flow HISTORIS harian (IDE4 — bandarmologi pembeda).
 

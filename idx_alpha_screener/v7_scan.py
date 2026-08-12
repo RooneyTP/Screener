@@ -24,7 +24,7 @@ except Exception:
 
 from data import compute_all_indicators, align_to_market, fetch_ihsg_cached
 from regime import detect_market_regime
-from scoring import compute_total_score
+from scoring import compute_total_score, quality_gate  # IDE3: quality_gate = gate kualitas swing
 from data_invezgo import InvezgoProvider
 import v7 as v7_engine
 from v7_exit import compute_exit, position_sizing
@@ -94,6 +94,63 @@ def _swing_gate(score: float, bf: str, regime: str) -> bool:
     if score < 55 and nn:
         return False
     return True
+
+
+# ── IDE3: GATE KUALITAS SWING — volume confirmation + quality_gate ──
+# Threshold skor (SB65/BUY55 di THRESHOLDS) TIDAK diubah — gate bekerja DI
+# ATAS label sinyal sebagai DOWNGRADE bertingkat; kolom score tetap skor v7
+# asli, hanya label sinyal yang bisa turun (SB→BUY→WEAK_BUY→HOLD).
+SWING_MIN_VOL_RATIO = 1.0       # minimal utk sinyal swing (di bawah → HOLD/skip)
+SWING_SB_VOL_RATIO = 1.2        # STRONG_BUY butuh >= 1.2 (di bawah → BUY, BUKAN veto)
+SWING_SB_VOL_RATIO_BULL = 1.0   # regime BULL: SB cukup >= 1.0 (tren kuat, sensitivitas dijaga)
+
+
+def gate_swing_signal(swing_ok: bool, signal: str, vol_ratio, regime: str,
+                      row, allowed_signals=("STRONG_BUY", "BUY", "WEAK_BUY")) -> dict:
+    """IDE3 — gate kualitas sinyal swing (downgrade bertingkat, BUKAN veto).
+
+    1. Volume confirmation: vol_ratio < 1.0 (atau NaN/0 — dianggap GAGAL
+       gate) → sinyal di-downgrade HOLD (skip). STRONG_BUY butuh minimal
+       1.2; di bawah → downgrade BUY (bukan veto). Di regime BULL, SB cukup
+       vol_ratio minimal 1.0.
+    2. quality_gate (scoring.py, signature quality_gate(row, signal)):
+       falling knife / low liquidity / no trend / false breakout →
+       downgrade bertingkat SB→BUY→WEAK_BUY→HOLD. Row v7_scan punya semua
+       kolom yang dibaca quality_gate (rsi/vol_ratio/ret_20d/atr/close/adx
+       dari compute_all_indicators) — dipanggil langsung, tanpa adaptor.
+
+    Return {"ok": bool, "signal": str, "gate_vol": str, "gate_quality": str}
+    — gate_vol/gate_quality = alasan gate ("pass" kalau lolos; dipakai utk
+    kolom CSV gate_vol/gate_quality + log).
+    """
+    out = {"ok": bool(swing_ok), "signal": signal,
+           "gate_vol": "pass", "gate_quality": "pass"}
+    if not swing_ok:
+        return out
+    try:
+        vr = float(vol_ratio)
+    except (TypeError, ValueError):
+        vr = float("nan")
+    if not math.isfinite(vr) or vr <= 0:
+        vr = 0.0  # NaN/0/negatif → anggap GAGAL gate volume
+    if vr < SWING_MIN_VOL_RATIO:
+        out.update({"ok": False, "signal": "HOLD",
+                    "gate_vol": f"fail_vol<{SWING_MIN_VOL_RATIO}"})
+        return out
+    if signal == "STRONG_BUY" and vr < SWING_SB_VOL_RATIO and regime != "BULL":
+        out.update({"signal": "BUY",
+                    "gate_vol": f"downgrade_sb_vol<{SWING_SB_VOL_RATIO}"})
+    try:
+        q_sig = quality_gate(row, out["signal"])
+    except Exception as e:
+        logger.debug("quality_gate gagal %s: %s", signal, e)
+        q_sig = out["signal"]
+    if q_sig != out["signal"]:
+        out["gate_quality"] = f"downgrade_{out['signal']}->{q_sig}"
+        out["signal"] = q_sig
+    if out["signal"] not in allowed_signals:
+        out["ok"] = False
+    return out
 
 
 def _update_logged_sizing(logged_signals: list, ticker: str, mode: str,
@@ -410,6 +467,32 @@ def flow_spike_warnings(swing: list, intra: list, max_n: int = 3) -> list:
     return out
 
 
+def conflict_warnings(swing: list, intra: list, max_n: int = 3) -> list:
+    """IDE1 — warning CONFLICT FLOW utk section MANAJEMEN RISIKO (maks max_n).
+
+    Ticker dengan flag conflict_snapshot_vs_trend True (compute() V7: snapshot
+    broker 3 hari akumulasi > 65 TAPI trend 20 hari distribusi < 35 →
+    kontribusi broker_flow di-cap netral 50) → peringatan waspada distribusi.
+    Pola sama dengan flow_spike_warnings: cap 3 ticker TOP SKOR, ticker yang
+    muncul di swing & intraday dihitung sekali (skor tertinggi).
+    """
+    best = {}
+    for _s in list(swing) + list(intra):
+        if not _s.get("conflict_snapshot_vs_trend"):
+            continue
+        t = _s.get("tkr", "")
+        if not t:
+            continue
+        sc = float(_s.get("score", 0) or 0)
+        if t not in best or sc > best[t]:
+            best[t] = sc
+    out = []
+    for _t in sorted(best, key=best.get, reverse=True)[:int(max_n)]:
+        out.append(f"⚠️ CONFLICT FLOW: {_t} snapshot akumulasi vs trend distribusi 20d — "
+                   f"kontribusi broker flow di-cap netral (waspada jebakan distribusi)")
+    return out
+
+
 def main():
     # Config
     with open(os.path.join(ROOT, "config.yaml"), encoding="utf-8", errors="replace") as f:
@@ -588,6 +671,26 @@ def main():
             # market_mode (>=50/60) yang sudah ada.
             swing_ok = _swing_gate(swing_score, bf, regime)
 
+            # ── IDE3: gate kualitas SWING (volume confirmation + quality_gate) ──
+            # Downgrade bertingkat di ATAS label sinyal (threshold skor
+            # SB65/BUY55 TIDAK diubah): vol_ratio < 1.0 (atau NaN/0) → HOLD/
+            # skip; STRONG_BUY tanpa vol >= 1.2 (>= 1.0 di BULL) → BUY;
+            # quality_gate (falling knife/low liquidity/no trend/false
+            # breakout) → SB→BUY→WEAK_BUY→HOLD. Hasil dicatat di log +
+            # dict sinyal (gate_vol/gate_quality).
+            swing_signal = _signal_from_score(swing_score, regime, weekly)
+            gate_vol, gate_quality = "pass", "pass"
+            if swing_ok:
+                _g = gate_swing_signal(swing_ok, swing_signal,
+                                       row.get("vol_ratio"), regime, row,
+                                       allowed_signals)
+                swing_ok, swing_signal = _g["ok"], _g["signal"]
+                gate_vol, gate_quality = _g["gate_vol"], _g["gate_quality"]
+                if gate_vol != "pass" or gate_quality != "pass":
+                    logger.warning(
+                        "Gate kualitas %s: gate_vol=%s gate_quality=%s → %s",
+                        tkr, gate_vol, gate_quality, swing_signal)
+
             # ── Intraday filter (independent of swing) ──
             # N10 (P2): vol_ratio minimal 1.2x (sebelumnya 1.0) — vol
             # 1.0-1.1x bukan lonjakan volume.
@@ -623,12 +726,14 @@ def main():
                     intra_ok = False
 
             # N10 (P3): jejak audit — alasan skip yang sebelumnya SILENT
-            # (tidak lolos gate swing/intraday sama sekali).
+            # (tidak lolos gate swing/intraday sama sekali). IDE3: alasan
+            # gate kualitas (gate_vol/gate_quality) ikut tercatat.
             if not swing_ok and not intra_ok:
                 logger.info(
                     "Skip %s: tidak lolos gate swing/intraday (score=%.1f, "
-                    "vol_ratio=%.2f, bf=%s)", tkr, v7r["score"], vol_ratio,
-                    bf or "-")
+                    "vol_ratio=%.2f, bf=%s, gate_vol=%s, gate_quality=%s)",
+                    tkr, v7r["score"], vol_ratio, bf or "-",
+                    gate_vol, gate_quality)
 
             # L12: recommend_entry dipanggil SEKALI per ticker (sebelumnya 2x
             # untuk ticker yang lolos swing+intraday — hasilnya identik).
@@ -646,14 +751,18 @@ def main():
                     "bf": bf, "ff": ff, "earn": earn, "weekly": weekly, "brokers": brokers_raw,
                     "entry_rec": entry_rec, "group": group_of(tkr),
                     "flow_spike": bool(v7r["factors"].get("flow_spike", False)),
+                    "conflict_snapshot_vs_trend": bool(v7r["factors"].get("conflict_snapshot_vs_trend", False)),  # IDE1
                     "rsi": float(row.get("rsi", 0) or 0),
                     "vol_ratio": vol_ratio,
+                    "gate_vol": gate_vol, "gate_quality": gate_quality,  # IDE3
                 })
                 logged_signals.append({
                     "ticker": tkr, "mode": "swing", "score": swing_score,
                     # R3: signal dihitung dari score FINAL (N10: bonus +5
                     # sudah dihapus — score = skor v7.compute langsung).
-                    "signal": _signal_from_score(swing_score, regime, weekly),
+                    # IDE3: label FINAL setelah gate kualitas (downgrade
+                    # SB→BUY→WEAK_BUY→HOLD kalau vol/gate kualitas gagal).
+                    "signal": swing_signal,
                     "entry_price": price,
                     "sl": ex["stop_loss"], "tp": ex["take_profit"],
                     "lots": sz.get("lots", 0), "cost": sz.get("cost", 0),
@@ -670,6 +779,7 @@ def main():
                     "atr_pct": round(atr_pct, 2),
                     "vol_ratio": round(vol_ratio, 2),
                     "event": ca_label,
+                    "gate_vol": gate_vol, "gate_quality": gate_quality,  # IDE3
                 })
 
             if intra_ok:
@@ -681,6 +791,7 @@ def main():
                     "exit": ex2, "sizing": sz2, "bf": bf, "ff": ff, "earn": earn, "vol": vol_ratio,
                     "entry_rec": entry_rec, "group": group_of(tkr),
                     "flow_spike": bool(v7r["factors"].get("flow_spike", False)),
+                    "conflict_snapshot_vs_trend": bool(v7r["factors"].get("conflict_snapshot_vs_trend", False)),  # IDE1
                 })
                 logged_signals.append({
                     "ticker": tkr, "mode": "intraday", "score": v7r["score"],
@@ -705,9 +816,11 @@ def main():
                 })
 
             # Record cooldown per MODE yang lolos (R3) — key (ticker, mode),
-            # label sinyal dari score final mode tsb.
+            # label sinyal dari score final mode tsb (IDE3: swing pakai label
+            # SETELAH gate kualitas — cooldown konsisten dengan sinyal yang
+            # benar-benar dikeluarkan).
             if swing_ok:
-                cooldown.record(tkr, _signal_from_score(swing_score, regime, weekly),
+                cooldown.record(tkr, swing_signal,
                                 {"score": swing_score}, mode="swing")
             if intra_ok:
                 cooldown.record(tkr, _signal_from_score(v7r["score"], regime, weekly),
@@ -758,6 +871,15 @@ def main():
     concentration_warnings.extend(flow_warnings)
     for w in flow_warnings:
         logger.warning("L2-A: %s", w)
+
+    # ── IDE1: CONFLICT FLOW — snapshot akumulasi vs trend distribusi 20d ──
+    # Snapshot 3 hari bertentangan dengan trend 20 hari (kap kontribusi
+    # broker_flow di compute()) → warning di MANAJEMEN RISIKO, maks 3 ticker
+    # TOP SKOR (pola sama dengan flow_spike_warnings).
+    conflict_flow_warnings = conflict_warnings(swing, intra, max_n=3)
+    concentration_warnings.extend(conflict_flow_warnings)
+    for w in conflict_flow_warnings:
+        logger.warning("IDE1: %s", w)
 
     # ── L2-B: IHSG LATE-SESSION SURGE — loncat kodok penutupan (bandarmologi) ──
     # Insight user: IHSG meloncat 15.30-16.00 = bandar ajak ritel beli →

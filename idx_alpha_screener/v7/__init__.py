@@ -130,6 +130,39 @@ def _get_broker_summary_cached(code: str, days: int = 3):
     _broker_mem_cache[code] = data
     return data
 
+# ── IDE2: snapshot net asing SEJATI (get_summary_stock investor='f') ──
+# Cache TERPISAH data/broker_flow_foreign_{CODE}.json TTL 24 jam (pola sama
+# dengan broker_flow_{CODE}.json) + memori per run. Sumber factor_foreign_flow
+# — menggantikan tebakan daftar kode broker hardcode (AG/RG domestik, CS
+# merger ke UBS) yang membuat skor asing hampir selalu netral 50.
+_foreign_mem_cache: dict = {}
+
+def _get_broker_foreign_summary_cached(code: str, days: int = 3):
+    """
+    Ambil get_broker_foreign_summary() SEKALI per ticker per run.
+    Cache: data/broker_flow_foreign_{code}.json TTL 24 jam (pola sama dengan
+    _get_broker_summary_cached). Error provider → None (fallback dipakai
+    pemanggil); hasil kosong → [] (tidak di-cache).
+    """
+    code = _safe_code(code)
+    if code in _foreign_mem_cache:
+        return _foreign_mem_cache[code]
+
+    path = _cache_path(f"broker_flow_foreign_{code}.json")
+    data = _load_json_cache(path, ttl_hours=24)
+    if data is None:
+        provider = get_provider()
+        if not provider:
+            return None
+        data = provider.get_broker_foreign_summary(code, days=days)
+        if data:  # hanya simpan kalau ada isi — hindari cache error transient
+            _save_json_cache(path, data)
+
+    if not data:
+        data = []
+    _foreign_mem_cache[code] = data
+    return data
+
 # ── B1: data laporan keuangan dicache 7 hari (angka kuartalan jarang berubah) ──
 _fund_mem_cache: dict = {}
 
@@ -494,21 +527,65 @@ def factor_broker_trend(code: str, days: int = 20) -> dict:
         return {"score": 50, "detail": "error"}
 
 
+# ── IDE2: daftar kode broker asing FALLBACK (dipakai HANYA kalau snapshot
+# investor='f' tidak tersedia — error/offline). Diperbaiki 08/2026:
+#   AG = KIWOOM (DOMESTIK)      → dibuang
+#   RG = PROFINDO (DOMESTIK)    → dibuang
+#   CS = Credit Suisse (merger ke UBS sejak 2023) → dibuang
+#   AI = UOB Kay Hian (asing sejati, dulu TIDAK ada di daftar) → ditambahkan
+# ⚠️ Daftar ini PERLU DIVERIFIKASI BERKALA terhadap data broker aktual.
+_FOREIGN_BROKER_CODES_FALLBACK = ["DB", "GS", "ML", "UBS", "AI"]
+
+
 def factor_foreign_flow(code: str) -> dict:
-    """Foreign Flow Factor — asing beli atau jual?"""
+    """Foreign Flow Factor — asing beli atau jual?
+
+    IDE2: memakai snapshot net asing SEJATI (get_summary_stock investor='f',
+    cache data/broker_flow_foreign_{CODE}.json TTL 24 jam) — sebelumnya hanya
+    menjumlahkan kode broker hardcode dari snapshot 'all' yang salah daftarnya
+    (AG/RG domestik, CS merger) → 13/15 ticker dapat skor 50 statis (bonus
+    0.15×50 = 7.5 poin tidak informatif). Logika skor sama dengan
+    factor_broker_flow: akumulasi besar → skor tinggi.
+
+    Kalau snapshot 'f' tidak tersedia (provider error / offline) → fallback
+    minimal: daftar kode broker asing yang DIPERBAIKI dihitung dari snapshot
+    'all' yang sudah di-cache (broker_flow_{CODE}.json).
+    """
     try:
+        summary = _get_broker_foreign_summary_cached(code, days=3)
+        if summary and isinstance(summary, list) and len(summary) >= 2:
+            foreign_net = 0
+            for item in summary:
+                try:
+                    foreign_net += int(item.get("buy_value", 0)) - int(item.get("sell_value", 0))
+                except (TypeError, ValueError) as e:
+                    logger.debug("Broker asing %s nilai tidak valid (%s): %s",
+                                 item.get("code", "??"), e, item)
+            if foreign_net > 100_000_000_000:
+                return {"score": 85, "detail": f"asing_akumulasi_masif_{foreign_net/1e9:.0f}B"}
+            elif foreign_net > 10_000_000_000:
+                return {"score": 75, "detail": f"asing_akumulasi_{foreign_net/1e9:.1f}B"}
+            elif foreign_net > 1_000_000_000:
+                return {"score": 65, "detail": f"asing_beli_{foreign_net/1e9:.1f}B"}
+            elif foreign_net > -1_000_000_000:
+                return {"score": 50, "detail": "asing_netral"}
+            else:
+                return {"score": 30, "detail": f"asing_jual_{abs(foreign_net)/1e9:.0f}B"}
+
+        # ── Fallback: snapshot 'all' + daftar kode broker asing (diperbaiki) ──
         summary = _get_broker_summary_cached(code, days=3)
         if not summary or not isinstance(summary, list):
             return {"score": 40, "detail": "no_data"}
-        
-        # Cari foreign net dari summary
+
         foreign_net = 0
         for item in summary:
-            if item.get("code") in ["AG", "RG", "DB", "GS", "ML", "CS", "UBS"]:  # Foreign brokers
-                buy = int(item.get("buy_value", 0))
-                sell = int(item.get("sell_value", 0))
-                foreign_net += (buy - sell)
-        
+            if item.get("code") in _FOREIGN_BROKER_CODES_FALLBACK:
+                try:
+                    foreign_net += int(item.get("buy_value", 0)) - int(item.get("sell_value", 0))
+                except (TypeError, ValueError) as e:
+                    logger.debug("Broker asing %s nilai tidak valid (%s): %s",
+                                 item.get("code", "??"), e, item)
+
         if foreign_net > 10_000_000_000:
             return {"score": 80, "detail": "asing_beli_besar"}
         elif foreign_net > 1_000_000_000:
@@ -517,7 +594,7 @@ def factor_foreign_flow(code: str) -> dict:
             return {"score": 50, "detail": "asing_netral"}
         else:
             return {"score": 30, "detail": "asing_jual"}
-            
+
     except Exception as e:
         logger.debug("Foreign flow error %s: %s", code, e)
         return {"score": 40, "detail": "error"}
@@ -757,6 +834,21 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
     bt = factor_broker_trend(code)  # IDE4: trend flow harian (pembeda non-jenuh)
     w = _V7_WEIGHTS
 
+    # ── IDE1: FLOW REGIME CONFLICT CAP — snapshot akumulasi vs trend distribusi ──
+    # Snapshot 3 hari (get_broker_summary) bisa BERTENTANGAN dengan trend 20
+    # hari (get_broker_flow_history): snapshot akumulasi > 65 di tengah trend
+    # distribusi < 35 = jebakan distribusi (bandar jual ke ritel memakai
+    # momentum — kasus nyata BNBR/ASII/BUMI 08/2026). Kontribusi broker_flow
+    # di-cap PARSIAL netral 50 + warning (BUKAN veto): awal akumulasi baru
+    # (spike 3d = awal tren) TIDAK kena cap (trend-nya belum < 35, atau sudah
+    # di-cap 50 oleh flow_spike — 50 >= 35 → tidak conflict), dan arah
+    # sebaliknya ringan (trend akumulasi + snapshot netral) TETAP diizinkan.
+    # factor_broker_trend TIDAK disentuh — hanya kontribusi snapshot yang di-cap.
+    bf_score = float(bf["score"])
+    conflict_snapshot_vs_trend = bt["score"] < 35 and bf_score > 65
+    if conflict_snapshot_vs_trend:
+        bf_score = 50.0
+
     # Weighted score (total bobot = 1.0)
     # IDE4: broker_trend (riwayat 5d/10d/20d) FAKTOR TERPISAH berbobot 0.10 —
     # desain terpilih: snapshot broker_flow (0.20) tetap sebagai informasi
@@ -765,7 +857,7 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
     # menjadi satu faktor, dua bobot terpisah lebih bersih & transparan).
     v7_score = (
         v4_score * w["v4_score"] +
-        bf["score"] * w["broker_flow"] +
+        bf_score * w["broker_flow"] +
         ff["score"] * w["foreign_flow"] +
         fq["score"] * w["fundamental"] +
         em["score"] * w["earnings_momentum"] +
@@ -803,11 +895,13 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
         "signal": signal,
         "factors": {
             "v4_core": round(v4_score, 1),
-            "broker_flow": bf["score"],
-            "broker_detail": bf["detail"],
+            "broker_flow": round(bf_score, 1),           # IDE1: sudah termasuk cap conflict
+            "broker_flow_raw": bf["score"],              # IDE1: skor snapshot asli (audit)
+            "broker_detail": bf["detail"] + (" | ⚠️ conflict snapshot vs trend — waspada distribusi" if conflict_snapshot_vs_trend else ""),
             "broker_trend": bt["score"],              # IDE4
             "broker_trend_detail": bt["detail"],      # IDE4
             "flow_spike": bt.get("flow_spike", False),  # L2-A: net buy mendadak (jebakan distribusi)
+            "conflict_snapshot_vs_trend": conflict_snapshot_vs_trend,  # IDE1: snapshot akumulasi vs trend distribusi
             "foreign_flow": ff["score"],
             "foreign_detail": ff["detail"],
             "fundamental": fq["score"],

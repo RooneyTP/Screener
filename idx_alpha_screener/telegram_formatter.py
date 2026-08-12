@@ -238,6 +238,10 @@ def _map_warning(w: str):
     elif head.startswith("FLOW SPIKE:"):
         # L2-A: net buy mendadak = jebakan distribusi (bandarmologi user)
         head = "Flow spike " + head[len("FLOW SPIKE:"):].strip()
+    elif head.startswith("CONFLICT FLOW:"):
+        # IDE1: snapshot broker 3 hari akumulasi vs trend 20 hari distribusi
+        # (kontribusi broker_flow di-cap netral di v7.compute)
+        head = "Conflict flow " + head[len("CONFLICT FLOW:"):].strip()
     elif head.startswith("IHSG LONCAT:"):
         # L2-B: loncat kodok penutupan 15.30-16.00 (bandarmologi user)
         head = "IHSG loncat penutupan " + head[len("IHSG LONCAT:"):].strip()
