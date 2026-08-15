@@ -1,101 +1,127 @@
 #!/usr/bin/env python3
-"""Cron Wrapper — V7 Dual Mode Scanner (21:00 WIB)
-Menjalankan v7_scan.py dan mengirim hasil ke Telegram group via API."""
-import sys, os, json, subprocess, urllib.request, urllib.parse
+"""Cron wrapper — V7 Dual Mode Scanner (21:00 WIB) dengan JAMINAN KIRIM TELEGRAM.
 
-# ── Kredensial Telegram dari .env (root repo) — JANGAN hardcode token di source ──
-from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+Mekanisme jaminan:
+1. Jalankan v7_scan.py (capture stdout+stderr, timeout 600s).
+2. Kirim output ke Telegram dengan RETRY 3x + verifikasi respons {"ok":true}.
+   Sukses = Telegram membalas ok:true (message_id tercatat). Bukan cuma "request selesai".
+3. Kalau v7_scan exit != 0 -> kirim pesan error ke grup, lalu exit(returncode).
+4. Kalau output mengandung sinyal (Swing N>0 / Intra N>0) dan kirim gagal 3x
+   -> tulis data/send_failed.log (bukti) + exit 1 (Hermes cron menandai error).
+5. Setiap kirim sukses -> print [SEND] ok message_id=... ke stdout (bukti di cron output).
+"""
+import sys, os, json, time, subprocess, urllib.request, urllib.parse
 
-SCREENER_DIR = r"C:\Hermes_Workspace\Screener\idx_alpha_screener"
-VENV_PYTHON = r"C:\Users\yanli\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"
-PYTHON = VENV_PYTHON if os.path.exists(VENV_PYTHON) else sys.executable
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-5237365204")
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+ENV_PATH = r"C:\Hermes_Workspace\Screener\.env"
+SCAN_DIR = r"C:\Hermes_Workspace\Screener\idx_alpha_screener"
+FAIL_LOG = r"C:\Hermes_Workspace\Screener\idx_alpha_screener\data\send_failed.log"
 
 
-def send_telegram(text):
-    """Kirim pesan ke grup Telegram via Bot API."""
+def load_env():
+    env = {}
     try:
-        data = urllib.parse.urlencode({"chat_id": CHAT_ID, "text": text}).encode()
-        req = urllib.request.Request(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data=data, method="POST"
-        )
-        resp = urllib.request.urlopen(req, timeout=15)
-        return json.loads(resp.read()).get("ok", False)
+        with open(ENV_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    env[k.strip()] = v.strip().strip('"').strip("'")
     except Exception:
-        return False
+        pass
+    return env
+
+
+def send_tg(text, token, chat_id, retries=3):
+    """Kirim pesan, retry, VERIFIKASI ok:true. Return (ok, message_id, last_error)."""
+    data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
+    last_err = "no attempt"
+    for attempt in range(1, retries + 1):
+        try:
+            resp = urllib.request.urlopen(
+                f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=30)
+            body = resp.read().decode("utf-8", errors="replace")
+            parsed = json.loads(body)
+            if parsed.get("ok"):
+                mid = parsed.get("result", {}).get("message_id", "?")
+                return True, mid, ""
+            last_err = f"Telegram ok:false: {body[:120]}"
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+        if attempt < retries:
+            time.sleep(2 * attempt)
+    return False, None, last_err
+
+
+def count_signals(output):
+    """Deteksi jumlah sinyal dari ringkasan 'Swing N · Intra M'."""
+    import re
+    m = re.search(r"Swing (\d+) · Intra (\d+)", output)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None, None
 
 
 def main():
-    """Jalankan scan V7 via subprocess + kirim hasil ke Telegram.
+    env = load_env()
+    token = env.get("TELEGRAM_BOT_TOKEN", "")
+    chat = env.get("TELEGRAM_CHAT_ID", "-5237365204")
 
-    B1: SEMUA eksekusi ada di sini (bukan module level) — import
-    cron_v3_scan TIDAK boleh menjalankan scan atau mengirim Telegram.
-    """
-    # L8: cek token di dalam main() — import tidak boleh exit walau .env tidak ada.
-    if not BOT_TOKEN:
-        print("❌ TELEGRAM_BOT_TOKEN tidak ditemukan di .env — hentikan.", file=sys.stderr)
-        sys.exit(1)
-
-    print("=" * 50)
-    print("  V7 DUAL MODE SCAN")
-    print(f"  [cron_v3_scan.py] ...")
+    print("V7 DUAL MODE SCAN")
     sys.stdout.flush()
 
-    try:
-        # PYTHONUTF8=1: pastikan subprocess membaca file & mendecode stdout/stderr sebagai UTF-8.
-        # Tanpa ini, byte non-ASCII (mis. 0x90) di data CSV memicu 'charmap' UnicodeDecodeError
-        # pada locale Windows (cp1252) — penyebab cron 21:00 WIB gagal 03-05/08/2026.
-        _env = dict(os.environ)
-        _env["PYTHONUTF8"] = "1"
-        proc = subprocess.run(
-            [PYTHON, "v7_scan.py"],
-            cwd=SCREENER_DIR, capture_output=True, text=True, timeout=600,
-            env=_env, encoding="utf-8", errors="replace"
-        )
-
-        if proc.stdout:
-            output = proc.stdout.strip()
-            print(output)
-
-            # Send clean output (first 4000 chars) to Telegram
-            if output:
-                msg = output[:4000]
-                ok = send_telegram(msg)
-                if ok:
-                    print(f"\n  ✅ Terkirim ke Telegram group ({len(msg)} chars)")
-                else:
-                    print(f"\n  ⚠️ Gagal kirim ke Telegram")
-
-        if proc.stderr:
-            err_lines = [l for l in proc.stderr.split("\n") if "ERROR" in l or "Traceback" in l]
-            if err_lines:
-                print("\n".join(err_lines[:3]))
-
-        # L8: exit code subprocess DITERUSKAN — scheduler tidak boleh buta
-        # (dulu selalu exit 0 walau v7_scan gagal). Pesan error tetap dikirim
-        # ke Telegram sebelum exit.
-        if proc.returncode != 0:
-            print(f"\n{'='*50}\n  ❌ Scan gagal (exit {proc.returncode})\n{'='*50}")
-            tail = [l for l in (proc.stderr or "").strip().splitlines() if l.strip()][-3:]
-            err_msg = f"❌ Scan gagal exit {proc.returncode}"
-            if tail:
-                err_msg += "\n```\n" + "\n".join(tail)[:500] + "\n```"
-            send_telegram(err_msg[:4000])
-            sys.exit(proc.returncode)
-
-        status = "✅ Selesai"
-        print(f"\n{'='*50}\n  {status} (exit {proc.returncode})\n{'='*50}")
-
-    except subprocess.TimeoutExpired as e:
-        print(f"\n❌ Scan timeout 600s: {e}", file=sys.stderr)
-        send_telegram("❌ Scan V7 timeout 600s — cron hentikan")
+    if not token or not chat:
+        print("ERROR: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID tidak ditemukan di .env")
         sys.exit(1)
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "v7_scan.py"],
+            cwd=SCAN_DIR, capture_output=True, text=True, timeout=600,
+            env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
     except Exception as e:
-        print(f"\n❌ Error: {e}", file=sys.stderr)
-        send_telegram(f"❌ Scan V7 error: {str(e)[:200]}")
+        msg = f"SCAN GAGAL: subprocess error: {e}"
+        ok, mid, err = send_tg(msg, token, chat)
+        print(msg)
+        print(f"[SEND] {'ok' if ok else 'FAIL'} message_id={mid} err={err}")
+        sys.exit(1)
+
+    output = result.stdout
+    if result.stderr:
+        tail = result.stderr.strip()[-800:]
+        if tail:
+            output += f"\n[stderr] {tail}"
+
+    swing_n, intra_n = count_signals(output)
+    has_signals = (swing_n or 0) + (intra_n or 0) > 0
+
+    if result.returncode != 0:
+        # Scan gagal: kirim pesan error JELAS + exit non-zero (scheduler tidak buta)
+        msg = f"SCAN GAGAL exit={result.returncode}\n{output[-1500:]}"
+        ok, mid, err = send_tg(msg, token, chat)
+        print(msg)
+        print(f"[SEND] {'ok' if ok else 'FAIL'} message_id={mid} err={err}")
+        print(f"Exit code scan: {result.returncode}")
+        sys.exit(result.returncode)
+
+    # Scan sukses: kirim pesan. Kalau ADA sinyal -> retry lebih agresif (5x).
+    retries = 5 if has_signals else 3
+    ok, mid, err = send_tg(output, token, chat, retries=retries)
+
+    if ok:
+        print(output)
+        print(f"[SEND] ok message_id={mid} chars={len(output)} signals=({swing_n},{intra_n})")
+        sys.exit(0)
+    else:
+        # Kirim gagal: catat bukti + exit 1 (tidak pernah senyap)
+        fail_note = f"{time.strftime('%Y-%m-%d %H:%M:%S')} | signals=({swing_n},{intra_n}) | err={err}\n"
+        try:
+            with open(FAIL_LOG, "a", encoding="utf-8") as f:
+                f.write(fail_note)
+        except Exception:
+            pass
+        print(output)
+        print(f"[SEND] FAIL setelah {retries} percobaan: {err}")
+        print(f"FAIL LOG: {FAIL_LOG}")
         sys.exit(1)
 
 

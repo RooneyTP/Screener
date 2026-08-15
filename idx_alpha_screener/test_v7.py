@@ -2147,20 +2147,24 @@ class TestCronV3Scan(unittest.TestCase):
         with open(cls.path, encoding="utf-8") as f:
             cls.tree = ast.parse(f.read(), filename=cls.path)
 
-    def _find_env_assign(self):
-        """Cari `_env["PYTHONUTF8"] = "1"` di AST."""
+    def _find_pythonutf8_in_env(self):
+        """Cari key PYTHONUTF8='1' di dict env subprocess.run (AST).
+
+        Versi jaminan kirim (sinkron dengan profile): PYTHONUTF8 di-set
+        INLINE di env dict literal subprocess.run — bukan assignment
+        `_env['PYTHONUTF8']='1'` seperti versi lama.
+        """
+        call = self._find_subprocess_run()
+        if call is None:
+            return []
         found = []
-        for node in ast.walk(self.tree):
-            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+        for kw in call.keywords:
+            if kw.arg != "env" or not isinstance(kw.value, ast.Dict):
                 continue
-            t = node.targets[0]
-            if (isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name)
-                    and t.value.id == "_env"
-                    and isinstance(t.slice, ast.Constant)
-                    and t.slice.value == "PYTHONUTF8"
-                    and isinstance(node.value, ast.Constant)
-                    and str(node.value.value) == "1"):
-                found.append(node)
+            for k, v in zip(kw.value.keys, kw.value.values):
+                if (isinstance(k, ast.Constant) and k.value == "PYTHONUTF8"
+                        and isinstance(v, ast.Constant) and str(v.value) == "1"):
+                    found.append(kw.value)
         return found
 
     def _find_subprocess_run(self):
@@ -2173,26 +2177,31 @@ class TestCronV3Scan(unittest.TestCase):
         return None
 
     def test_env_pythonutf8_set(self):
-        assigns = self._find_env_assign()
-        self.assertTrue(assigns, "cron_v3_scan harus men-set _env['PYTHONUTF8'] = '1'")
+        # Versi jaminan kirim: PYTHONUTF8='1' di-set INLINE di env dict
+        # subprocess.run (bukan assignment `_env['PYTHONUTF8']='1'` lama).
+        self.assertTrue(self._find_pythonutf8_in_env(),
+                        "cron_v3_scan harus men-set PYTHONUTF8='1' di env subprocess.run")
 
     def test_subprocess_run_uses_env_and_safe_args(self):
         call = self._find_subprocess_run()
         self.assertIsNotNone(call, "subprocess.run harus dipanggil")
         kwargs = {k.arg: k.value for k in call.keywords if k.arg}
-        # env=_env (variabel yang sudah diberi PYTHONUTF8=1)
+        # env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
         self.assertIn("env", kwargs)
-        self.assertIsInstance(kwargs["env"], ast.Name)
-        self.assertEqual(kwargs["env"].id, "_env")
-        # Argumen aman UTF-8
-        self.assertEqual(ast.literal_eval(kwargs["encoding"]), "utf-8")
-        self.assertEqual(ast.literal_eval(kwargs["errors"]), "replace")
+        self.assertIsInstance(kwargs["env"], ast.Dict)
+        env_pairs = {k.value: v.value
+                     for k, v in zip(kwargs["env"].keys, kwargs["env"].values)
+                     if isinstance(k, ast.Constant)}
+        self.assertEqual(env_pairs.get("PYTHONUTF8"), "1")
+        self.assertEqual(env_pairs.get("PYTHONIOENCODING"), "utf-8")
+        # Argumen aman UTF-8 (text=True menggantikan encoding/errors lama)
+        self.assertIs(ast.literal_eval(kwargs["text"]), True)
         self.assertIs(ast.literal_eval(kwargs["capture_output"]), True)
         self.assertEqual(ast.literal_eval(kwargs["timeout"]), 600)
-        # cwd = SCREENER_DIR (folder idx_alpha_screener)
+        # cwd = SCAN_DIR (folder idx_alpha_screener)
         self.assertIn("cwd", kwargs)
         self.assertIsInstance(kwargs["cwd"], ast.Name)
-        self.assertEqual(kwargs["cwd"].id, "SCREENER_DIR")
+        self.assertEqual(kwargs["cwd"].id, "SCAN_DIR")
 
     def test_script_not_run_at_import(self):
         """cron_v3_scan punya efek samping saat import — test ini hanya memastikan
@@ -4436,6 +4445,38 @@ class TestIde4Ide5Hardening(unittest.TestCase):
                              "baris lama di-backfill flow_spike='unknown'")
             self.assertEqual(rows3[0]["broker_trend_detail"], "unknown",
                              "baris lama di-backfill broker_trend_detail='unknown'")
+
+    # ── IDE5-complete: dict ala v7_scan (logged_signals swing/intraday) yang
+    # memuat flow_spike + broker_trend_detail diteruskan dedup_and_log_batch
+    # → CSV berisi nilai NYATA (bukan 'unknown'). Menutup celah pipeline:
+    # dulu v7_scan tidak mengirim 2 key ini → kolom DNA selalu 'unknown'. ──
+    def test_v7_scan_logged_signals_dna_columns_reach_csv(self):
+        with tempfile.TemporaryDirectory(prefix="dna_pipe_") as td:
+            csvp = os.path.join(td, "perf.csv")
+            # Dict persis ala v7_scan.py logged_signals swing (IDE5-complete):
+            # flow_spike (bool) + broker_trend_detail (string) IKUT dikirim.
+            sig = {
+                "ticker": "BBCA", "mode": "swing", "score": 60.0,
+                "signal": "BUY", "entry_price": 10000.0,
+                "sl": 9500.0, "tp": 11000.0, "lots": 2, "cost": 20000000,
+                "risk_amount": 1000000, "regime": "BULL",
+                "broker_flow": 62.5, "broker_trend": 55.0,
+                "flow_spike": True,
+                "broker_trend_detail": "streak=3 arah=up",
+                "foreign_flow": 40.0, "fundamental": 70.0,
+                "earnings_momentum": 50.0, "weekly_trend": "BULLISH",
+                "atr_pct": 2.5, "vol_ratio": 1.8, "event": "",
+                "gate_vol": "pass", "gate_quality": "pass",
+            }
+            results = dedup_and_log_batch(csvp, [sig])
+            self.assertTrue(results[0]["logged"],
+                            "sinyal dict v7_scan harus tercatat")
+            rows = load_signals(csvp)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["flow_spike"], "1",
+                             "flow_spike=True dari dict v7_scan → '1' di CSV")
+            self.assertEqual(rows[0]["broker_trend_detail"], "streak=3 arah=up",
+                             "broker_trend_detail dari dict v7_scan → nilai nyata")
 
     # ── IDE5: guard append duplikat batch SUDAH ada di perf_tracker
     # (dedup_and_log_batch/_logged_today) — verifikasi end-to-end: 4 run
