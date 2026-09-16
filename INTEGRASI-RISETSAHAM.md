@@ -84,5 +84,30 @@ Ciri `scan_mandiri.py`:
 - Uji: `.venv/bin/python scan_mandiri.py --tickers TLKM,BRPT --out /tmp/x.csv`
   (±2–3 dtk/saham saat cache hangat; panggilan Stockbit tetap dibatasi sopan).
 
+## Scan SEMUA SAHAM IHSG (16 Sep 2026 malam)
+
+Tombol **🌐 Semua saham IHSG** di panel Screening Mandiri menjalankan
+`scan_ihsg.py` — 2 fase, sopan ke sumber data:
+
+1. **Fase 1 — peringkat seluruh pasar**: daftar ±975 saham IDX di-sweep dari
+   11 sektor saham Stockbit (`/emitten/v3/sector/:id/company`; cache harian
+   `idx_alpha_screener/data/ihsg_universe.json`, TTL 20 jam). Tiap saham →
+   riwayat harga (Yahoo, cache 20 jam) → indikator → **skor inti V4**
+   (paralel 5 worker, ±24 saham/detik).
+2. **Fase 2 — V7 penuh utk finalis**: Top-60 (`--top`) diperiksa dgn rantai
+   V7 lengkap (broker/asing/fundamental → Stockbit) via `scan_satu()` yang
+   diimpor dari `scan_mandiri.py` — keputusan identik dengan scan terjadwal.
+
+Kenapa 2 fase: V7 penuh butuh ±2 panggilan Stockbit per saham — kalau 975
+saham langsung = ±2000 panggilan (tidak sopan & berisiko sesi). Fase 1
+menyaring dgn data murah dulu; Stockbit hanya untuk finalis (±120 panggilan).
+
+Hasil: CSV `kode,skor,mode,entry,sl,tp,catatan` (default top-20 tampil,
+sinyal didahulukan) + baris `RINGKASAN` untuk aplikasi. Bukti run pertama
+(16 Sep): **974 saham diperingkat · 60 finalis · 9 sinyal · 7m39s** (cache
+dingin; berikutnya jauh lebih cepat).
+
+Uji cepat: `.venv/bin/python scan_ihsg.py --limit 50 --top 10`.
+
 Catatan: data Yahoo/Stockbit = pemakaian **NON-KOMERSIAL** (keluarga), volume
 panggilan santun. Jangan publikasikan datanya.

@@ -146,6 +146,34 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
         return row
 
 
+def siapkan_konteks():
+    """Config + provider + IHSG + regime + izin sinyal.
+
+    Dipakai bersama oleh scan_mandiri.py DAN scan_ihsg.py — jangan duplikasi.
+    Return (ip, df_ihsg, regime, allowed).
+    """
+    with open(os.path.join(SCAN, "config.yaml"), encoding="utf-8", errors="replace") as f:
+        CONFIG = yaml.safe_load(f)
+    v7_engine.enabled = bool(CONFIG.get("v7", {}).get("enabled", True))
+    v7_engine.configure(CONFIG.get("v7", {}))
+
+    ip = InvezgoProvider()
+
+    try:
+        df_ihsg = fetch_ihsg_cached(period="2y")
+    except Exception as e:
+        print(f"(IHSG gagal diambil: {e} — lanjut tanpa align)", flush=True)
+        df_ihsg = pd.DataFrame()
+    if df_ihsg is None or df_ihsg.empty or len(df_ihsg) < 21:
+        df_ihsg = pd.DataFrame()
+    if not df_ihsg.empty and len(df_ihsg) >= 50:
+        regime, _, _ = detect_market_regime(compute_all_indicators(df_ihsg.copy()))
+    else:
+        regime = "RANGING"
+    allowed = _allowed_signals(CONFIG, regime)
+    return ip, df_ihsg, regime, allowed
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Screening mandiri V7 (on-demand)")
     ap.add_argument("--tickers", required=True,
@@ -166,25 +194,7 @@ def main() -> int:
 
     out = a.out or os.path.join(SCAN, "data", "mandiri_terakhir.csv")
 
-    with open(os.path.join(SCAN, "config.yaml"), encoding="utf-8", errors="replace") as f:
-        CONFIG = yaml.safe_load(f)
-    v7_engine.enabled = bool(CONFIG.get("v7", {}).get("enabled", True))
-    v7_engine.configure(CONFIG.get("v7", {}))
-
-    ip = InvezgoProvider()
-
-    try:
-        df_ihsg = fetch_ihsg_cached(period="2y")
-    except Exception as e:
-        print(f"(IHSG gagal diambil: {e} — lanjut tanpa align)", flush=True)
-        df_ihsg = pd.DataFrame()
-    if df_ihsg is None or df_ihsg.empty or len(df_ihsg) < 21:
-        df_ihsg = pd.DataFrame()
-    if not df_ihsg.empty and len(df_ihsg) >= 50:
-        regime, _, _ = detect_market_regime(compute_all_indicators(df_ihsg.copy()))
-    else:
-        regime = "RANGING"
-    allowed = _allowed_signals(CONFIG, regime)
+    ip, df_ihsg, regime, allowed = siapkan_konteks()
 
     n = len(tickers)
     print(f"Scan mandiri: {n} saham · regime {regime} · "
