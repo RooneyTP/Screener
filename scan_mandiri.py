@@ -67,6 +67,27 @@ def _allowed_signals(cfg: dict, regime: str) -> set:
     return {"STRONG_BUY", "BUY", "WEAK_BUY"}
 
 
+def _bf_tag(bf) -> str:
+    """Label singkat broker summary utk catatan kartu — mis. '🏦 net buy 2.0B'.
+
+    Sumber: faktor broker_detail V7 (Stockbit marketdetectors, net semua broker
+    hari terakhir). Ditampilkan apa adanya supaya analisis broker KELIHATAN di
+    hasil screening (permintaan user 16 Sep).
+    """
+    s = str(bf or "").strip()
+    if not s:
+        return ""
+    s = s.split("|")[0].strip()  # buang embel-embel peringatan ('| ⚠️ …') — cukup inti broker-nya
+    if not s:
+        return ""
+    if s == "netral":
+        return "🏦 netral"
+    s = (s.replace("net_buy_", "net buy ").replace("net_sell_", "net sell ")
+         .replace("akumulasi_", "akum ").replace("distribusi_", "distrib ")
+         .replace("_", " ").strip())
+    return "🏦 " + s[:30]
+
+
 def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
     """Hitung skor & sinyal V7 utk SATU ticker → dict baris CSV.
 
@@ -107,10 +128,12 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
         score = float(v7r["score"])
         label = v7r["signal"]
         row["skor"] = f"{score:.1f}"
+        bft = _bf_tag(bf)  # label broker utk catatan (terlihat di kartu)
 
         # 1) filter regime (sama dgn scan terjadwal — di luar izin = bukan kandidat)
         if label not in allowed:
-            row["catatan"] = f"{label} — di luar izin regime {regime}"
+            row["catatan"] = (f"{label} — di luar izin regime {regime}"
+                              + (f" · {bft}" if bft else ""))
             return row
 
         # 2) gate swing + gate kualitas (volume & quality_gate)
@@ -131,15 +154,18 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
             extra = "" if (gate_vol == "pass" and gate_q == "pass") else " (gate kualitas)"
             row.update(mode="SWING", entry=f"{price:.0f}",
                        sl=f"{ex['stop_loss']:.0f}", tp=f"{ex['take_profit']:.0f}",
-                       catatan=f"SINYAL {swing_signal} · {regime}{extra}")
+                       catatan=(f"SINYAL {swing_signal} · {regime}{extra}"
+                                + (f" · {bft}" if bft else "")))
         elif intra_ok:
             ex = compute_exit(price, atr, regime, "intraday", weekly)
             row.update(mode="INTRADAY", entry=f"{price:.0f}",
                        sl=f"{ex['stop_loss']:.0f}", tp=f"{ex['take_profit']:.0f}",
-                       catatan=f"SINYAL {label} (harian) · {regime}")
+                       catatan=(f"SINYAL {label} (harian) · {regime}"
+                                + (f" · {bft}" if bft else "")))
         else:
             row["catatan"] = (f"{label} — belum lolos gate "
-                              f"({regime}, vol {vol_ratio:.1f}\u00d7)")
+                              f"({regime}, vol {vol_ratio:.1f}\u00d7)"
+                              + (f" · {bft}" if bft else ""))
         return row
     except Exception as e:
         row["catatan"] = f"gagal hitung: {type(e).__name__}: {e}".strip()[:120]
