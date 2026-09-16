@@ -130,10 +130,10 @@ else:
     # Cari dari dir skript dan parentnya
     _script_dir=os.path.dirname(os.path.abspath(__file__))
     _search_ev=""
-    for _p in [os.path.join(_script_dir,"..",".env"),_script_dir,os.path.join(_script_dir,".env")]:
-        _fp=os.path.abspath(_p)
-        if os.path.exists(_fp):
-            _search_ev=_fp
+    for _p in [os.path.join(_script_dir, "..", ".env"), os.path.join(_script_dir, ".env")]:
+        _fp = os.path.abspath(_p)
+        if os.path.isfile(_fp):
+            _search_ev = _fp
             break
     if not _search_ev:
         # Fallback: coba path hardcode
