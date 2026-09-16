@@ -164,11 +164,12 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
                                 + (f" · {bft}" if bft else "")))
         else:
             row["catatan"] = (f"{label} — belum lolos gate "
-                              f"({regime}, vol {vol_ratio:.1f}\u00d7)"
+                              f"({regime} · vol {vol_ratio:.1f}\u00d7)"
                               + (f" · {bft}" if bft else ""))
         return row
     except Exception as e:
-        row["catatan"] = f"gagal hitung: {type(e).__name__}: {e}".strip()[:120]
+        row["catatan"] = (f"gagal hitung: {type(e).__name__}: {e}".strip()[:120]
+                          .replace(",", ";"))
         return row
 
 
