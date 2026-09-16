@@ -70,6 +70,15 @@ from v7_scan import (_signal_from_score, _swing_gate, gate_swing_signal,
 WIB = timezone(timedelta(hours=7))
 MAX_TICKERS = 20
 
+# Ambang likuiditas (permintaan user 16 Sep 2026 malam): nilai transaksi
+# rata-rata harian 20 hari terakhir minimal Rp 800 juta. Saham "sepi" di
+# bawah itu TIDAK diskrining — lebih cepat (Yahoo/Stockbit dihemat) DAN
+# hasilnya bisa benar-benar diperdagangkan. Ubah satu angka ini untuk
+# mengetatkan (mis. 1_000_000_000 = Rp 1 M — terukur hanya ±37 saham lagi
+# yang tersaring, dari 490 → 527 di data 16 Sep).
+MIN_VALUE_20D = 800_000_000
+MIN_VALUE_LABEL = "Rp 800 juta"
+
 
 def _allowed_signals(cfg: dict, regime: str) -> set:
     """Filter regime — sama persis dengan market_mode di v7_scan.main()."""
@@ -150,6 +159,20 @@ def _entry_ideal(rec: dict | None) -> str:
     return (rng + (" · " + m if m else "")).strip()
 
 
+def _nilai_rata2(df) -> float | None:
+    """Perkiraan nilai transaksi rata-rata harian (Rp): mean(close × volume)
+    20 bar terakhir dari candle harian. None bila data tak cukup (→ dianggap
+    TIDAK tersaring — jangan buang saham hanya karena data harga bolong)."""
+    try:
+        tail = df.tail(20)
+        v = (tail["close"].astype(float) * tail["volume"].astype(float)).dropna()
+        if len(v) < 5:
+            return None
+        return float(v.mean())
+    except Exception:
+        return None
+
+
 def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
               sentiment: dict | None = None) -> dict:
     """Hitung skor & sinyal V7 utk SATU ticker → dict baris CSV.
@@ -179,6 +202,17 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
         r = df.iloc[-1]
         if pd.isna(r.get("rsi")):
             row["catatan"] = "indikator belum lengkap (RSI kosong)"
+            return row
+
+        # ── PRA-FILTER LIKUIDITAS (permintaan user 16 Sep): nilai transaksi
+        # < Rp 800 juta/hari → saham sepi, TIDAK dilanjut (hemat + hasilnya
+        # bisa benar-benar diperdagangkan). Estimasi dari candle; data kurang
+        # = dilewatkan (jangan buang saham karena data bolong).
+        nilai = _nilai_rata2(df)
+        if nilai is not None and nilai < MIN_VALUE_20D:
+            row["catatan"] = (f"tidak dilanjut — nilai transaksi Rp{nilai/1e6:.0f} jt/hari"
+                              f" < {MIN_VALUE_LABEL} (saham sepi · pra-filter)")
+            row["tampil"] = "tidak"
             return row
 
         # ── PRA-FILTER HEMAT: volume < 1.0× → tidak mungkin lolos gate ──

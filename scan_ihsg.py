@@ -19,8 +19,10 @@ Output: CSV `kode,skor,mode,entry,sl,tp,entry_ideal,catatan,tampil` (semua
 finalis; `tampil=ya` = sinyal lolos gate — hanya itu yang ditampilkan app;
 sisanya dihitung "tak ditampilkan") + baris RINGKASAN utk aplikasi.
 
-LEBIH CEPAT (16 Sep): pra-filter volume di scan_satu (vol<1.0× → lewati
-faktor mahal; terukur ±52% finalis) + fase 2 PARALEL 3 worker (sopan).
+LEBIH CEPAT (16 Sep): (1) pra-filter LIKUIDITAS — saham nilai transaksi
+< Rp 800 juta/hari (±51% daftar) tak pernah diambil riwayat harganya;
+(2) pra-filter volume di scan_satu (vol<1.0× → lewati faktor mahal);
+(3) fase 2 PARALEL 3 worker (sopan).
 
 Progress stdout: "FASE …" + "PROGRESS i/n LABEL" (dibaca panel app).
 
@@ -57,7 +59,8 @@ import pandas as pd
 from data import compute_all_indicators, align_to_market
 from scoring import compute_total_score
 from data_provider import InvezgoProvider
-from scan_mandiri import scan_satu, siapkan_konteks   # noqa: E402 — single source
+from scan_mandiri import (scan_satu, siapkan_konteks,   # noqa: E402 — single source
+                          MIN_VALUE_20D, MIN_VALUE_LABEL)
 
 WIB = timezone(timedelta(hours=7))
 SESS_PATH = "/home/yuan/risetsaham/data/stockbit_session.json"
@@ -159,6 +162,34 @@ def sweep_universe(force: bool = False) -> list[dict]:
     return saham
 
 
+def _nilai_univ(s: dict) -> float | None:
+    """Nilai transaksi rata-rata harian (Rp) dari data sweep: utamakan
+    `vma20` Stockbit (string → float); fallback avgvol × last. avgvol = 0
+    → 0.0 (saham 'zombi'/suspensi — tanpa transaksi, DILEWATI). None hanya
+    bila benar-benar tak diketahui (→ saham dipertahankan)."""
+    def fnum(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+    v = fnum(s.get("vma20"))
+    if v and v > 0:
+        return v
+    a, l = fnum(s.get("avgvol")), fnum(s.get("last"))
+    if a and l:
+        return a * l
+    if a == 0:
+        return 0.0
+    return None
+
+
+def _lolos_likuid(s: dict) -> bool:
+    """Ambang likuiditas (permintaan user 16 Sep): nilai < Rp 800 jt/hari
+    dilewati SEBELUM fase 1 — hemat riwayat harga, hasil lebih tradeable."""
+    v = _nilai_univ(s)
+    return v is None or v >= MIN_VALUE_20D
+
+
 # ── FASE 1: peringkat seluruh pasar (indikator harga → skor inti V4) ─────────
 
 def fase1_rank(ip, saham: list[dict], regime: str, df_ihsg,
@@ -258,6 +289,15 @@ def main() -> int:
         saham = saham[:a.limit]
         print(f"(uji cepat: dibatasi {len(saham)} saham)", flush=True)
 
+    # Pra-filter likuiditas (user 16 Sep): saham nilai transaksi < Rp 800 jt/hari
+    # tidak pernah diambil riwayat harganya → fase 1 lebih cepat & hasil tradeable.
+    n_dinilai = len(saham)
+    saham = [s for s in saham if _lolos_likuid(s)]
+    if n_dinilai - len(saham):
+        print(f"pra-filter likuiditas: {n_dinilai - len(saham)} saham sepi "
+              f"(nilai < {MIN_VALUE_LABEL}/hari / tanpa transaksi) dilewati → "
+              f"{len(saham)} saham likuid", flush=True)
+
     ip, df_ihsg, regime, allowed, sentiment = siapkan_konteks()
     print(f"regime pasar: {regime}", flush=True)
 
@@ -294,9 +334,10 @@ def main() -> int:
     n_sig = sum(1 for r in rows if r["entry"])
     n_sembunyi = sum(1 for r in rows if r.get("tampil") == "tidak")
     dur = int(time.time() - t_mulai)
-    print(f"RINGKASAN {len(saham)} saham diperingkat · {len(rows)} finalis V7 · "
-          f"{n_sig} sinyal berlevel · {n_sembunyi} tak tampil · "
-          f"{dur // 60}m{dur % 60}s", flush=True)
+    print(f"RINGKASAN {len(saham)} saham likuid diperingkat (dari {n_dinilai} IDX; "
+          f"{n_dinilai - len(saham)} sepi < {MIN_VALUE_LABEL} dilewati) · "
+          f"{len(rows)} finalis V7 · {n_sig} sinyal berlevel · "
+          f"{n_sembunyi} tak tampil · {dur // 60}m{dur % 60}s", flush=True)
     print(f"CSV: {out}", flush=True)
     print("DONE", flush=True)
     return 0
