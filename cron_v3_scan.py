@@ -12,9 +12,11 @@ Mekanisme jaminan:
 """
 import sys, os, json, time, subprocess, urllib.request, urllib.parse
 
-ENV_PATH = r"C:\Hermes_Workspace\Screener\.env"
-SCAN_DIR = r"C:\Hermes_Workspace\Screener\idx_alpha_screener"
-FAIL_LOG = r"C:\Hermes_Workspace\Screener\idx_alpha_screener\data\send_failed.log"
+# Portabilitas (Linux/Ubuntu): dinamis dari lokasi file, dulu hardcode 'C:\Hermes_Workspace\Screener\...'
+_HERE = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(_HERE, ".env")
+SCAN_DIR = os.path.join(_HERE, "idx_alpha_screener")
+FAIL_LOG = os.path.join(SCAN_DIR, "data", "send_failed.log")
 
 
 def load_env():

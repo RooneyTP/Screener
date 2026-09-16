@@ -5,7 +5,8 @@ Data 100% dari Invezgo. Output ke Telegram via cron + formatted.
 import sys, os, warnings, yaml, traceback, math
 from datetime import datetime, timedelta
 warnings.filterwarnings('ignore')
-ROOT = r'C:\Hermes_Workspace\Screener\idx_alpha_screener'
+# Portabilitas (Linux/Ubuntu): dinamis, dulu hardcode 'C:\Hermes_Workspace\Screener\idx_alpha_screener'
+ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(ROOT))  # parent for utils/
 import pandas as pd, logging
