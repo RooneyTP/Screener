@@ -58,5 +58,31 @@ Sejak 16 Sep 2026:
 cd idx_alpha_screener && ../.venv/bin/python v7_scan.py    # scan penuh (data lokal)
 ```
 
+## Screening Mandiri (scan on-demand dari app) — 16 Sep 2026
+
+Selain jadwal 21:00, halaman `/screener` RisetSaham punya panel **🔍 Screening
+Mandiri**: user pilih kode (watchlist akun / ketik sendiri, maks 20) → app
+menjalankan `scan_mandiri.py` di server → hasil tampil sebagai kartu + riwayat,
+dengan progress live (polling status tiap 2 detik).
+
+Alur:
+
+1. Tombol di `/riset/screener` → `POST /riset/screener/mandiri`.
+2. Server: subprocess `.venv/bin/python scan_mandiri.py --tickers A,B,C --out /tmp/…csv`.
+3. App baca CSV → batch **"V7 Mandiri · dd/mm HH:MM"** → kartu visual (skor +
+   grafik + garis E/SL/TP bila sinyal).
+
+Ciri `scan_mandiri.py`:
+
+- Rantai keputusan V7 **SAMA** dgn `v7_scan.py` (fungsi `_swing_gate`,
+  `gate_swing_signal`, `_signal_from_score` diimpor dari sana — jangan salin ulang).
+- **TANPA efek samping**: tidak menulis `perf_tracker_v7.csv`, tidak menyentuh
+  cooldown, tidak kirim Telegram — murni "apa kata V7 saat ini".
+- **Semua** ticker yang dipindai tampil (yang tidak lolos gate ikut, dengan skor
+  & alasan) — itu inti "screening mandiri", bukan cuma daftar sinyal.
+- Progress ke stdout: baris `PROGRESS i/n KODE` (dibaca app untuk progress bar).
+- Uji: `.venv/bin/python scan_mandiri.py --tickers TLKM,BRPT --out /tmp/x.csv`
+  (±2–3 dtk/saham saat cache hangat; panggilan Stockbit tetap dibatasi sopan).
+
 Catatan: data Yahoo/Stockbit = pemakaian **NON-KOMERSIAL** (keluarga), volume
 panggilan santun. Jangan publikasikan datanya.
