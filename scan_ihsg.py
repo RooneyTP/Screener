@@ -15,8 +15,12 @@ Kenapa 2 fase: panggilan Stockbit (broker+asing) dibatasi ±2/saham. Kalau semua
 975 disuruh lewat Stockbit = ±2000 panggilan → tidak sopan & berisiko sesi.
 Fase 1 menyaring dgn data murah (harga) dulu; Stockbit hanya utk finalis.
 
-Output: CSV `kode,skor,mode,entry,sl,tp,catatan` (top `--tampil`, default 20;
-sinyal berlevel didahulukan) + baris RINGKASAN utk aplikasi.
+Output: CSV `kode,skor,mode,entry,sl,tp,entry_ideal,catatan,tampil` (semua
+finalis; `tampil=ya` = sinyal lolos gate — hanya itu yang ditampilkan app;
+sisanya dihitung "tak ditampilkan") + baris RINGKASAN utk aplikasi.
+
+LEBIH CEPAT (16 Sep): pra-filter volume di scan_satu (vol<1.0× → lewati
+faktor mahal; terukur ±52% finalis) + fase 2 PARALEL 3 worker (sopan).
 
 Progress stdout: "FASE …" + "PROGRESS i/n LABEL" (dibaca panel app).
 
@@ -211,15 +215,26 @@ def fase1_rank(ip, saham: list[dict], regime: str, df_ihsg,
 # ── FASE 2: finalis diperiksa V7 penuh ──────────────────────────────────────
 
 def fase2_finalis(ip, ranked: list[tuple[str, float]], regime: str, allowed: set,
-                  df_ihsg, top: int) -> list[dict]:
+                  df_ihsg, top: int, sentiment: dict | None = None,
+                  max_workers: int = 3) -> list[dict]:
+    """V7 penuh utk finalis — PARALEL 3 worker (sopan: maks 3 panggilan
+    Stockbit bersamaan, sejalan panduan maxConcurrent stockbit-mcp).
+    scan_satu() punya pra-filter volume <1.0× (lewati faktor mahal utk
+    ±separuh finalis, terukur 31/60) sehingga fase ini jauh lebih cepat."""
     kandidat = ranked[:top]
     n = len(kandidat)
-    print(f"FASE 2: {n} finalis diperiksa V7 penuh (broker/asing/fundamental) …",
-          flush=True)
-    rows = []
-    for i, (sym, _sk4) in enumerate(kandidat, 1):
-        print(f"PROGRESS {i}/{n} {sym}", flush=True)
-        rows.append(scan_satu(ip, sym, regime, allowed, df_ihsg))
+    print(f"FASE 2: {n} finalis diperiksa V7 penuh (broker/asing/fundamental,"
+          f" {max_workers} paralel) …", flush=True)
+    rows: list[dict] = []
+    done = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futs = [ex.submit(scan_satu, ip, sym, regime, allowed, df_ihsg, sentiment)
+                for sym, _sk4 in kandidat]
+        for f in as_completed(futs):
+            done += 1
+            row = f.result()
+            rows.append(row)
+            print(f"PROGRESS {done}/{n} {row['kode']}", flush=True)
     return rows
 
 
@@ -227,7 +242,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Screening seluruh saham IHSG (2 fase)")
     ap.add_argument("--out", default=None, help="CSV output")
     ap.add_argument("--top", type=int, default=60, help="jumlah finalis fase 2")
-    ap.add_argument("--tampil", type=int, default=20, help="baris CSV (top-N hasil)")
+    ap.add_argument("--tampil", type=int, default=120,
+                    help="maks baris CSV (default 120 ≥ jumlah finalis)")
     ap.add_argument("--limit", type=int, default=0, help="uji cepat: batasi jumlah saham fase 1")
     ap.add_argument("--refresh-universe", action="store_true", help="paksa sweep ulang")
     a = ap.parse_args()
@@ -242,7 +258,7 @@ def main() -> int:
         saham = saham[:a.limit]
         print(f"(uji cepat: dibatasi {len(saham)} saham)", flush=True)
 
-    ip, df_ihsg, regime, allowed = siapkan_konteks()
+    ip, df_ihsg, regime, allowed, sentiment = siapkan_konteks()
     print(f"regime pasar: {regime}", flush=True)
 
     print("FASE 1: memeringkat seluruh saham (indikator harga, cache diska) …",
@@ -252,7 +268,8 @@ def main() -> int:
         print("GAGAL: tidak ada satu pun saham yang bisa diskor")
         return 1
 
-    rows = fase2_finalis(ip, ranked, regime, allowed, df_ihsg, a.top)
+    rows = fase2_finalis(ip, ranked, regime, allowed, df_ihsg, a.top,
+                         sentiment=sentiment)
 
     def _urut(r):
         try:
@@ -262,20 +279,24 @@ def main() -> int:
         return (0 if r["entry"] else 1, -sk)
 
     rows.sort(key=_urut)
-    tampil = rows[:a.tampil]
+    tampil = rows[:max(a.tampil, 1)]
 
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["kode", "skor", "mode", "entry", "sl", "tp", "catatan"])
+        w.writerow(["kode", "skor", "mode", "entry", "sl", "tp",
+                    "entry_ideal", "catatan", "tampil"])
         for r in tampil:
             w.writerow([r["kode"], r["skor"], r["mode"], r["entry"], r["sl"],
-                        r["tp"], r["catatan"]])
+                        r["tp"], r.get("entry_ideal", ""), r["catatan"],
+                        r.get("tampil", "")])
 
     n_sig = sum(1 for r in rows if r["entry"])
+    n_sembunyi = sum(1 for r in rows if r.get("tampil") == "tidak")
     dur = int(time.time() - t_mulai)
     print(f"RINGKASAN {len(saham)} saham diperingkat · {len(rows)} finalis V7 · "
-          f"{n_sig} sinyal berlevel · {dur // 60}m{dur % 60}s", flush=True)
+          f"{n_sig} sinyal berlevel · {n_sembunyi} tak tampil · "
+          f"{dur // 60}m{dur % 60}s", flush=True)
     print(f"CSV: {out}", flush=True)
     print("DONE", flush=True)
     return 0

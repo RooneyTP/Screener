@@ -14,8 +14,19 @@ Beda dari v7_scan.py (scan TERJADWAL penuh):
   gate_swing_signal (fungsi diimpor dari v7_scan — single source, jangan
   salin ulang logikanya).
 
-Baris hasil utk SEMUA ticker (yang tidak lolos gate ikut tampil dengan skor &
-alasan) supaya user bisa screening mandiri — bukan cuma sinyal yang muncul.
+Kolom CSV: kode,skor,mode,entry,sl,tp,entry_ideal,catatan,tampil.
+- `tampil` = "ya"/"tidak" — app hanya MENAMPILKAN baris "ya" (sinyal lolos
+  gate); sisanya tetap di CSV utk transparansi (hitungan "tak ditampilkan").
+- `entry_ideal` = zona entry terbaik dari entry_timing.recommend_entry()
+  (modul engine yang sama dgn scan terjadwal) — utk baris sinyal.
+
+PRA-FILTER HEMAT (permintaan user 16 Sep): volume < 1.0× rata-rata → baris
+langsung selesai SEBELUM faktor mahal (broker/asing/fundamental: ±2 panggilan
+Stockbit/saham) karena tidak mungkin lolos gate swing (butuh ≥1.0×) maupun
+cabang intraday (butuh ≥1.2×). Tervalidasi: 9/9 kode sinyal batch terakhir
+punya vol ≥1.29×; pada top-60 finalis IHSG 31/60 (52%) vol<1.0 → hemat separuh.
+
+Fase 2 berjalan PARALEL 3 worker (sopan: maks 3 panggilan Stockbit bersamaan).
 
 ⚠ Kolom catatan HARUS selalu multi-kata (jangan taruh kata pendek spt
 BEAR/BARU/HOLD sebagai sel sendiri) — parser /screener bisa salah mengira
@@ -33,6 +44,7 @@ import os
 import re
 import sys
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 warnings.filterwarnings("ignore")
@@ -48,6 +60,8 @@ from data import compute_all_indicators, align_to_market, fetch_ihsg_cached
 from regime import detect_market_regime
 from scoring import compute_total_score
 from data_provider import InvezgoProvider
+from entry_timing import recommend_entry
+from market_sentiment import predict_market_sentiment
 import v7 as v7_engine
 from v7_exit import compute_exit
 from v7_scan import (_signal_from_score, _swing_gate, gate_swing_signal,
@@ -88,14 +102,65 @@ def _bf_tag(bf) -> str:
     return "🏦 " + s[:30]
 
 
-def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
+# Ringkas metode entry_timing → teks sel pendek (tanpa koma — aturan CSV).
+_METODE_ENTRY = (
+    ("Open Entry / Market Order", "entry pasar"),
+    ("Limit order di VWAP", "limit di VWAP"),
+    ("Limit order di support", "limit di support"),
+    ("Limit order diskon", "limit diskon"),
+    ("Limit di harga pasaran", "limit pasaran"),
+    ("Limit diskon dalam", "limit diskon"),
+    ("Tunggu konfirmasi reversal", "tunggu reversal"),
+    ("Jangan entry — tunggu pullback", "tunggu pullback"),
+    ("GTC @ support Donchian", "di support"),
+    ("HOLD CASH", "tahan dulu"),
+)
+
+
+def _entry_ideal(rec: dict | None) -> str:
+    """Sel 'entry_ideal' dari keluaran recommend_entry(): '2641-2668 · limit di VWAP'.
+
+    price_range engine berformat 'Rp2.641 - Rp2.668' (pemisah ribuan koma ala
+    Python) → di sini diubah ke angka polos (2641) supaya tidak ada koma di
+    CSV dan mudah dibaca di kartu. Gagal parse → string kosong.
+    """
+    if not rec:
+        return ""
+    nums = []
+    for x in re.findall(r"Rp([\d,.]+)", str(rec.get("price_range") or "")):
+        try:
+            n = int(x.replace(",", "").replace(".", ""))
+        except ValueError:
+            continue
+        if n > 0:
+            nums.append(n)
+    if not nums:
+        return ""
+    lo, hi = min(nums), max(nums)
+    rng = f"{lo}" if lo == hi else f"{lo}-{hi}"
+    m = str(rec.get("method") or "").strip()
+    m = re.sub(r"^[^\w]+", "", m)          # buang emoji/penanda di depan
+    for asal, ganti in _METODE_ENTRY:
+        if m.startswith(asal):
+            m = ganti
+            break
+    else:
+        m = m.replace("—", "-").lower()
+    m = m.strip()[:28]
+    return (rng + (" · " + m if m else "")).strip()
+
+
+def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
+              sentiment: dict | None = None) -> dict:
     """Hitung skor & sinyal V7 utk SATU ticker → dict baris CSV.
 
-    Selalu mengembalikan baris (kalau gagal, catatan berisi alasannya) supaya
-    semua ticker yang diminta user tetap terlihat di halaman /screener.
+    Selalu mengembalikan baris (gagal → catatan berisi alasannya). `tampil`
+    menandai baris yang layak ditampilkan app ("ya"/"tidak"); baris "tidak"
+    tetap ada di CSV utk transparansi & hitungan. `sentiment` = keluaran
+    predict_market_sentiment (dipakai recommend_entry; None = netral).
     """
     row = {"kode": tkr, "skor": "", "mode": "", "entry": "", "sl": "", "tp": "",
-           "catatan": ""}
+           "entry_ideal": "", "catatan": "", "tampil": ""}
     try:
         df = ip.get_historical(tkr, period="1y")
         if df is None or df.empty or len(df) < 60:
@@ -116,6 +181,22 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
             row["catatan"] = "indikator belum lengkap (RSI kosong)"
             return row
 
+        # ── PRA-FILTER HEMAT: volume < 1.0× → tidak mungkin lolos gate ──
+        # Bukti (16 Sep): gate swing butuh vol_ratio >= 1.0 dan cabang
+        # intraday butuh >= 1.2 → vol<1.0 mustahil jadi sinyal. Jadi LEWATI
+        # faktor MAHAL (broker/asing/fundamental ≈ 2 panggilan Stockbit per
+        # saham). Validasi: 9/9 kode sinyal batch terakhir punya vol ≥1.29;
+        # pada top-60 finalis IHSG 31/60 (52%) vol<1.0 → hemat separuh kerja.
+        try:
+            _vr = float(r.get("vol_ratio"))
+        except (TypeError, ValueError):
+            _vr = None
+        if _vr is not None and math.isfinite(_vr) and _vr < 1.0:
+            row["catatan"] = (f"tidak dilanjut (pra-filter) — volume {_vr:.2f}\u00d7"
+                              " di bawah 1.0\u00d7 (tak mungkin lolos gate)")
+            row["tampil"] = "tidak"
+            return row
+
         weekly = r.get("weekly_trend", "NO_DATA")
         v4s = compute_total_score(r, regime)
         v7r = v7_engine.compute(tkr, v4s, regime, weekly_trend=weekly)
@@ -134,6 +215,7 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
         if label not in allowed:
             row["catatan"] = (f"{label} — di luar izin regime {regime}"
                               + (f" · {bft}" if bft else ""))
+            row["tampil"] = "tidak"
             return row
 
         # 2) gate swing + gate kualitas (volume & quality_gate)
@@ -149,23 +231,33 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
         # 3) cabang intraday (skor >= 48 & lonjakan volume >= 1.2x) — sama dgn nightly
         intra_ok = score >= 48 and vol_ratio >= INTRADAY_MIN_VOL_RATIO
 
+        # 4) zona entry terbaik (modul engine — SATU sumber dgn scan terjadwal)
+        try:
+            rec = recommend_entry(tkr, price, atr, r, v7r, sentiment)
+        except Exception:
+            rec = None
+        ideal = _entry_ideal(rec)
+
         if swing_ok:
             ex = compute_exit(price, atr, regime, "swing", weekly)
             extra = "" if (gate_vol == "pass" and gate_q == "pass") else " (gate kualitas)"
             row.update(mode="SWING", entry=f"{price:.0f}",
                        sl=f"{ex['stop_loss']:.0f}", tp=f"{ex['take_profit']:.0f}",
+                       entry_ideal=ideal, tampil="ya",
                        catatan=(f"SINYAL {swing_signal} · {regime}{extra}"
                                 + (f" · {bft}" if bft else "")))
         elif intra_ok:
             ex = compute_exit(price, atr, regime, "intraday", weekly)
             row.update(mode="INTRADAY", entry=f"{price:.0f}",
                        sl=f"{ex['stop_loss']:.0f}", tp=f"{ex['take_profit']:.0f}",
+                       entry_ideal=ideal, tampil="ya",
                        catatan=(f"SINYAL {label} (harian) · {regime}"
                                 + (f" · {bft}" if bft else "")))
         else:
             row["catatan"] = (f"{label} — belum lolos gate "
                               f"({regime} · vol {vol_ratio:.1f}\u00d7)"
                               + (f" · {bft}" if bft else ""))
+            row["tampil"] = "tidak"
         return row
     except Exception as e:
         row["catatan"] = (f"gagal hitung: {type(e).__name__}: {e}".strip()[:120]
@@ -174,10 +266,10 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg) -> dict:
 
 
 def siapkan_konteks():
-    """Config + provider + IHSG + regime + izin sinyal.
+    """Config + provider + IHSG + regime + izin sinyal + sentimen.
 
     Dipakai bersama oleh scan_mandiri.py DAN scan_ihsg.py — jangan duplikasi.
-    Return (ip, df_ihsg, regime, allowed).
+    Return (ip, df_ihsg, regime, allowed, sentiment).
     """
     with open(os.path.join(SCAN, "config.yaml"), encoding="utf-8", errors="replace") as f:
         CONFIG = yaml.safe_load(f)
@@ -198,7 +290,16 @@ def siapkan_konteks():
     else:
         regime = "RANGING"
     allowed = _allowed_signals(CONFIG, regime)
-    return ip, df_ihsg, regime, allowed
+
+    # Sentimen pasar (utk entry_timing.recommend_entry) — 1x per scan, murah;
+    # gagal → netral (recommend_entry default YELLOW).
+    sentiment: dict = {}
+    try:
+        sentiment = predict_market_sentiment(df_ihsg, ip)
+    except Exception as e:
+        print(f"(sentimen pasar gagal: {e} — lanjut netral)", flush=True)
+
+    return ip, df_ihsg, regime, allowed, sentiment
 
 
 def main() -> int:
@@ -221,32 +322,40 @@ def main() -> int:
 
     out = a.out or os.path.join(SCAN, "data", "mandiri_terakhir.csv")
 
-    ip, df_ihsg, regime, allowed = siapkan_konteks()
+    ip, df_ihsg, regime, allowed, sentiment = siapkan_konteks()
 
     n = len(tickers)
     print(f"Scan mandiri: {n} saham · regime {regime} · "
           f"{datetime.now(WIB).strftime('%d/%m %H:%M')} WIB", flush=True)
 
     rows = []
-    for i, tkr in enumerate(tickers, 1):
-        print(f"PROGRESS {i}/{n} {tkr}", flush=True)
-        row = scan_satu(ip, tkr, regime, allowed, df_ihsg)
-        rows.append(row)
-        tanda = row["mode"] or "—"
-        print(f"  {tkr}: skor {row['skor'] or '—'} ({tanda})", flush=True)
+    done = 0
+    with ThreadPoolExecutor(max_workers=3) as ex:      # sopan: maks 3 bersamaan
+        futs = [ex.submit(scan_satu, ip, tkr, regime, allowed, df_ihsg, sentiment)
+                for tkr in tickers]
+        for f in as_completed(futs):
+            done += 1
+            row = f.result()
+            rows.append(row)
+            print(f"PROGRESS {done}/{n} {row['kode']}", flush=True)
+            tanda = row["mode"] or "—"
+            print(f"  {row['kode']}: skor {row['skor'] or '—'} ({tanda})", flush=True)
 
     rows.sort(key=lambda r: -(float(r["skor"]) if r["skor"] else 0.0))
 
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["kode", "skor", "mode", "entry", "sl", "tp", "catatan"])
+        w.writerow(["kode", "skor", "mode", "entry", "sl", "tp",
+                    "entry_ideal", "catatan", "tampil"])
         for r in rows:
             w.writerow([r["kode"], r["skor"], r["mode"], r["entry"], r["sl"],
-                        r["tp"], r["catatan"]])
+                        r["tp"], r["entry_ideal"], r["catatan"], r["tampil"]])
 
     n_sig = sum(1 for r in rows if r["entry"])
-    print(f"HASIL {n_sig} sinyal berlevel dari {n} saham", flush=True)
+    n_sembunyi = sum(1 for r in rows if r.get("tampil") == "tidak")
+    print(f"RINGKASAN {n} saham dipindai · {n_sig} sinyal berlevel · "
+          f"{n_sembunyi} tak tampil (pra-filter/gate)", flush=True)
     print(f"CSV: {out}", flush=True)
     print("DONE", flush=True)
     return 0
