@@ -66,6 +66,7 @@ V7 = inti scoring V4 + bonus/malus dari data eksklusif Invezgo yang tidak tersed
 
 | Waktu (WIB) | Tugas | Script | Mekanisme |
 |-------------|-------|--------|-----------|
+| 08:45 harian (jam trading) | Cek harga buka vs rekomendasi entry sinyal swing fresh | `intraday_check.py` | Hermes cron |
 | 21:00 harian | Scan V7 + kirim hasil ke Telegram | `cron_v3_scan.py` → `v7_scan.py` | Hermes cron; fallback watchdog `start_cron.bat` |
 | 14:30 harian (jam trading) | Cek posisi terbuka dengan harga intraday, kirim alert jika ada perubahan status | `position_check_intraday.py` | Hermes cron |
 | Sabtu 19:00 | Weekly report: evaluasi WR/MFE/MAE + ringkasan ke Telegram | `weekly_report.py` | Hermes cron |
@@ -95,7 +96,7 @@ Semua engine di bawah ini **arsip / tidak aktif**. V7 adalah engine produksi sat
 | Versi | Pendekatan | Catatan |
 |-------|------------|---------|
 | **v3** | Scoring 7 indikator + binary swing gate + ADX filter | Terlalu strict — 0 sinyal BUY di market real |
-| **v4** | 8 faktor conviction + 6 sumber confluence + soft penalties; threshold dikalibrasi dari 2.680 sinyal | Backtest (histori, data yfinance): SB≥62 **WR 53.3%** (107 sinyal, 30 ticker, 18 bulan, fee 0.4%), avg return **+0.46%** setelah fee, edge vs random **+3%** (`backtest_v4.py`, `backtest_vs_random.py`) |
+| **v4** | 8 faktor conviction + 6 sumber confluence + soft penalties; threshold dikalibrasi dari 2.680 sinyal | Backtest (histori, data yfinance): SB≥62 **WR 53.3%** (107 sinyal, 30 ticker, 18 bulan, fee 0.4%), avg return **+0.46%** setelah fee, edge vs random **+3%** (`screenerOld/backtest_v4.py`, `screenerOld/backtest_vs_random.py`) |
 | **v5** | 3 profil adaptif (MOMENTUM/REVERSAL/VALUE) + momentum of score + dynamic percentile | Tidak pernah menjadi engine produksi utama |
 | **v6** | V4 + universe terbatas konglomerat | Backtest (histori): WR 47.8% (konglomerat) vs 44.0% (campuran); superseded oleh V7 |
 
@@ -120,7 +121,7 @@ Arsip kode terkait: `idx_alpha_screener/main.py` (entry point v2–v6), `idx_alp
 
 ```bash
 pip install -r idx_alpha_screener/requirements.txt   # yfinance, pandas, numpy, ta, pyyaml
-pip install invezgo python-dotenv requests           # runtime tambahan
+pip install invezgo-sdk python-dotenv python-telegram-bot openai requests   # runtime tambahan
 ```
 
 Environment produksi saat ini = venv Hermes (`C:\Users\yanli\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe`), yang sudah memuat semua dependensi di atas.
@@ -147,7 +148,91 @@ python idx_alpha_screener/telegram_positions_bot.py
 ### 4. Otomasi
 
 - Jadwal utama diatur lewat Hermes cron (21:00 scan, 14:30 alert posisi, Sabtu 19:00 weekly report).
-- Alternatif tanpa Hermes cron: jalankan `start_cron.bat` (watchdog lokal).
+- Alternatif tanpa Hermes cron: jalankan `start_cron.bat` (watchdog lokal, Windows).
+- Untuk Linux (Ubuntu): lihat bagian 5 di bawah.
+
+### 5. Linux (Ubuntu)
+
+Screener dapat dijalankan di Linux, termasuk Ubuntu dan WSL2 Ubuntu. Semua path di kode
+relatif terhadap lokasi file (tanpa dependensi Windows). Sudah diuji di WSL2 Ubuntu dengan
+Python 3.14: seluruh 262 unit test lulus dan alur scan berjalan normal.
+
+Prasyarat: Python 3.11 atau lebih baru + venv.
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip
+```
+
+Instalasi (dari root repo):
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -U pip
+.venv/bin/pip install -r idx_alpha_screener/requirements.txt
+.venv/bin/pip install invezgo-sdk python-dotenv python-telegram-bot openai requests
+```
+
+Konfigurasi `.env` sama seperti bagian 1 (di root repo): isi `INVEZGO_API_KEY` dan
+`TELEGRAM_BOT_TOKEN`.
+
+Timezone wajib: semua jadwal dan logika sinyal memakai waktu lokal WIB.
+
+```bash
+sudo timedatectl set-timezone Asia/Jakarta
+```
+
+Menjalankan manual (contoh dari root repo):
+
+```bash
+.venv/bin/python cron_v3_scan.py                            # scan + kirim hasil ke Telegram
+.venv/bin/python idx_alpha_screener/v7_scan.py              # scan saja (output stdout)
+.venv/bin/python idx_alpha_screener/intraday_check.py --dry-run
+.venv/bin/python idx_alpha_screener/position_check_intraday.py --dry-run
+.venv/bin/python idx_alpha_screener/weekly_report.py --no-send
+```
+
+Otomasi memakai crontab (Windows Task Scheduler dan `start_cron.bat` tidak berlaku di
+Linux). Contoh `crontab -e`:
+
+```cron
+# Semua jam WIB (server sudah di-set Asia/Jakarta)
+45 8 * * 1-5 cd /path/ke/Screener && ./.venv/bin/python idx_alpha_screener/intraday_check.py >> logs/intraday_check.log 2>&1
+30 14 * * 1-5 cd /path/ke/Screener && ./.venv/bin/python idx_alpha_screener/position_check_intraday.py >> logs/position_check.log 2>&1
+0 21 * * * cd /path/ke/Screener && ./.venv/bin/python cron_v3_scan.py >> logs/cron_scan.log 2>&1
+0 19 * * 6 cd /path/ke/Screener && ./.venv/bin/python idx_alpha_screener/weekly_report.py >> logs/weekly_report.log 2>&1
+```
+
+Buat folder log dulu: `mkdir -p logs`.
+
+Bot `/posisi` (opsional) sebaiknya jalan sebagai service systemd. Contoh unit
+`/etc/systemd/system/screener-bot.service`:
+
+```ini
+[Unit]
+Description=Screener Telegram Bot /posisi
+After=network-online.target
+
+[Service]
+WorkingDirectory=/path/ke/Screener
+ExecStart=/path/ke/Screener/.venv/bin/python idx_alpha_screener/telegram_positions_bot.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now screener-bot
+```
+
+Catatan penting:
+
+- Jalankan hanya SATU instance bot `/posisi` per token Telegram (dua instance saling berebut `getUpdates` dan saling memutus).
+- `PYTHONUTF8=1` di wrapper cron hanya relevan untuk Windows; di Linux tidak diperlukan (default UTF-8).
+- Jika alert tidak sampai ke grup, pastikan bot sudah menjadi anggota grup dan `TELEGRAM_CHAT_ID` benar.
 
 ---
 
@@ -159,8 +244,6 @@ Screener/
 ├── ringkasan_screener.md          ← Ringkasan teknis arsitektur
 ├── cron_v3_scan.py                ← Cron wrapper scan V7 (21:00 WIB)
 ├── start_cron.bat                 ← Watchdog lokal (loop harian + bot /posisi)
-├── backtest_v4.py                 ← Backtest v4 (histori, arsip)
-├── backtest_vs_random.py          ← Uji edge vs random v4 (histori, arsip)
 ├── .env                           ← Kredensial (TIDAK di-commit)
 ├── utils/
 │   └── telegram_sender.py         ← Helper kirim pesan Telegram
@@ -175,6 +258,7 @@ Screener/
 │   ├── ai_narrative.py            ← AI narrative top 3 sinyal (opsional)
 │   ├── position_tracker.py        ← Tracker posisi (SL/TP/trailing/time-stop)
 │   ├── position_check_intraday.py ← Alert posisi intraday (14:30 WIB)
+│   ├── intraday_check.py          ← Cek pagi 08:45: harga buka vs entry sinyal swing fresh
 │   ├── perf_tracker.py            ← Log sinyal + dedup (perf_tracker_v7.csv)
 │   ├── weekly_report.py           ← Evaluasi WR/MFE/MAE (Sabtu 19:00)
 │   ├── signal_manager.py          ← Cooldown sinyal
@@ -186,7 +270,7 @@ Screener/
 │   │                                screener.log, position_check_intraday.log
 │   │                                (positions.json & evaluations_v7.csv dibuat otomatis)
 │   └── cache/                     ← Cache data v7 per ticker (v7_*.csv, _IHSG_.csv)
-└── screenerOld/                   ← Arsip kode & dokumen lawas
+└── screenerOld/                   ← Arsip kode & dokumen lawas (termasuk backtest_v4.py, backtest_vs_random.py)
 ```
 
 ---
