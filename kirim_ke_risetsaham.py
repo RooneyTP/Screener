@@ -46,9 +46,13 @@ def baca_token_risetsaham():
 
 
 def ambil_sinyal(path, tanggal):
-    """Baca baris CSV sinyal bertanggal `tanggal` (YYYY-MM-DD)."""
+    """Baca baris CSV sinyal bertanggal `tanggal` (YYYY-MM-DD).
+
+    CSV tidak ada = belum ada sinyal yang tercatat (perf tracker hanya menulis
+    file saat ada sinyal) → BUKAN error, cukup 'tidak ada sinyal'.
+    """
     if not os.path.isfile(path):
-        return [], f"CSV tidak ditemukan: {path} (scan belum pernah jalan?)"
+        return [], ""
     baris = []
     with open(path, encoding="utf-8-sig", errors="replace", newline="") as f:
         for r in csv.DictReader(f):

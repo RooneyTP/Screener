@@ -26,7 +26,7 @@ except Exception:
 from data import compute_all_indicators, align_to_market, fetch_ihsg_cached
 from regime import detect_market_regime
 from scoring import compute_total_score, quality_gate  # IDE3: quality_gate = gate kualitas swing
-from data_invezgo import InvezgoProvider
+from data_provider import InvezgoProvider
 import v7 as v7_engine
 from v7_exit import compute_exit, position_sizing
 

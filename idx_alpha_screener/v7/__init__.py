@@ -61,7 +61,7 @@ def get_provider():
     global _invezgo_provider
     if _invezgo_provider is None:
         try:
-            from data_invezgo import InvezgoProvider
+            from data_provider import InvezgoProvider
             _invezgo_provider = InvezgoProvider()
         except Exception as e:
             logger.error("Gagal init Invezgo provider: %s", e)

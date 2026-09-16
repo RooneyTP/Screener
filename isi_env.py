@@ -38,29 +38,36 @@ def tanya(nama, lama, wajib):
 def main():
     lama = baca_lama()
     print("=== Isi .env Screener (ketikan tidak akan tampil di layar) ===")
-    inv = tanya("INVEZGO_API_KEY", lama.get("INVEZGO_API_KEY", ""), True)
+    print("Sumber data default = RisetSaham lokal (tanpa API key). Isi INVEZGO")
+    print("hanya kalau memang mau pakai Invezgo (SCREENER_DATA=invezgo).")
+    inv = tanya("INVEZGO_API_KEY", lama.get("INVEZGO_API_KEY", ""), False)
     tg = tanya("TELEGRAM_BOT_TOKEN", lama.get("TELEGRAM_BOT_TOKEN", ""), False)
     cid = tanya("TELEGRAM_CHAT_ID", lama.get("TELEGRAM_CHAT_ID", ""), False)
     ds = tanya("DEEPSEEK_API_KEY", lama.get("DEEPSEEK_API_KEY", ""), False)
 
-    if not inv:
-        print("GAGAL: INVEZGO_API_KEY wajib diisi — dibatalkan, tidak ada yang ditulis.")
-        raise SystemExit(1)
+    if not inv and not tg and not ds:
+        print("PERINGATAN: semua kosong. Tanpa Telegram hasil tetap masuk")
+        print("RisetSaham (kanal utama), jadi scan TETAP bisa jalan. Lanjut simpan?")
 
-    baris = [f"INVEZGO_API_KEY={inv}"]
+    baris = []
+    if inv:
+        baris.append(f"INVEZGO_API_KEY={inv}")
     if tg:
         baris.append(f"TELEGRAM_BOT_TOKEN={tg}")
     if cid:
         baris.append(f"TELEGRAM_CHAT_ID={cid}")
     if ds:
         baris.append(f"DEEPSEEK_API_KEY={ds}")
+    if not baris:
+        print("Tidak ada yang diisi — .env tidak ditulis (scan pakai data lokal saja).")
+        return 0
 
     with open(PATH, "w", encoding="utf-8") as f:
         f.write("\n".join(baris) + "\n")
     os.chmod(PATH, stat.S_IRUSR | stat.S_IWUSR)  # 600
 
     print(f"OK — tersimpan ke {PATH} (mode 600).")
-    print(f"   INVEZGO_API_KEY     : {len(inv)} karakter (awalan {inv[:4]}...)")
+    print(f"   INVEZGO_API_KEY     : {str(len(inv)) + ' karakter (awalan ' + inv[:4] + '...)' if inv else '(kosong — pakai data lokal RisetSaham)'}")
     print(f"   TELEGRAM_BOT_TOKEN  : {'ada, ' + str(len(tg)) + ' karakter' if tg else 'kosong'}")
     print(f"   TELEGRAM_CHAT_ID    : {'ada' if cid else 'kosong'}")
     print(f"   DEEPSEEK_API_KEY    : {'ada' if ds else 'kosong'}")

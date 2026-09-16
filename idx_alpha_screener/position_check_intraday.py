@@ -46,7 +46,7 @@ for _p in (ROOT, PARENT):
         sys.path.insert(0, _p)
 
 from position_tracker import PositionTracker          # noqa: E402
-from data_invezgo import InvezgoProvider              # noqa: E402
+from data_provider import InvezgoProvider              # noqa: E402
 from utils.telegram_sender import send_telegram_sync  # noqa: E402
 
 logger = logging.getLogger("position_check_intraday")

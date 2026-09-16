@@ -48,7 +48,7 @@ logger = logging.getLogger("weekly_report")
 import pandas as pd
 import numpy as np
 
-from data_invezgo import InvezgoProvider
+from data_provider import InvezgoProvider
 from perf_tracker import load_signals, DEDUP_TOLERANCE, DEDUP_MAX_AGE_DAYS
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")

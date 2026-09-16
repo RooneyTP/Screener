@@ -58,7 +58,7 @@ for _p in (ROOT, PARENT):
         sys.path.insert(0, _p)
 
 from perf_tracker import load_signals                              # noqa: E402
-from data_invezgo import InvezgoProvider                           # noqa: E402
+from data_provider import InvezgoProvider                           # noqa: E402
 from utils.telegram_sender import send_telegram_sync               # noqa: E402
 
 logger = logging.getLogger("intraday_check")

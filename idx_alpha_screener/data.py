@@ -397,7 +397,7 @@ def fetch_ihsg_cached(period: str = "2y", cache_minutes: int = 1440) -> pd.DataF
 
     # 1) Invezgo dulu — data 100% Invezgo (header v7_scan)
     try:
-        from data_invezgo import InvezgoProvider
+        from data_provider import InvezgoProvider
         idx = InvezgoProvider().get_index_history(code="COMPOSITE", period=period)
         if idx is not None and not idx.empty:
             try:
