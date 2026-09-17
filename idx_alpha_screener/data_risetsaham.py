@@ -332,20 +332,30 @@ class InvezgoProvider:  # nama kelas DIPERTAHANKAN agar drop-in
                 except Exception:
                     continue
                 d = acc.setdefault(kode, {"code": kode, "buy_value": 0.0,
-                                          "sell_value": 0.0, "tipe": it.get("tipe") or "—"})
+                                          "sell_value": 0.0, "tipe": it.get("tipe") or "—",
+                                          "avg": None})
                 d[key] += v
+                # Harga rata-rata beli broker (utk "harga bandar", user 17 Sep):
+                # sisi BELI diprioritaskan; avg jual hanya fallback bila broker
+                # tidak muncul di daftar beli. None bila data avg tidak ada.
+                try:
+                    a = float(it.get("avg")) if it.get("avg") else None
+                except Exception:
+                    a = None
+                if a and (sisi == "beli" or d["avg"] is None):
+                    d["avg"] = a
         return list(acc.values())
 
     def get_broker_summary(self, code: str, days: int = 5):
         rows = self._broker_rows(code)
         return [{"code": r["code"], "buy_value": r["buy_value"],
-                 "sell_value": r["sell_value"]} for r in rows]
+                 "sell_value": r["sell_value"], "avg": r.get("avg")} for r in rows]
 
     def get_broker_foreign_summary(self, code: str, days: int = 3):
         rows = [r for r in self._broker_rows(code)
                 if str(r.get("tipe", "")).strip().lower() == "asing"]
         return [{"code": r["code"], "buy_value": r["buy_value"],
-                 "sell_value": r["sell_value"]} for r in rows]
+                 "sell_value": r["sell_value"], "avg": r.get("avg")} for r in rows]
 
     def get_broker_flow_history(self, code: str, days: int = 20, use_cache: bool = True) -> list:
         """Deret harian NET ASING (proxy bandarmologi) — [{date, net_buy}] ascending.

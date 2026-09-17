@@ -52,6 +52,8 @@ def recommend_entry(
     signal = v7_result.get("signal", "HOLD")
     factors = v7_result.get("factors", {})
     broker_detail = factors.get("broker_detail", "netral")
+    bandar_avg = factors.get("bandar_avg")          # harga bandar (user 17 Sep)
+    bandar_code = str(factors.get("bandar_code") or "")
     score = v7_result.get("score", 0)
 
     # Data dari row
@@ -94,6 +96,27 @@ def recommend_entry(
             "price_range": f"Rp{int(price):,} - Rp{int(price * 1.01):,}",
             "condition": "Jika broker akumulasi lanjut di pre-open",
         }
+
+    # ── Rule 2b (user 17 Sep): DEKAT SUPPORT + DEKAT HARGA BANDAR ──
+    # Definisi user: "entry ideal = harga mendekati support, dan dekat dgn
+    # harga market maker-nya". Harga bandar = rata-rata TERTIMBANG harga beli
+    # top-5 broker net buyer (faktor broker_flow; data Stockbit).
+    # Ambang longgar-terukur (17 Sep): ≤5% dari low 20-hari & ≤2% dari bandar
+    # (saham momentum jarang <3% dari low-nya; terukur TLKM 4,1%).
+    if isinstance(bandar_avg, (int, float)) and bandar_avg > 0:
+        d_support = (price - dc_lower) / price * 100.0   # % harga di atas support
+        d_bandar = abs(price - bandar_avg) / bandar_avg * 100.0
+        if -1.0 <= d_support <= 5.0 and d_bandar <= 2.0:
+            lo = int(min(dc_lower, bandar_avg))
+            hi = int(max(dc_lower, bandar_avg))
+            rng = f"Rp{lo:,}" if hi <= lo else f"Rp{lo:,} - Rp{hi:,}"
+            return {
+                "method": "🎯 Dekat support + harga bandar",
+                "price_range": rng,
+                "condition": (f"Support {int(dc_lower):,} & bandar {bandar_code} "
+                              f"@ {int(bandar_avg):,} — area ideal"),
+                "bandar_avg": bandar_avg,
+            }
 
     # ── Rule 3: RSI oversold → tunggu konfirmasi reversal ──
     if rsi < 40:

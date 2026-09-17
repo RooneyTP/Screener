@@ -301,7 +301,8 @@ def factor_broker_flow(code: str) -> dict:
                 buy = int(b.get("buy_value", 0))
                 sell = int(b.get("sell_value", 0))
                 net = buy - sell
-                broker_nets.append({"code": b.get("code","??"), "net": net, "buy": buy, "sell": sell})
+                broker_nets.append({"code": b.get("code","??"), "net": net, "buy": buy,
+                                    "sell": sell, "avg": b.get("avg")})
             except (TypeError, ValueError) as e:
                 # N8: nilai broker tidak valid → lewati broker ini (dulu bare
                 # except: pass — drop senyap tanpa jejak di log).
@@ -321,23 +322,35 @@ def factor_broker_flow(code: str) -> dict:
         # Kode broker top 3
         top3_buyers = " ".join(f"{b['code']}(+{b['net']/1e9:.0f}B)" for b in top_buyers[:3])
         top3_sellers = " ".join(f"{b['code']}({b['net']/1e9:.0f}B)" for b in top_sellers[:3])
+
+        # Harga bandar (user 17 Sep): rata-rata TERTIMBANG harga beli top-5
+        # broker net buyer — "harga market maker". Sumber: avg beli Stockbit
+        # (cache broker_flow baru). None bila data avg tidak tersedia.
+        kandidat = [b for b in top_buyers[:5]
+                    if isinstance(b.get("avg"), (int, float)) and b["avg"] > 0]
+        if kandidat:
+            bobot = sum(b["net"] for b in kandidat) or 1
+            bandar = {"bandar_avg": round(sum(b["net"] * b["avg"] for b in kandidat) / bobot, 1),
+                      "bandar_code": kandidat[0]["code"]}
+        else:
+            bandar = {"bandar_avg": None, "bandar_code": None}
         
         # Skor berdasarkan net flow
         if net_flow > 100_000_000_000:
             return {"score": 85, "detail": f"akumulasi_masif_{net_flow/1e9:.0f}B", 
-                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}", **bandar}
         elif net_flow > 10_000_000_000:
             return {"score": 75, "detail": f"akumulasi_{net_flow/1e9:.1f}B",
-                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}", **bandar}
         elif net_flow > 1_000_000_000:
             return {"score": 65, "detail": f"net_buy_{net_flow/1e9:.1f}B",
-                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}", **bandar}
         elif net_flow > -1_000_000_000:
             return {"score": 50, "detail": "netral",
-                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}", **bandar}
         else:
             return {"score": 30, "detail": f"distribusi_{abs(net_flow)/1e9:.0f}B",
-                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}"}
+                    "brokers": f"🔵{top3_buyers} | 🔴{top3_sellers}", **bandar}
             
     except Exception as e:
         logger.debug("Broker flow error %s: %s", code, e)
@@ -909,6 +922,8 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
             "earnings_momentum": em["score"],
             "earnings_detail": em["detail"],
             "brokers": bf.get("brokers", ""),
+            "bandar_avg": bf.get("bandar_avg"),      # harga bandar (user 17 Sep)
+            "bandar_code": bf.get("bandar_code"),
             "weekly_trend": weekly,
             "weekly_adjustment": weekly_note,
             }

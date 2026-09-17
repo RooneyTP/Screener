@@ -122,6 +122,7 @@ _METODE_ENTRY = (
     ("Tunggu konfirmasi reversal", "tunggu reversal"),
     ("Jangan entry — tunggu pullback", "tunggu pullback"),
     ("GTC @ support Donchian", "di support"),
+    ("Dekat support + harga bandar", "dekat support & bandar"),
     ("HOLD CASH", "tahan dulu"),
 )
 
@@ -271,6 +272,14 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
         except Exception:
             rec = None
         ideal = _entry_ideal(rec)
+        # Info "harga bandar" (user 17 Sep) — dari faktor broker_flow; ikut
+        # tampil di kartu supaya kelihatan posisi harga vs harga rata-rata bandar.
+        try:
+            _b = (v7r.get("factors") or {}).get("bandar_avg")
+            if ideal and "bandar" not in ideal.lower() and isinstance(_b, (int, float)) and _b > 0:
+                ideal = f"{ideal} · bandar {int(_b)}"
+        except Exception:
+            pass
 
         if swing_ok:
             ex = compute_exit(price, atr, regime, "swing", weekly)
