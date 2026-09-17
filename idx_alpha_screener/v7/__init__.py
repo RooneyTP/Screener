@@ -130,6 +130,64 @@ def _get_broker_summary_cached(code: str, days: int = 3):
     _broker_mem_cache[code] = data
     return data
 
+
+_broker_3m_mem: dict = {}
+
+
+def _get_broker_summary_3m_cached(code: str, periode: str = "LAST_3_MONTHS"):
+    """Baris broker periode JENDELA (default 3 bulan) — cache 24 jam + memo run.
+
+    Jendela panjang hanya bergeser harian (user 17 Sep: "harga bandar 3 bulan").
+    Gagal → [] (faktor tetap jalan, bandar_3m kosong).
+    """
+    code = _safe_code(code)
+    if code in _broker_3m_mem:
+        return _broker_3m_mem[code]
+    path = _cache_path(f"broker_flow_3m_{code}.json")
+    data = _load_json_cache(path, ttl_hours=24)
+    if data is None:
+        provider = get_provider()
+        if not provider:
+            _broker_3m_mem[code] = []
+            return []
+        try:
+            data = provider.get_broker_summary_periode(code, periode)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Broker periode %s gagal %s: %s", periode, code, e)
+            data = None
+        if data:
+            _save_json_cache(path, data)
+    if not data:
+        data = []
+    _broker_3m_mem[code] = data
+    return data
+
+
+def _bandar_info(rows) -> dict:
+    """Harga bandar dari baris broker: top-5 net buyer, rata-rata TERTIMBANG.
+
+    rows: [{code, buy_value, sell_value, avg}] (keluaran get_broker_summary*).
+    None bila avg tak tersedia (cache lama tanpa kolom avg) — aman ditampilkan.
+    """
+    nets = []
+    for b in rows or []:
+        try:
+            buy = float(b.get("buy_value") or 0)
+            sell = float(b.get("sell_value") or 0)
+            avg = float(b.get("avg")) if b.get("avg") else None
+        except (TypeError, ValueError):
+            continue
+        net = buy - sell
+        if net > 0 and avg:
+            nets.append((net, avg, str(b.get("code") or "?")))
+    nets.sort(key=lambda x: -x[0])
+    top = nets[:5]
+    if not top:
+        return {"bandar_avg": None, "bandar_code": None}
+    bobot = sum(x[0] for x in top) or 1.0
+    return {"bandar_avg": round(sum(x[0] * x[1] for x in top) / bobot, 1),
+            "bandar_code": top[0][2]}
+
 # ── IDE2: snapshot net asing SEJATI (get_summary_stock investor='f') ──
 # Cache TERPISAH data/broker_flow_foreign_{CODE}.json TTL 24 jam (pola sama
 # dengan broker_flow_{CODE}.json) + memori per run. Sumber factor_foreign_flow
@@ -324,16 +382,15 @@ def factor_broker_flow(code: str) -> dict:
         top3_sellers = " ".join(f"{b['code']}({b['net']/1e9:.0f}B)" for b in top_sellers[:3])
 
         # Harga bandar (user 17 Sep): rata-rata TERTIMBANG harga beli top-5
-        # broker net buyer — "harga market maker". Sumber: avg beli Stockbit
-        # (cache broker_flow baru). None bila data avg tidak tersedia.
-        kandidat = [b for b in top_buyers[:5]
-                    if isinstance(b.get("avg"), (int, float)) and b["avg"] > 0]
-        if kandidat:
-            bobot = sum(b["net"] for b in kandidat) or 1
-            bandar = {"bandar_avg": round(sum(b["net"] * b["avg"] for b in kandidat) / bobot, 1),
-                      "bandar_code": kandidat[0]["code"]}
-        else:
-            bandar = {"bandar_avg": None, "bandar_code": None}
+        # broker net buyer — sesi terakhir + jendela 3 bulan (bandar_3m) utk
+        # info panjang di kartu (user 17 Sep siang).
+        bandar = _bandar_info(summary)
+        try:
+            bandar3 = _bandar_info(_get_broker_summary_3m_cached(code))
+        except Exception:  # noqa: BLE001
+            bandar3 = {"bandar_avg": None, "bandar_code": None}
+        bandar["bandar_3m"] = bandar3.get("bandar_avg")
+        bandar["bandar_3m_code"] = bandar3.get("bandar_code")
         
         # Skor berdasarkan net flow
         if net_flow > 100_000_000_000:
@@ -924,6 +981,8 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
             "brokers": bf.get("brokers", ""),
             "bandar_avg": bf.get("bandar_avg"),      # harga bandar (user 17 Sep)
             "bandar_code": bf.get("bandar_code"),
+            "bandar_3m": bf.get("bandar_3m"),        # bandar jendela 3 bulan
+            "bandar_3m_code": bf.get("bandar_3m_code"),
             "weekly_trend": weekly,
             "weekly_adjustment": weekly_note,
             }

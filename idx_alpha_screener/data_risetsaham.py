@@ -313,10 +313,10 @@ class InvezgoProvider:  # nama kelas DIPERTAHANKAN agar drop-in
         return {"rows": rows} if rows else {}
 
     # ── Broker (Stockbit via risetsaham/broker.py) ─────────────────────
-    def _broker_rows(self, code: str):
-        """Gabung daftar beli+jual Stockbit → [{code, buy_value, sell_value, tipe}]."""
+    def _broker_rows(self, code: str, periode: str = "LATEST"):
+        """Gabung daftar beli+jual Stockbit → [{code, buy_value, sell_value, tipe, avg}]."""
         try:
-            p = _rb.ambil(_api_code(code))
+            p = _rb.ambil(_api_code(code), periode=periode)
         except Exception:
             p = None
         if not p:
@@ -354,6 +354,17 @@ class InvezgoProvider:  # nama kelas DIPERTAHANKAN agar drop-in
     def get_broker_foreign_summary(self, code: str, days: int = 3):
         rows = [r for r in self._broker_rows(code)
                 if str(r.get("tipe", "")).strip().lower() == "asing"]
+        return [{"code": r["code"], "buy_value": r["buy_value"],
+                 "sell_value": r["sell_value"], "avg": r.get("avg")} for r in rows]
+
+    def get_broker_summary_periode(self, code: str, periode: str = "LAST_3_MONTHS"):
+        """Baris broker utk JENDELA periode Stockbit (LAST_7_DAYS/LAST_3_MONTHS).
+
+        Bentuk sama dgn get_broker_summary (termasuk "avg"). Dipakai faktor V7
+        utk "harga bandar 3 bulan" (user 17 Sep). Jendela panjang hanya bergeser
+        harian → cache disk broker.ambil (TTL 12 jam) yang menahan biaya.
+        """
+        rows = self._broker_rows(code, periode=periode)
         return [{"code": r["code"], "buy_value": r["buy_value"],
                  "sell_value": r["sell_value"], "avg": r.get("avg")} for r in rows]
 

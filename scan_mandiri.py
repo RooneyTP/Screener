@@ -272,12 +272,20 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
         except Exception:
             rec = None
         ideal = _entry_ideal(rec)
-        # Info "harga bandar" (user 17 Sep) — dari faktor broker_flow; ikut
-        # tampil di kartu supaya kelihatan posisi harga vs harga rata-rata bandar.
+        # Info "harga bandar" (user 17 Sep) — sesi terakhir + jendela 3 bulan,
+        # dari faktor broker_flow; tampil di kartu supaya kelihatan posisi harga
+        # vs harga rata-rata bandar. Kartu metode "dekat support & bandar" pun
+        # tetap diberi angka (cek "· bandar " — bukan kata 'bandar' biasa).
         try:
-            _b = (v7r.get("factors") or {}).get("bandar_avg")
-            if ideal and "bandar" not in ideal.lower() and isinstance(_b, (int, float)) and _b > 0:
-                ideal = f"{ideal} · bandar {int(_b)}"
+            _f = v7r.get("factors") or {}
+            _b, _b3 = _f.get("bandar_avg"), _f.get("bandar_3m")
+            _tamb = []
+            if isinstance(_b, (int, float)) and _b > 0:
+                _tamb.append(f"bandar {int(_b)}")
+            if isinstance(_b3, (int, float)) and _b3 > 0:
+                _tamb.append(f"3bln {int(_b3)}")
+            if ideal and _tamb and "· bandar " not in ideal:
+                ideal = ideal + " · " + " · ".join(_tamb)
         except Exception:
             pass
 
