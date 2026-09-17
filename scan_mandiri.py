@@ -184,7 +184,8 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
     predict_market_sentiment (dipakai recommend_entry; None = netral).
     """
     row = {"kode": tkr, "skor": "", "mode": "", "entry": "", "sl": "", "tp": "",
-           "entry_ideal": "", "catatan": "", "tampil": ""}
+           "entry_ideal": "", "bandar_sesi": "", "bandar_3bln": "",
+           "catatan": "", "tampil": ""}
     try:
         df = ip.get_historical(tkr, period="1y")
         if df is None or df.empty or len(df) < 60:
@@ -272,20 +273,17 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
         except Exception:
             rec = None
         ideal = _entry_ideal(rec)
-        # Info "harga bandar" (user 17 Sep) — sesi terakhir + jendela 3 bulan,
-        # dari faktor broker_flow; tampil di kartu supaya kelihatan posisi harga
-        # vs harga rata-rata bandar. Kartu metode "dekat support & bandar" pun
-        # tetap diberi angka (cek "· bandar " — bukan kata 'bandar' biasa).
+        # Info "harga bandar" (user 17 Sep) — kini KOLOM TERPISAH (bandar_sesi /
+        # bandar_3bln) supaya kartu punya baris sendiri yang mudah dibaca
+        # (permintaan user: "buat jadi lebih readable"); angka dari faktor
+        # broker_flow (top-5 net buyer, rata-tertimbang).
         try:
             _f = v7r.get("factors") or {}
             _b, _b3 = _f.get("bandar_avg"), _f.get("bandar_3m")
-            _tamb = []
             if isinstance(_b, (int, float)) and _b > 0:
-                _tamb.append(f"bandar {int(_b)}")
+                row["bandar_sesi"] = f"{int(_b)}"
             if isinstance(_b3, (int, float)) and _b3 > 0:
-                _tamb.append(f"3bln {int(_b3)}")
-            if ideal and _tamb and "· bandar " not in ideal:
-                ideal = ideal + " · " + " · ".join(_tamb)
+                row["bandar_3bln"] = f"{int(_b3)}"
         except Exception:
             pass
 
@@ -398,10 +396,11 @@ def main() -> int:
     with open(out, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["kode", "skor", "mode", "entry", "sl", "tp",
-                    "entry_ideal", "catatan", "tampil"])
+                    "entry_ideal", "bandar_sesi", "bandar_3bln", "catatan", "tampil"])
         for r in rows:
             w.writerow([r["kode"], r["skor"], r["mode"], r["entry"], r["sl"],
-                        r["tp"], r["entry_ideal"], r["catatan"], r["tampil"]])
+                        r["tp"], r["entry_ideal"], r.get("bandar_sesi", ""),
+                        r.get("bandar_3bln", ""), r["catatan"], r["tampil"]])
 
     n_sig = sum(1 for r in rows if r["entry"])
     n_sembunyi = sum(1 for r in rows if r.get("tampil") == "tidak")

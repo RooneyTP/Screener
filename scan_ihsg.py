@@ -325,11 +325,12 @@ def main() -> int:
     with open(out, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["kode", "skor", "mode", "entry", "sl", "tp",
-                    "entry_ideal", "catatan", "tampil"])
+                    "entry_ideal", "bandar_sesi", "bandar_3bln", "catatan", "tampil"])
         for r in tampil:
             w.writerow([r["kode"], r["skor"], r["mode"], r["entry"], r["sl"],
-                        r["tp"], r.get("entry_ideal", ""), r["catatan"],
-                        r.get("tampil", "")])
+                        r["tp"], r.get("entry_ideal", ""),
+                        r.get("bandar_sesi", ""), r.get("bandar_3bln", ""),
+                        r["catatan"], r.get("tampil", "")])
 
     n_sig = sum(1 for r in rows if r["entry"])
     n_sembunyi = sum(1 for r in rows if r.get("tampil") == "tidak")
