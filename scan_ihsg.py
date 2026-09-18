@@ -311,6 +311,15 @@ def main() -> int:
     rows = fase2_finalis(ip, ranked, regime, allowed, df_ihsg, a.top,
                          sentiment=sentiment)
 
+    # ── LAB AKURASI: rekam DNA faktor semua finalis (mode bayangan) ──
+    try:
+        from shadow_log import append_rows as _lab_append
+        _sh = [r.pop("_shadow", None) for r in rows]
+        n_lab = _lab_append([s for s in _sh if s], sumber="ihsg")
+        print(f"LAB: {n_lab} kandidat tercatat (mode bayangan)", flush=True)
+    except Exception as e:  # noqa: BLE001 — lab tidak boleh mematikan scan
+        print(f"LAB: gagal catat ({type(e).__name__}: {e}) — scan tetap jalan", flush=True)
+
     def _urut(r):
         try:
             sk = float(r["skor"])

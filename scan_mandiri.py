@@ -189,7 +189,7 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
     tetap ada di CSV utk transparansi & hitungan. `sentiment` = keluaran
     predict_market_sentiment (dipakai recommend_entry; None = netral).
     """
-    row = {"kode": tkr, "skor": "", "mode": "", "entry": "", "sl": "", "tp": "",
+    row: dict[str, object] = {"kode": tkr, "skor": "", "mode": "", "entry": "", "sl": "", "tp": "",
            "entry_ideal": "", "bandar_sesi": "", "bandar_3bln": "",
            "catatan": "", "tampil": ""}
     try:
@@ -245,11 +245,48 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
         row["skor"] = f"{score:.1f}"
         bft = _bf_tag(bf)  # label broker utk catatan (terlihat di kartu)
 
+        # ── LAB AKURASI (mode bayangan, 19 Sep 2026): DNA faktor SEMUA finalis ──
+        # Dicatat lewat row["_shadow"] → ditulis ke data/shadow_v7.csv oleh
+        # pemanggil (scan_mandiri.main / scan_ihsg.main). Termasuk kandidat
+        # yang TIDAK jadi sinyal — supaya faktor broker/asing (45% skor, tanpa
+        # riwayat → tak bisa di-backtest) bisa diukur forward via shadow_eval.py.
+        _f = v7r.get("factors") or {}
+
+        def _num(key):
+            try:
+                return round(float(_f.get(key, 0) or 0), 1)
+            except (TypeError, ValueError):
+                return ""
+
+        sh = {
+            "kode": tkr, "regime": regime, "skor": f"{score:.1f}", "label": label,
+            "v4_core": _num("v4_core"),
+            "broker_flow": _num("broker_flow"),
+            "broker_flow_raw": _num("broker_flow_raw"),
+            "broker_trend": _num("broker_trend"),
+            "flow_spike": int(bool(_f.get("flow_spike"))),
+            "conflict": int(bool(_f.get("conflict_snapshot_vs_trend"))),
+            "foreign_flow": _num("foreign_flow"),
+            "fundamental": _num("fundamental"),
+            "earnings_momentum": _num("earnings_momentum"),
+            "weekly_trend": str(weekly or "NO_DATA"),
+            "harga": f"{price:.2f}",
+            "atr_pct": round((atr / price * 100) if price > 0 else 0.0, 2),
+            "vol_ratio": round(vol_ratio, 2),
+            "bandar_sesi": "", "bandar_3bln": "",
+        }
+
+        def _sh_attach(alasan, mode="", tampil="", sl="", tp=""):
+            sh.update({"alasan": alasan, "mode": mode, "tampil": tampil,
+                       "sl": sl, "tp": tp})
+            row["_shadow"] = sh
+
         # 1) filter regime (sama dgn scan terjadwal — di luar izin = bukan kandidat)
         if label not in allowed:
             row["catatan"] = (f"{label} — di luar izin regime {regime}"
                               + (f" · {bft}" if bft else ""))
             row["tampil"] = "tidak"
+            _sh_attach("diblok_regime", tampil="tidak")
             return row
 
         # 2) gate swing + gate kualitas (volume & quality_gate)
@@ -276,12 +313,13 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
         # (permintaan user: "buat jadi lebih readable"); angka dari faktor
         # broker_flow (top-5 net buyer, rata-tertimbang).
         try:
-            _f = v7r.get("factors") or {}
             _b, _b3 = _f.get("bandar_avg"), _f.get("bandar_3m")
             if isinstance(_b, (int, float)) and _b > 0:
                 row["bandar_sesi"] = f"{int(_b)}"
+                sh["bandar_sesi"] = int(_b)
             if isinstance(_b3, (int, float)) and _b3 > 0:
                 row["bandar_3bln"] = f"{int(_b3)}"
+                sh["bandar_3bln"] = int(_b3)
         except Exception:
             pass
 
@@ -293,6 +331,8 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
                        entry_ideal=ideal, tampil="ya",
                        catatan=(f"SINYAL {swing_signal} · {regime}{extra}"
                                 + (f" · {bft}" if bft else "")))
+            _sh_attach("sinyal_swing", mode="SWING", tampil="ya",
+                       sl=f"{ex['stop_loss']:.0f}", tp=f"{ex['take_profit']:.0f}")
         elif intra_ok:
             ex = compute_exit(price, atr, regime, "intraday", weekly)
             row.update(mode="INTRADAY", entry=f"{price:.0f}",
@@ -300,11 +340,14 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
                        entry_ideal=ideal, tampil="ya",
                        catatan=(f"SINYAL {label} (harian) · {regime}"
                                 + (f" · {bft}" if bft else "")))
+            _sh_attach("sinyal_intraday", mode="INTRADAY", tampil="ya",
+                       sl=f"{ex['stop_loss']:.0f}", tp=f"{ex['take_profit']:.0f}")
         else:
             row["catatan"] = (f"{label} — belum lolos gate "
                               f"({regime} · vol {vol_ratio:.1f}\u00d7)"
                               + (f" · {bft}" if bft else ""))
             row["tampil"] = "tidak"
+            _sh_attach("gagal_gate", tampil="tidak")
         return row
     except Exception as e:
         row["catatan"] = (f"gagal hitung: {type(e).__name__}: {e}".strip()[:120]
@@ -389,6 +432,15 @@ def main() -> int:
             print(f"  {row['kode']}: skor {row['skor'] or '—'} ({tanda})", flush=True)
 
     rows.sort(key=lambda r: -(float(r["skor"]) if r["skor"] else 0.0))
+
+    # ── LAB AKURASI: rekam DNA faktor semua kandidat (mode bayangan) ──
+    try:
+        from shadow_log import append_rows as _lab_append
+        _sh = [r.pop("_shadow", None) for r in rows]
+        n_lab = _lab_append([s for s in _sh if s], sumber="mandiri")
+        print(f"LAB: {n_lab} kandidat tercatat (mode bayangan)", flush=True)
+    except Exception as e:  # noqa: BLE001 — lab tidak boleh mematikan scan
+        print(f"LAB: gagal catat ({type(e).__name__}: {e}) — scan tetap jalan", flush=True)
 
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="") as f:
