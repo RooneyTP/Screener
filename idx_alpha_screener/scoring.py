@@ -618,8 +618,10 @@ def calculate_kelly(row: pd.Series, signal: str) -> float:
 # ════════════════════════════════════════════════════════════════
 def quality_gate(row: pd.Series, signal: str) -> str:
     """
-    Post-scoring quality filter v3.
-    Menangkap false breakout, falling knife, low liquidity.
+    Post-scoring quality filter (revisi 19 Sep 2026).
+    Menangkap falling knife & low liquidity. Aturan FALSE-BREAKOUT dihapus
+    (bukti backtest 1 th backtest_v7_teknikal.py: kohort yg diblokir justru
+    lebih baik — avg +1,53% vs +0,86%; volume bukan pendiskualifikasi).
     """
     rsi = row.get("rsi", 50)
     vol_ratio = row.get("vol_ratio", 1.0)
@@ -654,13 +656,8 @@ def quality_gate(row: pd.Series, signal: str) -> str:
         pd.notna(adx) and adx < 15
     )
 
-    # 4. False breakout: price up 8%+ with below-average volume
-    # R4: ret_20d fraksi (0.08 = +8%) — dulu > 8.0 (persen) tidak pernah
-    # terpenuhi → false-breakout mati senyap.
-    false_breakout = (
-        pd.notna(ret_20d) and ret_20d > 0.08
-        and pd.notna(vol_ratio) and vol_ratio < 1.0
-    )
+    # 4. False breakout — DIHAPUS 19 Sep 2026 (backtest: tidak prediktif;
+    #    kohort yg diblokir justru lebih baik; volume BUKAN pendiskualifikasi).
 
     if low_liquidity:
         return "HOLD"
@@ -671,9 +668,6 @@ def quality_gate(row: pd.Series, signal: str) -> str:
         return signal
 
     if no_trend and signal in ("STRONG_BUY", "BUY"):
-        return downgrade.get(signal, signal)
-
-    if false_breakout and signal in ("STRONG_BUY", "BUY", "WEAK_BUY"):
         return downgrade.get(signal, signal)
 
     return signal

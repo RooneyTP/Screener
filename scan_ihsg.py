@@ -19,10 +19,10 @@ Output: CSV `kode,skor,mode,entry,sl,tp,entry_ideal,catatan,tampil` (semua
 finalis; `tampil=ya` = sinyal lolos gate — hanya itu yang ditampilkan app;
 sisanya dihitung "tak ditampilkan") + baris RINGKASAN utk aplikasi.
 
-LEBIH CEPAT (16 Sep): (1) pra-filter LIKUIDITAS — saham nilai transaksi
-< Rp 800 juta/hari (±51% daftar) tak pernah diambil riwayat harganya;
-(2) pra-filter volume di scan_satu (vol<1.0× → lewati faktor mahal);
-(3) fase 2 PARALEL 3 worker (sopan).
+LEBIH CEPAT: (1) pra-filter LIKUIDITAS — saham nilai transaksi < Rp 800
+juta/hari (±51% daftar) tak pernah diambil riwayat harganya; (2) fase 2
+PARALEL 3 worker (sopan). [19 Sep 2026: pra-filter volume DIHAPUS — backtest
+1 th menunjukkan tidak membantu; lihat scan_mandiri.py]
 
 Progress stdout: "FASE …" + "PROGRESS i/n LABEL" (dibaca panel app).
 
@@ -250,8 +250,8 @@ def fase2_finalis(ip, ranked: list[tuple[str, float]], regime: str, allowed: set
                   max_workers: int = 3) -> list[dict]:
     """V7 penuh utk finalis — PARALEL 3 worker (sopan: maks 3 panggilan
     Stockbit bersamaan, sejalan panduan maxConcurrent stockbit-mcp).
-    scan_satu() punya pra-filter volume <1.0× (lewati faktor mahal utk
-    ±separuh finalis, terukur 31/60) sehingga fase ini jauh lebih cepat."""
+    (19 Sep 2026: pra-filter volume di scan_satu DIHAPUS — semua finalis
+    diperiksa penuh; lihat scan_mandiri.scan_satu.)"""
     kandidat = ranked[:top]
     n = len(kandidat)
     print(f"FASE 2: {n} finalis diperiksa V7 penuh (broker/asing/fundamental,"

@@ -20,11 +20,10 @@ Kolom CSV: kode,skor,mode,entry,sl,tp,entry_ideal,catatan,tampil.
 - `entry_ideal` = zona entry terbaik dari entry_timing.recommend_entry()
   (modul engine yang sama dgn scan terjadwal) — utk baris sinyal.
 
-PRA-FILTER HEMAT (permintaan user 16 Sep): volume < 1.0× rata-rata → baris
-langsung selesai SEBELUM faktor mahal (broker/asing/fundamental: ±2 panggilan
-Stockbit/saham) karena tidak mungkin lolos gate swing (butuh ≥1.0×) maupun
-cabang intraday (butuh ≥1.2×). Tervalidasi: 9/9 kode sinyal batch terakhir
-punya vol ≥1.29×; pada top-60 finalis IHSG 31/60 (52%) vol<1.0 → hemat separuh.
+PRA-FILTER VOLUME DIHAPUS (19 Sep 2026): dulu vol<1.0× dilewati supaya hemat
+faktor mahal; backtest 1 tahun (../backtest_v7_teknikal.py) membuktikan tidak
+ada bukti vol≥1.0× membantu — kohort vol<1.0 justru lebih baik. Semua finalis
+kini diperiksa penuh (masih dalam batas sopan: maks 3 panggilan paralel).
 
 Fase 2 berjalan PARALEL 3 worker (sopan: maks 3 panggilan Stockbit bersamaan).
 
@@ -81,9 +80,16 @@ MIN_VALUE_LABEL = "Rp 800 juta"
 
 
 def _allowed_signals(cfg: dict, regime: str) -> set:
-    """Filter regime — sama persis dengan market_mode di v7_scan.main()."""
+    """Filter regime — sama persis dengan market_mode di v7_scan.main().
+
+    19 Sep 2026 — BEAR DIBLOKIR TOTAL (backtest 1 th backtest_v7_teknikal.py:
+    sinyal hari BEAR avg -3,4% · WR 35%; skor tinggi makin parah — v4>=65 di
+    BEAR: -7,4% · WR 22%). HIGH_VOLATILITY tetap hanya STRONG_BUY.
+    """
     if cfg.get("market_mode", {}).get("enabled", True):
-        if regime in ("BEAR", "HIGH_VOLATILITY"):
+        if regime == "BEAR":
+            return set()
+        if regime == "HIGH_VOLATILITY":
             return {"STRONG_BUY"}
         if regime == "RANGING":
             return {"STRONG_BUY", "BUY"}
@@ -217,21 +223,13 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
             row["tampil"] = "tidak"
             return row
 
-        # ── PRA-FILTER HEMAT: volume < 1.0× → tidak mungkin lolos gate ──
-        # Bukti (16 Sep): gate swing butuh vol_ratio >= 1.0 dan cabang
-        # intraday butuh >= 1.2 → vol<1.0 mustahil jadi sinyal. Jadi LEWATI
-        # faktor MAHAL (broker/asing/fundamental ≈ 2 panggilan Stockbit per
-        # saham). Validasi: 9/9 kode sinyal batch terakhir punya vol ≥1.29;
-        # pada top-60 finalis IHSG 31/60 (52%) vol<1.0 → hemat separuh kerja.
-        try:
-            _vr = float(r.get("vol_ratio"))
-        except (TypeError, ValueError):
-            _vr = None
-        if _vr is not None and math.isfinite(_vr) and _vr < 1.0:
-            row["catatan"] = (f"tidak dilanjut (pra-filter) — volume {_vr:.2f}\u00d7"
-                              " di bawah 1.0\u00d7 (tak mungkin lolos gate)")
-            row["tampil"] = "tidak"
-            return row
+        # ── PRA-FILTER VOLUME DIHAPUS (19 Sep 2026) ──
+        # Dulu vol<1.0× dilewati utk hemat faktor mahal. Backtest 1 tahun
+        # (../backtest_v7_teknikal.py) membuktikan TIDAK ada bukti vol≥1.0
+        # membantu — kohort yang dibuang (vol<1.0) justru sedikit lebih BAIK,
+        # dan band terendah (<0.1×) justru terbaik (+5,2% avg · WR 56%).
+        # Semua finalis kini diperiksa penuh; veto volume di gate swing juga
+        # dihapus (SWING_MIN_VOL_RATIO=0 di v7_scan.py).
 
         weekly = r.get("weekly_trend", "NO_DATA")
         v4s = compute_total_score(r, regime)

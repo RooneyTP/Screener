@@ -77,9 +77,12 @@ cooldown:
 # ── Market Mode Filter (v7.10) ──
 # Di regime lemah, hanya sinyal terkuat yang diizinkan.
 # Basis: backtest V4 — BEAR WR 33%, HIGH_VOL 35.6%, RANGING 38.9%, BULL 51.3%
+# Update 19 Sep 2026 (backtest 1 th, backtest_v7_teknikal.py): BEAR kini
+# DIBLOKIR TOTAL (sinyal BEAR avg −3,4% · WR 35%; skor tinggi makin parah).
 market_mode:
   enabled: true
-  # BEAR/HIGH_VOLATILITY → hanya STRONG_BUY
+  # BEAR → BLOKIR TOTAL (tanpa sinyal)
+  # HIGH_VOLATILITY → hanya STRONG_BUY
   # RANGING → STRONG_BUY + BUY
   # BULL → semua sinyal
 

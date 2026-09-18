@@ -101,7 +101,11 @@ def _swing_gate(score: float, bf: str, regime: str) -> bool:
 # Threshold skor (SB65/BUY55 di THRESHOLDS) TIDAK diubah — gate bekerja DI
 # ATAS label sinyal sebagai DOWNGRADE bertingkat; kolom score tetap skor v7
 # asli, hanya label sinyal yang bisa turun (SB→BUY→WEAK_BUY→HOLD).
-SWING_MIN_VOL_RATIO = 1.0       # minimal utk sinyal swing (di bawah → HOLD/skip)
+# 19 Sep 2026: veto volume swing DIHAPUS (0.0 = tanpa veto) — bukti backtest
+# 1 th (backtest_v7_teknikal.py): tidak ada bukti vol≥1.0 membantu; kohort
+# vol<1.0 justru lebih baik (band <0.1×: +5,2% · WR 56%). Downgrade SB→BUY
+# (SWING_SB_VOL_RATIO) tetap sebagai nudge label, BUKAN veto.
+SWING_MIN_VOL_RATIO = 0.0
 SWING_SB_VOL_RATIO = 1.2        # STRONG_BUY butuh >= 1.2 (di bawah → BUY, BUKAN veto)
 SWING_SB_VOL_RATIO_BULL = 1.0   # regime BULL: SB cukup >= 1.0 (tren kuat, sensitivitas dijaga)
 
@@ -110,10 +114,10 @@ def gate_swing_signal(swing_ok: bool, signal: str, vol_ratio, regime: str,
                       row, allowed_signals=("STRONG_BUY", "BUY", "WEAK_BUY")) -> dict:
     """IDE3 — gate kualitas sinyal swing (downgrade bertingkat, BUKAN veto).
 
-    1. Volume confirmation: vol_ratio < 1.0 (atau NaN/0 — dianggap GAGAL
-       gate) → sinyal di-downgrade HOLD (skip). STRONG_BUY butuh minimal
-       1.2; di bawah → downgrade BUY (bukan veto). Di regime BULL, SB cukup
-       vol_ratio minimal 1.0.
+    1. Volume (revisi 19 Sep 2026): veto vol<1.0 DIHAPUS — bukti backtest
+       1 th (backtest_v7_teknikal.py): volume TIDAK prediktif; kohort vol
+       rendah justru lebih baik. Yang tersisa: STRONG_BUY dengan vol < 1.2
+       (di BULL < 1.0) → downgrade BUY — nudge label, BUKAN veto.
     2. quality_gate (scoring.py, signature quality_gate(row, signal)):
        falling knife / low liquidity / no trend / false breakout →
        downgrade bertingkat SB→BUY→WEAK_BUY→HOLD. Row v7_scan punya semua
@@ -586,12 +590,18 @@ def main():
 
     position_alerts = position_tracker.check_positions(_get_price)
 
-    # ── Market mode filter: di BEAR/HIGH_VOL, hanya sinyal terkuat ──
+    # ── Market mode filter: BEAR diblokir; HIGH_VOL hanya sinyal terkuat ──
     # Backtest: BEAR WR 33%, HIGH_VOL 35.6%, RANGING 38.9%, BULL 51.3%
+    # 19 Sep 2026: BEAR DIBLOKIR TOTAL — backtest 1 th (backtest_v7_teknikal.py):
+    # sinyal hari BEAR avg −3,4% · WR 35%; skor tinggi makin parah (v4≥65 di
+    # BEAR: −7,4% · WR 22%) → melawan downtrend = rugi konsisten.
     mode_cfg = CONFIG.get("market_mode", {})
     mode_enabled = mode_cfg.get("enabled", True)
     if mode_enabled:
-        if regime in ("BEAR", "HIGH_VOLATILITY"):
+        if regime == "BEAR":
+            allowed_signals = set()
+            logger.info("Market mode: BEAR — sinyal DIBLOKIR total (backtest 19 Sep)")
+        elif regime == "HIGH_VOLATILITY":
             allowed_signals = {"STRONG_BUY"}
             logger.info("Market mode: %s — hanya STRONG_BUY diizinkan", regime)
         elif regime == "RANGING":

@@ -3353,8 +3353,9 @@ class TestCooldownTwoDays(unittest.TestCase):
 
 class TestQualityGateUnits(unittest.TestCase):
     """R4 — quality_gate: ret_20d dalam satuan FRAKSI (0.05 = -5%).
-    Dulu dibandingkan dgn -3.0 / 8.0 (persen) → falling-knife &
-    false-breakout tidak pernah terpenuhi utk data riil (fraksi)."""
+    Dulu dibandingkan dgn -3.0 / 8.0 (persen) → falling-knife tidak pernah
+    terpenuhi utk data riil (fraksi). 19 Sep 2026: aturan false-breakout
+    DIHAPUS (bukti backtest) — lihat test_false_breakout_dihapus_19sep."""
 
     def _row(self, ret_20d, rsi=50.0, vol_ratio=1.0, adx=25.0,
              atr=1.0, close=100.0):
@@ -3375,17 +3376,17 @@ class TestQualityGateUnits(unittest.TestCase):
         row = self._row(ret_20d=-0.02, rsi=30.0, vol_ratio=2.0)
         self.assertEqual(quality_gate(row, "BUY"), "BUY")
 
-    def test_false_breakout_fraction_units(self):
+    def test_false_breakout_dihapus_19sep(self):
         from scoring import quality_gate
-        # ret_20d = +10% (fraksi 0.10) + volume di bawah rata-rata → downgrade
+        # 19 Sep 2026: aturan false-breakout DIHAPUS (bukti backtest 1 th) —
+        # +10% + vol rendah kini TIDAK lagi menurunkan sinyal.
         row = self._row(ret_20d=0.10, rsi=60.0, vol_ratio=0.5)
-        self.assertEqual(quality_gate(row, "STRONG_BUY"), "BUY",
-                         "+10% + vol rendah harus false breakout → downgrade")
-        self.assertEqual(quality_gate(row, "BUY"), "WEAK_BUY")
+        self.assertEqual(quality_gate(row, "STRONG_BUY"), "STRONG_BUY")
+        self.assertEqual(quality_gate(row, "BUY"), "BUY")
 
-    def test_false_breakout_not_triggered_below_threshold(self):
+    def test_false_breakout_bawah_ambang_lolos(self):
         from scoring import quality_gate
-        # +7% (fraksi 0.07) di bawah ambang 8% → BUKAN false breakout
+        # Perilaku seragam: kondisi serupa (di bawah ambang lama) juga lolos.
         row = self._row(ret_20d=0.07, rsi=60.0, vol_ratio=0.5)
         self.assertEqual(quality_gate(row, "STRONG_BUY"), "STRONG_BUY")
 
@@ -4124,11 +4125,11 @@ class TestForeignFlowFactor(unittest.TestCase):
 # ══════════════════════════════════════════════════════════════════════════
 
 class TestV7SwingQualityGate(unittest.TestCase):
-    """IDE3 — gate_swing_signal di v7_scan: volume confirmation
-    (vol_ratio >= 1.0 utk sinyal; STRONG_BUY butuh >= 1.2 — >= 1.0 di BULL;
-    NaN/0 = GAGAL gate) + quality_gate (downgrade bertingkat
-    SB→BUY→WEAK_BUY→HOLD). Threshold skor SB65/BUY55 TIDAK diubah — gate
-    bekerja di ATAS label sinyal, kolom score tetap skor v7 asli."""
+    """IDE3 — gate_swing_signal di v7_scan: volume (19 Sep 2026: VETO vol<1.0
+    DIHAPUS — bukti backtest; tersisa downgrade SB→BUY bila vol<1.2 = nudge
+    label) + quality_gate (downgrade bertingkat SB→BUY→WEAK_BUY→HOLD).
+    Threshold skor SB65/BUY55 TIDAK diubah — gate bekerja di ATAS label
+    sinyal, kolom score tetap skor v7 asli."""
 
     @classmethod
     def setUpClass(cls):
@@ -4145,13 +4146,14 @@ class TestV7SwingQualityGate(unittest.TestCase):
         return {"rsi": rsi, "vol_ratio": vol_ratio, "ret_20d": ret_20d,
                 "atr": atr, "close": close, "adx": adx}
 
-    def test_high_score_low_vol_056_downgraded_to_hold(self):
-        # Kasus AKRA 11/08: STRONG_BUY skor 67.5 dengan vol_ratio 0.56
+    def test_high_score_low_vol_056_downgraded_to_buy(self):
+        # 19 Sep 2026: veto vol DIHAPUS (backtest). vol 0.56 + SB → downgrade
+        # BUY (SB butuh 1.2) — sinyal TETAP lolos, label turun (bukan HOLD).
         g = self.v7s.gate_swing_signal(True, "STRONG_BUY", 0.56, "RANGING",
                                        self._row(vol_ratio=0.56))
-        self.assertFalse(g["ok"], "vol 0.56 < 1.0 → sinyal dibatalkan (HOLD/skip)")
-        self.assertEqual(g["signal"], "HOLD")
-        self.assertEqual(g["gate_vol"], "fail_vol<1.0")
+        self.assertTrue(g["ok"], "vol rendah BUKAN veto lagi (kebijakan 19 Sep)")
+        self.assertEqual(g["signal"], "BUY")
+        self.assertEqual(g["gate_vol"], "downgrade_sb_vol<1.2")
         self.assertEqual(g["gate_quality"], "pass")
 
     def test_high_score_vol_13_normal(self):
@@ -4175,17 +4177,28 @@ class TestV7SwingQualityGate(unittest.TestCase):
         self.assertTrue(g["ok"])
         self.assertEqual(g["signal"], "STRONG_BUY", "BULL: SB cukup vol_ratio >= 1.0")
 
-    def test_nan_vol_ratio_fails_gate(self):
+    def test_vol_rendah_bukan_veto_lagi_19sep(self):
+        # Kebijakan 19 Sep 2026 (backtest 1 th): prasyarat volume swing
+        # DIHAPUS — vol 0.4 (dulu pasti gagal) kini lolos sebagai BUY.
+        g = self.v7s.gate_swing_signal(True, "BUY", 0.4, "RANGING",
+                                       self._row(vol_ratio=0.4))
+        self.assertTrue(g["ok"], "vol rendah bukan veto (kebijakan 19 Sep)")
+        self.assertEqual(g["signal"], "BUY")
+        self.assertEqual(g["gate_vol"], "pass")
+
+    def test_nan_vol_ratio_lolos_tanpa_veto(self):
+        # 19 Sep 2026: NaN volume tidak lagi memveto (veto dihapus) — data
+        # volume hilang tidak boleh membunuh sinyal; gate lain tetap jalan.
         g = self.v7s.gate_swing_signal(True, "BUY", float("nan"), "RANGING",
                                        self._row(vol_ratio=float("nan")))
-        self.assertFalse(g["ok"], "NaN → dianggap GAGAL gate")
-        self.assertEqual(g["gate_vol"], "fail_vol<1.0")
+        self.assertTrue(g["ok"])
+        self.assertEqual(g["gate_vol"], "pass")
 
-    def test_zero_vol_ratio_fails_gate(self):
+    def test_zero_vol_ratio_lolos_tanpa_veto(self):
         g = self.v7s.gate_swing_signal(True, "BUY", 0.0, "RANGING",
                                        self._row(vol_ratio=0.0))
-        self.assertFalse(g["ok"], "0 → dianggap GAGAL gate")
-        self.assertEqual(g["gate_vol"], "fail_vol<1.0")
+        self.assertTrue(g["ok"])
+        self.assertEqual(g["gate_vol"], "pass")
 
     def test_quality_gate_no_trend_downgrades_sb_to_buy(self):
         # ADX < 15 (no trend) → SB turun ke BUY via quality_gate
