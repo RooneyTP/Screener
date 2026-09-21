@@ -29,6 +29,10 @@ Instalasi: buat venv + `pip install -r idx_alpha_screener/requirements.txt`.
   gunakan **cache lokal + mode uji**; scan live penuh dijalankan di server.
 - Data pasar = pemakaian **non-komersial**. Jangan publikasikan.
 
+## 🎯 Spec siap pakai
+- `.kiro/specs/audit-akurasi/` — audit menyeluruh + peningkatan akurasi (protokol backtest).
+  Kalau user minta "audit + tingkatkan akurasi", kerjakan spec ini fase demi fase.
+
 ## 💡 Kalau mau mulai
 Tanya user apa yang mau dikerjakan, lalu:
 1. Baca file terkait (peta di `structure.md`).
