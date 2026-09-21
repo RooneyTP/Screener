@@ -9,7 +9,8 @@ IDX harian; hasil tampil di app RisetSaham).
 ## ⛔ 5 aturan emas
 1. **TES dulu, klaim belakangan.**
    `PYTHONUTF8=1 .venv/bin/python -m unittest discover -s idx_alpha_screener -p "test_v7.py" -v`
-   — wajib hijau SEBELUM bilang "selesai". Kalau ada yang merah, jangan diklaim beres.
+   — suite = **263 tes**, mandiri (tidak butuh `.env`). Wajib **semua lulus** SEBELUM
+   bilang "selesai"; kalau ada yang merah, jangan diklaim beres.
 2. **Ubah kebijakan sinyal? WAJIB backtest dulu** (`backtest_v7_teknikal.py`, 1 tahun
    data) + tunjukkan buktinya. Kebijakan saat ini hasil backtest — jangan diubah
    berdasarkan feeling.

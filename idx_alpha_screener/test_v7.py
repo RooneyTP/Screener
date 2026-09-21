@@ -66,7 +66,9 @@ import entry_timing                                         # noqa: E402
 from utils import telegram_sender                            # noqa: E402
 
 # weekly_report memanggil sys.exit(1) saat import kalau TELEGRAM_BOT_TOKEN
-# tidak ada di .env — tangani supaya suite tetap bisa jalan di env tanpa .env.
+# tidak ada di .env — set token DUMMY (tidak dipakai kirim; semua di-mock)
+# supaya suite tetap jalan di env tanpa .env (Linux/CI).
+os.environ.setdefault("TELEGRAM_BOT_TOKEN", "token-dummy-uji")
 try:
     import weekly_report as weekly_report_mod                # noqa: E402
 except SystemExit:
@@ -2168,12 +2170,23 @@ class TestCronV3Scan(unittest.TestCase):
         return found
 
     def _find_subprocess_run(self):
+        """Cari subprocess.run yang menjalankan v7_scan.py (bukan helper lain).
+
+        cron_v3_scan.py punya >1 subprocess.run (mis. helper kirim_riset) —
+        tes harus memeriksa panggilan SCAN, bukan yang pertama ketemu di AST.
+        """
         for node in ast.walk(self.tree):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "run"
                     and isinstance(node.func.value, ast.Name)
                     and node.func.value.id == "subprocess"):
-                return node
+                continue
+            for arg in node.args:
+                if isinstance(arg, ast.List) and any(
+                        isinstance(el, ast.Constant) and el.value == "v7_scan.py"
+                        for el in arg.elts):
+                    return node
         return None
 
     def test_env_pythonutf8_set(self):

@@ -8,7 +8,8 @@
 ## Perintah penting
 ```bash
 cd ~/screener
-# Tes (WAJIB hijau sebelum menganggap pekerjaan selesai):
+# Tes (WAJIB hijau sebelum menganggap pekerjaan selesai — suite = 263 tes,
+# mandiri tanpa .env; token telegram dummy di-set otomatis oleh tes):
 PYTHONUTF8=1 .venv/bin/python -m unittest discover -s idx_alpha_screener -p "test_v7.py" -v
 # Uji scan cepat (aman, panggilan sedikit):
 .venv/bin/python scan_ihsg.py --limit 50 --top 10
