@@ -14,7 +14,7 @@ Beda dari v7_scan.py (scan TERJADWAL penuh):
   gate_swing_signal (fungsi diimpor dari v7_scan — single source, jangan
   salin ulang logikanya).
 
-Kolom CSV: kode,skor,mode,entry,sl,tp,entry_ideal,catatan,tampil.
+Kolom CSV: kode,skor,mode,entry,sl,tp,entry_ideal,bandar_sesi,bandar_3bln,catatan,tampil,berita_skor,berita_jml.
 - `tampil` = "ya"/"tidak" — app hanya MENAMPILKAN baris "ya" (sinyal lolos
   gate); sisanya tetap di CSV utk transparansi (hitungan "tak ditampilkan").
 - `entry_ideal` = zona entry terbaik dari entry_timing.recommend_entry()
@@ -191,7 +191,8 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
     """
     row: dict[str, object] = {"kode": tkr, "skor": "", "mode": "", "entry": "", "sl": "", "tp": "",
            "entry_ideal": "", "bandar_sesi": "", "bandar_3bln": "",
-           "catatan": "", "tampil": ""}
+           "catatan": "", "tampil": "",
+           "berita_skor": "", "berita_jml": ""}
     try:
         df = ip.get_historical(tkr, period="1y")
         if df is None or df.empty or len(df) < 60:
@@ -274,7 +275,24 @@ def scan_satu(ip, tkr: str, regime: str, allowed: set, df_ihsg,
             "atr_pct": round((atr / price * 100) if price > 0 else 0.0, 2),
             "vol_ratio": round(vol_ratio, 2),
             "bandar_sesi": "", "bandar_3bln": "",
+            # Sentimen berita (21 Sep 2026) — DNA utk evaluasi forward
+            "berita_delta": _num("berita_delta"),
+            "berita_n": _num("berita_n"),
+            "berita_baik": _num("berita_baik"),
+            "berita_buruk": _num("berita_buruk"),
         }
+
+        # ── Sentimen berita: kolom kartu (berita_skor + berita_jml) ──
+        # Ditulis utk SEMUA baris yang sampai hitung V7 (sinyal & kandidat) —
+        # dipakai kartu app utk baris "📰 Sentimen berita +1.3 (5 judul)".
+        try:
+            _bn = int(float(_f.get("berita_n") or 0))
+            if _bn > 0:
+                _bd = float(_f.get("berita_delta") or 0.0)
+                row["berita_skor"] = (f"+{_bd:.1f}" if _bd > 0 else f"{_bd:.1f}")
+                row["berita_jml"] = str(_bn)
+        except (TypeError, ValueError):
+            pass
 
         def _sh_attach(alasan, mode="", tampil="", sl="", tp=""):
             sh.update({"alasan": alasan, "mode": mode, "tampil": tampil,
@@ -446,11 +464,13 @@ def main() -> int:
     with open(out, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["kode", "skor", "mode", "entry", "sl", "tp",
-                    "entry_ideal", "bandar_sesi", "bandar_3bln", "catatan", "tampil"])
+                    "entry_ideal", "bandar_sesi", "bandar_3bln", "catatan", "tampil",
+                    "berita_skor", "berita_jml"])
         for r in rows:
             w.writerow([r["kode"], r["skor"], r["mode"], r["entry"], r["sl"],
                         r["tp"], r["entry_ideal"], r.get("bandar_sesi", ""),
-                        r.get("bandar_3bln", ""), r["catatan"], r["tampil"]])
+                        r.get("bandar_3bln", ""), r["catatan"], r["tampil"],
+                        r.get("berita_skor", ""), r.get("berita_jml", "")])
 
     n_sig = sum(1 for r in rows if r["entry"])
     n_sembunyi = sum(1 for r in rows if r.get("tampil") == "tidak")

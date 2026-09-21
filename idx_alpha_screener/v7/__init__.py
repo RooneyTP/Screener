@@ -946,6 +946,22 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
         weekly_note = f"weekly_bullish_+{WEEKLY_BULLISH_BONUS}"
     else:
         weekly_note = "weekly_neutral"
+
+    # ── Sentimen BERITA (21 Sep 2026) — post-adjustment di luar weighted sum ──
+    # Berita per-saham (feed Stockbit + sentimen.py v2.1 RisetSaham) → delta
+    # kecil (config v7.news, default maks ±2,0 poin). Belum tervalidasi
+    # historis → nilainya direkam di shadow_v7.csv (kolom berita_*) utk
+    # evaluasi forward via shadow_eval.py.
+    # Kill-switch: env SCREENER_NEWS=0 / config v7.news.enabled=false.
+    berita: dict = {"delta": 0.0, "n": 0}
+    try:
+        import berita_sentimen  # modul screener — lazy, bebas network saat tes
+        if berita_sentimen.diaktifkan():
+            berita = berita_sentimen.faktor_berita(code, config.get("news") or {})
+            v7_score += float(berita.get("delta") or 0.0)
+    except Exception as e:  # noqa: BLE001 — berita tidak boleh mematikan scan
+        logger.debug("Faktor berita gagal utk %s: %s", code, e)
+
     v7_score = round(max(0, min(100, v7_score)), 1)
 
     # Signal dari threshold
@@ -985,5 +1001,11 @@ def compute(code: str, v4_score: float, regime: str, weekly_trend: str = None) -
             "bandar_3m_code": bf.get("bandar_3m_code"),
             "weekly_trend": weekly,
             "weekly_adjustment": weekly_note,
+            # Sentimen berita (21 Sep 2026) — post-adjustment ±v7.news.max_points
+            "berita_delta": round(float(berita.get("delta") or 0.0), 2),
+            "berita_n": int(berita.get("n") or 0),
+            "berita_baik": int(berita.get("n_baik") or 0),
+            "berita_buruk": int(berita.get("n_buruk") or 0),
+            "berita_detail": str(berita.get("detail") or ""),
             }
     }

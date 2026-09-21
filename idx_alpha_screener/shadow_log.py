@@ -12,7 +12,7 @@ Dipanggil dari:
   - scan_mandiri.py main()  → sumber "mandiri"
   - scan_ihsg.py main()     → sumber "ihsg" (60 finalis/hari, sumber data utama)
 
-Kolom: lihat FIELDS (27 kolom — identitas + DNA faktor + hasil keputusan).
+Kolom: lihat FIELDS (31 kolom — identitas + DNA faktor + hasil keputusan).
 Baris ditulis append-only + timestamp (tanggal, jam, WIB). Duplikat antar-run
 di hari yang sama dibersihkan saat EVALUASI (ambil yang terakhir per
 tanggal+kode) — bukan saat tulis, supaya penulisan tetap sederhana & bebas
@@ -37,6 +37,8 @@ FIELDS = [
     "conflict", "foreign_flow", "fundamental", "earnings_momentum", "weekly_trend",
     # harga & level
     "harga", "atr_pct", "vol_ratio", "sl", "tp", "bandar_sesi", "bandar_3bln",
+    # sentimen berita (BARU 21 Sep 2026 — faktor post-adjustment ±v7.news)
+    "berita_delta", "berita_n", "berita_baik", "berita_buruk",
 ]
 
 # Nilai `alasan` yang mungkin:

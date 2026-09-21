@@ -15,7 +15,7 @@ Kenapa 2 fase: panggilan Stockbit (broker+asing) dibatasi ±2/saham. Kalau semua
 975 disuruh lewat Stockbit = ±2000 panggilan → tidak sopan & berisiko sesi.
 Fase 1 menyaring dgn data murah (harga) dulu; Stockbit hanya utk finalis.
 
-Output: CSV `kode,skor,mode,entry,sl,tp,entry_ideal,catatan,tampil` (semua
+Output: CSV `kode,skor,mode,entry,sl,tp,entry_ideal,bandar_sesi,bandar_3bln,catatan,tampil,berita_skor,berita_jml` (semua
 finalis; `tampil=ya` = sinyal lolos gate — hanya itu yang ditampilkan app;
 sisanya dihitung "tak ditampilkan") + baris RINGKASAN utk aplikasi.
 
@@ -334,12 +334,14 @@ def main() -> int:
     with open(out, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["kode", "skor", "mode", "entry", "sl", "tp",
-                    "entry_ideal", "bandar_sesi", "bandar_3bln", "catatan", "tampil"])
+                    "entry_ideal", "bandar_sesi", "bandar_3bln", "catatan", "tampil",
+                    "berita_skor", "berita_jml"])
         for r in tampil:
             w.writerow([r["kode"], r["skor"], r["mode"], r["entry"], r["sl"],
                         r["tp"], r.get("entry_ideal", ""),
                         r.get("bandar_sesi", ""), r.get("bandar_3bln", ""),
-                        r["catatan"], r.get("tampil", "")])
+                        r["catatan"], r.get("tampil", ""),
+                        r.get("berita_skor", ""), r.get("berita_jml", "")])
 
     n_sig = sum(1 for r in rows if r["entry"])
     n_sembunyi = sum(1 for r in rows if r.get("tampil") == "tidak")

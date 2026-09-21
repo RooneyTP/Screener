@@ -69,6 +69,9 @@ from utils import telegram_sender                            # noqa: E402
 # tidak ada di .env — set token DUMMY (tidak dipakai kirim; semua di-mock)
 # supaya suite tetap jalan di env tanpa .env (Linux/CI).
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "token-dummy-uji")
+# Faktor berita V7 (21 Sep 2026): pelankan di tes — jangan sentuh Stockbit/network.
+# Tes khusus faktor berita (offline, dgn mock) ada di test_v7_berita.py.
+os.environ.setdefault("SCREENER_NEWS", "0")
 try:
     import weekly_report as weekly_report_mod                # noqa: E402
 except SystemExit:

@@ -197,6 +197,22 @@ v7:
     earnings_momentum: 0.10
     broker_trend: 0.10
 
+  # ── Sentimen BERITA (BARU 21 Sep 2026) ──────────────────────────────────
+  # Post-adjustment DI LUAR weighted sum (bobot faktor tetap 1.0) — sumber:
+  # feed berita per-saham Stockbit + modul sentimen.py v2.1 RisetSaham
+  # (satu sumber dgn fitur berita app; lihat berita_sentimen.py).
+  #   max_points : batas ± poin yg bisa digeser berita (default 2,0)
+  #   window_days: umur berita yg dihitung (default 7 hari)
+  #   cache_jam  : TTL cache berita per saham (hemat panggilan Stockbit)
+  # Belum bisa di-backtest (tanpa riwayat berita) → nilainya direkam di
+  # shadow_v7.csv (kolom berita_*) utk evaluasi forward via shadow_eval.py.
+  # Kill-switch cepat: env SCREENER_NEWS=0 (atau enabled: false di sini).
+  news:
+    enabled: true
+    max_points: 2.0
+    window_days: 7
+    cache_jam: 6
+
 # ═══════════════════════════════════════════════════════════════
 # EXIT STRATEGY — Kapan keluar dari posisi (P0)
 # ═══════════════════════════════════════════════════════════════
