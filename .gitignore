@@ -17,6 +17,9 @@ _sentiment_cache/
 *.json
 !_sentiment_cache/.gitkeep
 
+# Hasil scan/backtest (mis. backtest_v7_ringkasan.md, berita_*.json) — data, bukan kode.
+idx_alpha_screener/data/
+
 # ── IDE ──
 .vscode/
 .idea/
